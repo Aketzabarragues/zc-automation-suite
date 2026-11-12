@@ -755,6 +755,18 @@ def seccion() -> dict[str, Any]:
 
 
 @pytest.fixture
+def dorado() -> dict[str, Any]:
+    """El resultado que el area daba antes de cambiar el formato del config.
+
+    Lo fija ``tests/fixtures/expected/catalogo_alimentacion.json``: las
+    pestañas, las tarjetas de N_MAX y las columnas con sus etiquetas. Cambiar
+    el ``config.json`` no puede cambiar nada de eso.
+    """
+    ruta = RAIZ / "tests" / "fixtures" / "expected" / "catalogo_alimentacion.json"
+    return json.loads(ruta.read_text(encoding="utf-8"))
+
+
+@pytest.fixture
 def crear_excel() -> Callable[..., Path]:
     """Escribe un Excel maestro de prueba."""
 

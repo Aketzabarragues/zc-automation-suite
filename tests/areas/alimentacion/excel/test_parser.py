@@ -988,3 +988,29 @@ def test_un_excel_completo_no_avisa_de_nada(
     datos = parser.leer_excel(excel_completo, seccion)
 
     assert datos["avisos"] == []
+
+
+def test_las_columnas_no_cambian_con_el_formato_del_config(
+    excel_completo: Path,
+    seccion: dict[str, Any],
+    dorado: dict[str, Any],
+) -> None:
+    """Las columnas y sus etiquetas son las de antes, dominio a dominio."""
+    datos = parser.leer_excel(excel_completo, seccion)
+
+    assert {
+        vista["tipo"]: {"columnas": vista["columnas"], "etiquetas": vista["etiquetas"]}
+        for vista in datos["dispositivos"]
+    } == dorado["columnas"]["dispositivos"]
+    assert {
+        clave: {"columnas": vista["columnas"], "etiquetas": vista["etiquetas"]}
+        for clave, vista in datos["procesos"].items()
+    } == dorado["columnas"]["procesos"]
+    assert {
+        "columnas": datos["entidades"]["columnas"],
+        "etiquetas": datos["entidades"]["etiquetas"],
+    } == dorado["columnas"]["entidades"]
+    assert {
+        "columnas": datos["configuracion"]["columnas"],
+        "etiquetas": datos["configuracion"]["etiquetas"],
+    } == dorado["columnas"]["configuracion"]

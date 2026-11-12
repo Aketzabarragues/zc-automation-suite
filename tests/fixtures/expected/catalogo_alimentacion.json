@@ -1,0 +1,547 @@
+{
+  "catalogo": {
+    "device_tabs": [
+      {
+        "hw_type": "ed",
+        "label": "ED"
+      },
+      {
+        "hw_type": "ea",
+        "label": "EA"
+      },
+      {
+        "hw_type": "sa",
+        "label": "SA"
+      },
+      {
+        "hw_type": "sd",
+        "label": "SD"
+      },
+      {
+        "hw_type": "v",
+        "label": "V"
+      },
+      {
+        "hw_type": "m",
+        "label": "M"
+      },
+      {
+        "hw_type": "m_vf",
+        "label": "MVF"
+      },
+      {
+        "hw_type": "m_sina",
+        "label": "MSINA"
+      },
+      {
+        "hw_type": "tq",
+        "label": "TQ"
+      },
+      {
+        "hw_type": "tq_ae",
+        "label": "TQAE"
+      },
+      {
+        "hw_type": "tot",
+        "label": "TOT"
+      },
+      {
+        "hw_type": "pid",
+        "label": "PID"
+      }
+    ],
+    "nmax": [
+      {
+        "name": "N_MAX_DISP_EA",
+        "label": "num_disp_ea"
+      },
+      {
+        "name": "N_MAX_DISP_ED",
+        "label": "num_disp_ed"
+      },
+      {
+        "name": "N_MAX_DISP_M",
+        "label": "num_disp_m"
+      },
+      {
+        "name": "N_MAX_DISP_M_SINA",
+        "label": "num_disp_m_sina"
+      },
+      {
+        "name": "N_MAX_DISP_M_VF",
+        "label": "num_disp_m_vf"
+      },
+      {
+        "name": "N_MAX_DISP_PID",
+        "label": "num_disp_pid"
+      },
+      {
+        "name": "N_MAX_DISP_SA",
+        "label": "num_disp_sa"
+      },
+      {
+        "name": "N_MAX_DISP_SD",
+        "label": "num_disp_sd"
+      },
+      {
+        "name": "N_MAX_DISP_TOT",
+        "label": "num_disp_tot"
+      },
+      {
+        "name": "N_MAX_DISP_TQ",
+        "label": "num_disp_tq"
+      },
+      {
+        "name": "N_MAX_DISP_TQ_AE",
+        "label": "num_disp_tq_ae"
+      },
+      {
+        "name": "N_MAX_DISP_V",
+        "label": "num_disp_v"
+      },
+      {
+        "name": "N_MAX_ENTIDAD",
+        "label": "N_MAX_ENTIDAD"
+      }
+    ]
+  },
+  "columnas": {
+    "dispositivos": {
+      "ed": {
+        "columnas": [
+          "plc_name",
+          "numero",
+          "tag",
+          "descripcion",
+          "fat",
+          "e_byte",
+          "e_bit",
+          "gr_alarma",
+          "cuadro",
+          "observaciones"
+        ],
+        "etiquetas": {
+          "numero": "Número",
+          "tag": "TAG",
+          "descripcion": "Descripción",
+          "fat": "FAT",
+          "e_byte": "E.Byte",
+          "e_bit": "E.Bit",
+          "gr_alarma": "Gr.Alarma",
+          "cuadro": "Cuadro",
+          "observaciones": "Observaciones"
+        }
+      },
+      "ea": {
+        "columnas": [
+          "plc_name",
+          "numero",
+          "tag",
+          "descripcion",
+          "fat",
+          "e_byte",
+          "unidades",
+          "rii",
+          "rsi",
+          "gr_alarma",
+          "cuadro",
+          "observaciones"
+        ],
+        "etiquetas": {
+          "numero": "Número",
+          "tag": "TAG",
+          "descripcion": "Descripción",
+          "fat": "FAT",
+          "e_byte": "E.Byte",
+          "unidades": "Unidades",
+          "rii": "RII",
+          "rsi": "RSI",
+          "gr_alarma": "Gr.Alarma",
+          "cuadro": "Cuadro",
+          "observaciones": "Observaciones"
+        }
+      },
+      "sa": {
+        "columnas": [
+          "plc_name",
+          "numero",
+          "tag",
+          "descripcion",
+          "fat",
+          "e_byte",
+          "unidades",
+          "rii",
+          "rsi",
+          "gr_alarma",
+          "cuadro",
+          "observaciones"
+        ],
+        "etiquetas": {
+          "numero": "Número",
+          "tag": "TAG",
+          "descripcion": "Descripción",
+          "fat": "FAT",
+          "e_byte": "E.Byte",
+          "unidades": "Unidades",
+          "rii": "RII",
+          "rsi": "RSI",
+          "gr_alarma": "Gr.Alarma",
+          "cuadro": "Cuadro",
+          "observaciones": "Observaciones"
+        }
+      },
+      "sd": {
+        "columnas": [
+          "plc_name",
+          "numero",
+          "tag",
+          "descripcion",
+          "fat",
+          "s_byte",
+          "s_bit",
+          "gr_alarma",
+          "cuadro",
+          "observaciones"
+        ],
+        "etiquetas": {
+          "numero": "Número",
+          "tag": "TAG",
+          "descripcion": "Descripción",
+          "fat": "FAT",
+          "s_byte": "S.Byte",
+          "s_bit": "S.Bit",
+          "gr_alarma": "Gr.Alarma",
+          "cuadro": "Cuadro",
+          "observaciones": "Observaciones"
+        }
+      },
+      "v": {
+        "columnas": [
+          "plc_name",
+          "numero",
+          "tag",
+          "descripcion",
+          "fat",
+          "s_byte",
+          "s_bit",
+          "rr_byte",
+          "rr_bit",
+          "rt_byte",
+          "rt_bit",
+          "gr_alarma",
+          "cuadro",
+          "observaciones"
+        ],
+        "etiquetas": {
+          "numero": "Número",
+          "tag": "TAG",
+          "descripcion": "Descripción",
+          "fat": "FAT",
+          "s_byte": "S.Byte",
+          "s_bit": "S.Bit",
+          "rr_byte": "RR.Byte",
+          "rr_bit": "RR.Bit",
+          "rt_byte": "RT.Byte",
+          "rt_bit": "RT.Bit",
+          "gr_alarma": "Gr.Alarma",
+          "cuadro": "Cuadro",
+          "observaciones": "Observaciones"
+        }
+      },
+      "m": {
+        "columnas": [
+          "plc_name",
+          "numero",
+          "tag",
+          "descripcion",
+          "fat",
+          "s_byte",
+          "s_bit",
+          "rt_byte",
+          "rt_bit",
+          "rm_byte",
+          "rm_bit",
+          "gr_alarma",
+          "cuadro",
+          "observaciones"
+        ],
+        "etiquetas": {
+          "numero": "Número",
+          "tag": "TAG",
+          "descripcion": "Descripción",
+          "fat": "FAT",
+          "s_byte": "S.Byte",
+          "s_bit": "S.Bit",
+          "rt_byte": "RT.Byte",
+          "rt_bit": "RT.Bit",
+          "rm_byte": "RM.Byte",
+          "rm_bit": "RM.Bit",
+          "gr_alarma": "Gr.Alarma",
+          "cuadro": "Cuadro",
+          "observaciones": "Observaciones"
+        }
+      },
+      "m_vf": {
+        "columnas": [
+          "plc_name",
+          "numero",
+          "tag",
+          "descripcion",
+          "fat",
+          "s_byte",
+          "s_bit",
+          "rt_byte",
+          "rt_bit",
+          "rm_byte",
+          "rm_bit",
+          "sa_byte",
+          "gr_alarma",
+          "cuadro",
+          "observaciones"
+        ],
+        "etiquetas": {
+          "numero": "Número",
+          "tag": "TAG",
+          "descripcion": "Descripción",
+          "fat": "FAT",
+          "s_byte": "S.Byte",
+          "s_bit": "S.Bit",
+          "rt_byte": "RT.Byte",
+          "rt_bit": "RT.Bit",
+          "rm_byte": "RM.Byte",
+          "rm_bit": "RM.Bit",
+          "sa_byte": "SA.Byte",
+          "gr_alarma": "Gr.Alarma",
+          "cuadro": "Cuadro",
+          "observaciones": "Observaciones"
+        }
+      },
+      "m_sina": {
+        "columnas": [
+          "plc_name",
+          "numero",
+          "tag",
+          "descripcion",
+          "fat",
+          "rt_byte",
+          "rt_bit",
+          "vel_min",
+          "vel_max",
+          "cons_k",
+          "gr_alarma",
+          "cuadro",
+          "observaciones"
+        ],
+        "etiquetas": {
+          "numero": "Número",
+          "tag": "TAG",
+          "descripcion": "Descripción",
+          "fat": "FAT",
+          "rt_byte": "RT.Byte",
+          "rt_bit": "RT.Bit",
+          "vel_min": "Vel.Min",
+          "vel_max": "Vel.Max",
+          "cons_k": "ConsK",
+          "gr_alarma": "Gr.Alarma",
+          "cuadro": "Cuadro",
+          "observaciones": "Observaciones"
+        }
+      },
+      "tq": {
+        "columnas": [
+          "plc_name",
+          "numero",
+          "tag",
+          "descripcion",
+          "observaciones"
+        ],
+        "etiquetas": {
+          "numero": "Número",
+          "tag": "TAG",
+          "descripcion": "Descripción",
+          "observaciones": "Observaciones"
+        }
+      },
+      "tq_ae": {
+        "columnas": [
+          "plc_name",
+          "numero",
+          "tag",
+          "descripcion",
+          "observaciones"
+        ],
+        "etiquetas": {
+          "numero": "Número",
+          "tag": "TAG",
+          "descripcion": "Descripción",
+          "observaciones": "Observaciones"
+        }
+      },
+      "tot": {
+        "columnas": [
+          "plc_name",
+          "numero",
+          "tag",
+          "descripcion",
+          "fat",
+          "tipo",
+          "e_byte",
+          "e_bit",
+          "incxpulso",
+          "gr_alarma",
+          "proceso",
+          "observaciones"
+        ],
+        "etiquetas": {
+          "numero": "Número",
+          "tag": "TAG",
+          "descripcion": "Descripción",
+          "fat": "FAT",
+          "tipo": "Tipo",
+          "e_byte": "E.Byte",
+          "e_bit": "E.Bit",
+          "incxpulso": "IncXPulso",
+          "gr_alarma": "Gr.Alarma",
+          "proceso": "Proceso",
+          "observaciones": "Observaciones"
+        }
+      },
+      "pid": {
+        "columnas": [
+          "plc_name",
+          "numero",
+          "tag",
+          "descripcion",
+          "fat",
+          "pv",
+          "disp_tipo",
+          "disp_tag",
+          "proceso",
+          "observaciones"
+        ],
+        "etiquetas": {
+          "numero": "Número",
+          "tag": "TAG",
+          "descripcion": "Descripción",
+          "fat": "FAT",
+          "pv": "PV",
+          "disp_tipo": "Disp.Tipo",
+          "disp_tag": "Disp.Tag",
+          "proceso": "Proceso",
+          "observaciones": "Observaciones"
+        }
+      }
+    },
+    "procesos": {
+      "Procesos": {
+        "columnas": [
+          "plc_name",
+          "codigo",
+          "nombre",
+          "preal",
+          "pint",
+          "alarmas",
+          "alm_hmi"
+        ],
+        "etiquetas": {
+          "plc_name": "PLC",
+          "codigo": "Codigo",
+          "nombre": "Nombre",
+          "preal": "PReal",
+          "pint": "PInt",
+          "alarmas": "Alarmas",
+          "alm_hmi": "Alarmas HMI"
+        }
+      },
+      "ParametrosEnteros": {
+        "columnas": [
+          "plc_name",
+          "numero",
+          "codigo",
+          "num_db",
+          "descripcion"
+        ],
+        "etiquetas": {
+          "plc_name": "PLC",
+          "numero": "No",
+          "codigo": "Codigo",
+          "num_db": "Num.DB",
+          "descripcion": "Descripcion"
+        }
+      },
+      "ParametrosReales": {
+        "columnas": [
+          "plc_name",
+          "numero",
+          "codigo",
+          "num_db",
+          "descripcion"
+        ],
+        "etiquetas": {
+          "plc_name": "PLC",
+          "numero": "No",
+          "codigo": "Codigo",
+          "num_db": "Num.DB",
+          "descripcion": "Descripcion"
+        }
+      },
+      "Alarmas": {
+        "columnas": [
+          "plc_name",
+          "numero",
+          "proceso",
+          "num_db",
+          "descripcion",
+          "comentario_db"
+        ],
+        "etiquetas": {
+          "plc_name": "PLC",
+          "numero": "No",
+          "proceso": "Proceso",
+          "num_db": "Num.DB",
+          "descripcion": "Descripcion",
+          "comentario_db": "ComentarioDB"
+        }
+      }
+    },
+    "entidades": {
+      "columnas": [
+        "plc_name",
+        "numero",
+        "descripcion",
+        "plc_tag",
+        "plc_tipo",
+        "plc_index",
+        "plc_comentario"
+      ],
+      "etiquetas": {
+        "plc_name": "PLC",
+        "numero": "Numero",
+        "descripcion": "Descripcion",
+        "plc_tag": "PLC.Tag",
+        "plc_tipo": "PLC.Tipo",
+        "plc_index": "PLC.Index",
+        "plc_comentario": "PLC.Comentario"
+      }
+    },
+    "configuracion": {
+      "columnas": [
+        "PLC",
+        "N_MAX_DISP_EA",
+        "N_MAX_DISP_ED",
+        "N_MAX_DISP_M",
+        "N_MAX_DISP_M_SINA",
+        "N_MAX_DISP_M_VF",
+        "N_MAX_DISP_PID",
+        "N_MAX_DISP_SA",
+        "N_MAX_DISP_SD",
+        "N_MAX_DISP_TOT",
+        "N_MAX_DISP_TQ",
+        "N_MAX_DISP_TQ_AE",
+        "N_MAX_DISP_V",
+        "N_MAX_ENTIDAD"
+      ],
+      "etiquetas": {}
+    }
+  }
+}

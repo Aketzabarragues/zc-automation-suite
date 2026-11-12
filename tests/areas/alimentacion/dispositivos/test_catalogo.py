@@ -88,3 +88,25 @@ def test_el_catalogo_del_area_lleva_pestanas_y_n_max(seccion: dict[str, Any]) ->
     assert catalogo["device_tabs"]
     assert catalogo["nmax"]
     assert catalogo["device_tabs"][0]["hw_type"] == "ed"
+
+
+def test_las_pestanas_no_cambian_con_el_formato_del_config(
+    seccion: dict[str, Any],
+    dorado: dict[str, Any],
+) -> None:
+    """Las pestanas son las de antes: mismas y en el mismo orden."""
+    pestanas = dispositivos_catalogo.construir_pestanas(seccion)
+
+    assert [{"hw_type": p["hw_type"], "label": p["label"]} for p in pestanas] == dorado["catalogo"][
+        "device_tabs"
+    ]
+
+
+def test_las_tarjetas_de_n_max_no_cambian_con_el_formato_del_config(
+    seccion: dict[str, Any],
+    dorado: dict[str, Any],
+) -> None:
+    """Las tarjetas de N_MAX son las de antes: mismas y en el mismo orden."""
+    tarjetas = dispositivos_catalogo.construir_n_max(seccion)
+
+    assert tarjetas == dorado["catalogo"]["nmax"]
