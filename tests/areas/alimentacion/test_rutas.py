@@ -1,7 +1,8 @@
-"""Tests de las rutas del Excel maestro del area de alimentacion.
+"""Tests de las rutas del area de alimentacion.
 
-El portal de TIA es un doble: **no hay conexion** en ninguna de estas pruebas,
-que es justo lo que hay que comprobar: el trabajo del Excel no la exige.
+Incluyen las del Excel maestro. El portal de TIA es un doble: **no hay
+conexion** en ninguna de estas pruebas, que es justo lo que hay que
+comprobar: el trabajo del Excel no la exige.
 """
 
 from __future__ import annotations
