@@ -26,6 +26,7 @@ from typing import Any
 from openpyxl import load_workbook
 from openpyxl.utils.cell import range_boundaries
 
+from zc_suite.areas.alimentacion.config import ConfigArea, n_max_de
 from zc_suite.areas.alimentacion.excel import columnas as modulo_columnas
 from zc_suite.areas.alimentacion.excel import tablas
 from zc_suite.areas.alimentacion.excel.modelo import (
@@ -41,18 +42,18 @@ from zc_suite.errores import OperacionError
 logger = logging.getLogger(__name__)
 
 
-def leer_excel(ruta: str | Path, config: dict[str, Any]) -> dict[str, Any]:
+def leer_excel(ruta: str | Path, config: ConfigArea) -> dict[str, Any]:
     """Parsea el Excel maestro y devuelve el modelo completo.
 
     Args:
         ruta: el fichero ``.xlsx`` o ``.xlsm`` a leer.
-        config: la seccion del area en el ``config.json``.
+        config: el modelo del area.
 
     Returns:
         Un dict con ``archivo``, ``plcs``, ``configuracion``,
         ``dispositivos``, ``procesos``, ``entidades`` y ``avisos``. Las filas
         llevan el modelo completo del dominio; las columnas que se ensenan
-        las decide el ``display_order`` del ``config.json``.
+        las decide el ``config.json`` del area.
 
     Raises:
         OperacionError: si el fichero no existe.
@@ -91,30 +92,39 @@ def leer_excel(ruta: str | Path, config: dict[str, Any]) -> dict[str, Any]:
 
 def _leer_dispositivos(
     libro: Any,
-    config: dict[str, Any],
+    config: ConfigArea,
 ) -> tuple[list[dict[str, Any]], list[str]]:
-    """Los doce tipos de dispositivo, en el orden del modelo."""
+    """Los tipos de dispositivo del config, en su orden."""
     vistas: list[dict[str, Any]] = []
     avisos: list[str] = []
-    for clave, dominio in tablas.DISPOSITIVOS.items():
-        hoja, tabla, canonico = tablas.destino_de_dispositivo(clave, config)
-        destino = replace(dominio, hoja=hoja, tabla=tabla)
+    for tipo, dispositivo in config.dispositivos.items():
+        dominio = tablas.DISPOSITIVOS.get(tipo)
+        if dominio is None:
+            aviso = f"El tipo de dispositivo '{tipo}' no tiene modelo: no se lee."
+            logger.warning(aviso)
+            avisos.append(aviso)
+            continue
+        destino = replace(
+            dominio,
+            hoja=dispositivo.excel.hoja,
+            tabla=dispositivo.excel.tabla,
+        )
         registros, aviso = _leer_dominio(libro, destino)
         if aviso:
             avisos.append(aviso)
-        columnas = modulo_columnas.columnas_de_dispositivo(canonico, config)
+        columnas = modulo_columnas.columnas_de_dispositivo(tipo, config)
         vistas.append(
             {
-                "tipo": clave,
+                "tipo": tipo,
                 "columnas": columnas,
-                "etiquetas": modulo_columnas.etiquetas_de("disp", config, columnas),
+                "etiquetas": modulo_columnas.etiquetas_de_dispositivo(config, columnas),
                 "filas": registros,
             }
         )
     return vistas, avisos
 
 
-def _leer_software(libro: Any, config: dict[str, Any]) -> tuple[dict[str, Any], list[str]]:
+def _leer_software(libro: Any, config: ConfigArea) -> tuple[dict[str, Any], list[str]]:
     """Los cuatro dominios del software: procesos, parametros y alarmas."""
     vistas: dict[str, Any] = {}
     avisos: list[str] = []
@@ -125,7 +135,7 @@ def _leer_software(libro: Any, config: dict[str, Any]) -> tuple[dict[str, Any], 
         columnas = modulo_columnas.columnas_de_procesos(dominio.clave, config)
         vistas[dominio.clave] = {
             "columnas": columnas,
-            "etiquetas": modulo_columnas.etiquetas_de("proc", config, columnas),
+            "etiquetas": modulo_columnas.etiquetas_de_procesos(config, columnas),
             "filas": registros,
         }
     return vistas, avisos
@@ -134,7 +144,7 @@ def _leer_software(libro: Any, config: dict[str, Any]) -> tuple[dict[str, Any], 
 def _leer_vista(
     libro: Any,
     dominio: Dominio,
-    config: dict[str, Any],
+    config: ConfigArea,
 ) -> tuple[dict[str, Any], str]:
     """Un dominio suelto, con sus columnas y sus etiquetas."""
     registros, aviso = _leer_dominio(libro, dominio)
@@ -142,17 +152,17 @@ def _leer_vista(
     return (
         {
             "columnas": columnas,
-            "etiquetas": modulo_columnas.etiquetas_de(dominio.catalogo, config, columnas),
+            "etiquetas": modulo_columnas.etiquetas_de_entidades(config, columnas),
             "filas": registros,
         },
         aviso,
     )
 
 
-def _leer_dimensiones(libro: Any, config: dict[str, Any]) -> tuple[dict[str, Any], str]:
+def _leer_dimensiones(libro: Any, config: ConfigArea) -> tuple[dict[str, Any], str]:
     """Los N_MAX por PLC.
 
-    Las columnas salen del catalogo de N_MAX: cada entrada dice que columna
+    Las columnas salen del catalogo de N_MAX: cada tipo dice que columna
     del Excel la alimenta y cual es su nombre canonico. Las filas salen
     ordenadas por PLC, como en ``main``.
     """
@@ -168,27 +178,27 @@ def _leer_dimensiones(libro: Any, config: dict[str, Any]) -> tuple[dict[str, Any
     filas: list[dict[str, Any]] = []
     if not aviso:
         for fila in _filas(libro, dominio.hoja, dominio.tabla):
-            registro = _registro_dimensiones(fila, mapa)
+            registro = _registro_dimensiones(fila, mapa, config)
             if registro is not None:
                 filas.append(registro)
     filas.sort(key=lambda fila: str(fila.get("PLC", "")))
     return {"columnas": columnas, "etiquetas": {}, "filas": filas}, aviso
 
 
-def _mapa_n_max(config: dict[str, Any]) -> dict[str, str]:
+def _mapa_n_max(config: ConfigArea) -> dict[str, str]:
     """``{cabecera_normalizada: nombre_canonico}`` de los N_MAX."""
     mapa: dict[str, str] = {}
-    for entrada in config.get("n_max_catalog", []):
-        columna = str(entrada.get("excel_column", "")).strip()
-        nombre = str(entrada.get("name", "")).strip()
-        if columna and nombre:
-            mapa[columna.upper()] = nombre
+    for entrada in n_max_de(config):
+        columna = entrada.columna_excel.strip()
+        if columna and entrada.constante:
+            mapa[columna.upper()] = entrada.constante
     return mapa
 
 
 def _registro_dimensiones(
     fila: dict[str, Any],
     mapa: dict[str, str],
+    config: ConfigArea,
 ) -> dict[str, Any] | None:
     """El registro de N_MAX de una fila, o ``None`` si se descarta."""
     plc = _texto(fila.get("PLC"))
@@ -202,8 +212,9 @@ def _registro_dimensiones(
             continue
         registro[canonico] = _entero(valor)
         leidos += 1
-    if tablas.COLUMNA_N_MAX_ENTIDADES in fila:
-        registro[tablas.N_MAX_ENTIDADES] = _entero(fila[tablas.COLUMNA_N_MAX_ENTIDADES])
+    entidades = config.entidades.nmax
+    if entidades.columna_excel in fila:
+        registro[entidades.constante] = _entero(fila[entidades.columna_excel])
         leidos += 1
     if not leidos:
         return None

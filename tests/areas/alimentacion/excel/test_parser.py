@@ -16,6 +16,7 @@ from typing import Any
 
 from openpyxl import Workbook, load_workbook
 
+from zc_suite.areas.alimentacion.config import ConfigArea
 from zc_suite.areas.alimentacion.excel import parser
 
 ESPERADO_DISPOSITIVOS: dict[str, list[dict[str, Any]]] = {
@@ -872,11 +873,11 @@ ESPERADO_N_MAX = [
 
 def test_los_dispositivos_son_los_de_main(
     excel_completo: Path,
-    seccion: dict[str, Any],
+    modelo: ConfigArea,
     tabla: Callable[..., dict[str, Any]],
 ) -> None:
     """Cada tipo de dispositivo, con sus campos y sus valores, como ``main``."""
-    datos = parser.leer_excel(excel_completo, seccion)
+    datos = parser.leer_excel(excel_completo, modelo)
 
     for tipo, esperado in ESPERADO_DISPOSITIVOS.items():
         filas = tabla(datos, tipo)["filas"]
@@ -885,10 +886,10 @@ def test_los_dispositivos_son_los_de_main(
 
 def test_el_software_es_el_de_main(
     excel_completo: Path,
-    seccion: dict[str, Any],
+    modelo: ConfigArea,
 ) -> None:
     """Procesos, parametros y alarmas, con sus campos y sus valores."""
-    datos = parser.leer_excel(excel_completo, seccion)
+    datos = parser.leer_excel(excel_completo, modelo)
 
     for dominio, esperado in ESPERADO_SOFTWARE.items():
         filas = datos["procesos"][dominio]["filas"]
@@ -897,11 +898,11 @@ def test_el_software_es_el_de_main(
 
 def test_las_entidades_los_plcs_y_los_n_max_son_los_de_main(
     excel_completo: Path,
-    seccion: dict[str, Any],
+    modelo: ConfigArea,
     esperado_plcs: dict[str, Any],
 ) -> None:
     """Las entidades, la lista de PLCs y los N_MAX por PLC."""
-    datos = parser.leer_excel(excel_completo, seccion)
+    datos = parser.leer_excel(excel_completo, modelo)
 
     assert datos["entidades"]["filas"] == ESPERADO_ENTIDADES
     assert datos["plcs"] == esperado_plcs
@@ -910,7 +911,7 @@ def test_las_entidades_los_plcs_y_los_n_max_son_los_de_main(
 
 def test_una_fila_sucia_no_tumba_la_carga(
     excel_completo: Path,
-    seccion: dict[str, Any],
+    modelo: ConfigArea,
     tabla: Callable[..., dict[str, Any]],
 ) -> None:
     """``PLC.Tipo`` con texto vale ``0``, y la carga no falla.
@@ -918,7 +919,7 @@ def test_una_fila_sucia_no_tumba_la_carga(
     Es el caso real del Excel del operario: la plantilla trae ``"int"`` en
     la columna ``PLC.Tipo`` de las entidades.
     """
-    datos = parser.leer_excel(excel_completo, seccion)
+    datos = parser.leer_excel(excel_completo, modelo)
 
     entidades = datos["entidades"]["filas"]
     assert entidades[0]["plc_tipo"] == 0
@@ -937,7 +938,7 @@ def test_una_fila_sucia_no_tumba_la_carga(
 def test_una_fila_sin_uid_ni_numero_se_descarta(
     tmp_path: Path,
     crear_excel: Callable[..., Path],
-    seccion: dict[str, Any],
+    modelo: ConfigArea,
     tabla: Callable[..., dict[str, Any]],
 ) -> None:
     ruta = crear_excel(
@@ -945,21 +946,21 @@ def test_una_fila_sin_uid_ni_numero_se_descarta(
         [["PLC1", "", None, "", "Entrada digital", 3, 2]],
     )
 
-    datos = parser.leer_excel(ruta, seccion)
+    datos = parser.leer_excel(ruta, modelo)
 
     assert tabla(datos, "ed")["filas"] == []
 
 
 def test_una_hoja_que_no_existe_avisa_y_no_rompe(
     tmp_path: Path,
-    seccion: dict[str, Any],
+    modelo: ConfigArea,
     tabla: Callable[..., dict[str, Any]],
 ) -> None:
     ruta = tmp_path / "vacio.xlsx"
     libro = Workbook()
     libro.save(ruta)
 
-    datos = parser.leer_excel(ruta, seccion)
+    datos = parser.leer_excel(ruta, modelo)
 
     assert tabla(datos, "ed")["filas"] == []
     assert "No se encuentra la hoja DISP_ED en el Excel" in datos["avisos"]
@@ -968,14 +969,14 @@ def test_una_hoja_que_no_existe_avisa_y_no_rompe(
 
 def test_una_tabla_que_no_existe_avisa(
     excel_completo: Path,
-    seccion: dict[str, Any],
+    modelo: ConfigArea,
     tabla: Callable[..., dict[str, Any]],
 ) -> None:
     libro = load_workbook(excel_completo)
     del libro["DISP_ED"].tables["Tabla_Disp_ED"]
     libro.save(excel_completo)
 
-    datos = parser.leer_excel(excel_completo, seccion)
+    datos = parser.leer_excel(excel_completo, modelo)
 
     assert "No se encuentra la tabla Tabla_Disp_ED en la hoja DISP_ED" in datos["avisos"]
     assert tabla(datos, "ed")["filas"] == []
@@ -983,20 +984,20 @@ def test_una_tabla_que_no_existe_avisa(
 
 def test_un_excel_completo_no_avisa_de_nada(
     excel_completo: Path,
-    seccion: dict[str, Any],
+    modelo: ConfigArea,
 ) -> None:
-    datos = parser.leer_excel(excel_completo, seccion)
+    datos = parser.leer_excel(excel_completo, modelo)
 
     assert datos["avisos"] == []
 
 
 def test_las_columnas_no_cambian_con_el_formato_del_config(
     excel_completo: Path,
-    seccion: dict[str, Any],
+    modelo: ConfigArea,
     dorado: dict[str, Any],
 ) -> None:
     """Las columnas y sus etiquetas son las de antes, dominio a dominio."""
-    datos = parser.leer_excel(excel_completo, seccion)
+    datos = parser.leer_excel(excel_completo, modelo)
 
     assert {
         vista["tipo"]: {"columnas": vista["columnas"], "etiquetas": vista["etiquetas"]}

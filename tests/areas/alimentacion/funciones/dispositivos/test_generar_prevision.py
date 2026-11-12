@@ -143,9 +143,7 @@ def test_avisa_de_las_tablas_que_no_estan_en_tia(entorno_disp: Any) -> None:
 
 def test_avisa_si_no_hay_tablas_que_exportar(entorno_disp: Any) -> None:
     """Sin tipos de dispositivo en el catalogo, el trabajo avisa."""
-    seccion = dict(entorno_disp.seccion)
-    seccion["Dispositivos"] = {}
-    entorno_disp.seccion = seccion
+    entorno_disp.modelo.dispositivos = {}
 
     entorno_disp.prevision()
 

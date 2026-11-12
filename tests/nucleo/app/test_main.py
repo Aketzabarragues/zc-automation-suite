@@ -159,7 +159,7 @@ def test_la_configuracion_se_carga_al_montar_la_app(app: Flask) -> None:
     from zc_suite.nucleo.app.config import Config
 
     assert isinstance(app.config["ZC_CONFIG"], Config)
-    assert app.config["ZC_CONFIG"].tia.plc
+    assert "alimentacion" in app.config["ZC_CONFIG"].areas
 
 
 def test_se_puede_inyectar_la_configuracion() -> None:
@@ -167,10 +167,10 @@ def test_se_puede_inyectar_la_configuracion() -> None:
 
     bus_eventos = BusEventos()
     servicio = ServicioTIA(cargador=lambda: TsFalso())
-    propia = Config.model_validate({"tia": {"plc": "PLC_INYECTADO"}})
+    propia = Config.model_validate({"areas": {"alimentacion": {"tabla_nmax": "INYECTADA"}}})
     app = montar_app(servicio, bus_eventos, config=propia)
 
-    assert app.config["ZC_CONFIG"].tia.plc == "PLC_INYECTADO"
+    assert app.config["ZC_CONFIG"].areas["alimentacion"]["tabla_nmax"] == "INYECTADA"
 
 
 def test_el_modo_desarrollo_admite_los_origenes_de_vite() -> None:
@@ -220,7 +220,12 @@ def test_el_log_de_arranque_dice_de_donde_sale_el_config(caplog: pytest.LogCaptu
     with caplog.at_level(logging.INFO):
         log_de_arranque(
             ConfigEnUso(Path("C:/app/config/config.json"), ORIGEN_USUARIO),
-            {"alimentacion": {"Dispositivos": {"ed": {}}, "n_max_catalog": [{"name": "x"}]}},
+            {
+                "alimentacion": {
+                    "device_tabs": [{"hw_type": "ed"}],
+                    "nmax": [{"name": "x"}],
+                }
+            },
         )
 
     mensajes = [registro.getMessage() for registro in caplog.records]
@@ -240,7 +245,7 @@ def test_el_log_de_arranque_avisa_si_el_area_no_tiene_dispositivos(
     with caplog.at_level(logging.WARNING):
         log_de_arranque(
             ConfigEnUso(Path("C:/app/config/config.json"), ORIGEN_USUARIO),
-            {"alimentacion": {"Dispositivos": {}, "n_max_catalog": []}},
+            {"alimentacion": {"device_tabs": [], "nmax": []}},
         )
 
     mensajes = [registro.getMessage() for registro in caplog.records]
@@ -262,8 +267,8 @@ def test_el_log_de_arranque_no_avisa_con_el_catalogo_completo(
             ConfigEnUso(Path("C:/app/config/config.json"), ORIGEN_PLANTILLA),
             {
                 "alimentacion": {
-                    "Dispositivos": {"ed": {}, "ea": {}},
-                    "n_max_catalog": [{"name": "N_MAX_DISP_ED"}],
+                    "device_tabs": [{"hw_type": "ed"}, {"hw_type": "ea"}],
+                    "nmax": [{"name": "N_MAX_DISP_ED"}],
                 }
             },
         )

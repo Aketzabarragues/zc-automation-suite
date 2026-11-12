@@ -36,7 +36,7 @@ def congelado(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Any:
     (meipass / "config").mkdir(parents=True)
     plantilla = meipass / "config" / "config.json"
     plantilla.write_text(
-        json.dumps({"tia": {"plc": "PLANTILLA"}, "areas": {}}),
+        json.dumps({"areas": {"alimentacion": {"tabla_nmax": "PLANTILLA"}}}),
         encoding="utf-8",
     )
 
@@ -74,18 +74,20 @@ def test_en_empaquetado_se_copia_la_plantilla_junto_al_exe(congelado: Path) -> N
     assert destino.parent.name == "config"
     assert destino.parent.parent.name == "instalacion"
     assert destino.is_file()
-    assert json.loads(destino.read_text(encoding="utf-8"))["tia"]["plc"] == "PLANTILLA"
+    copia = json.loads(destino.read_text(encoding="utf-8"))
+    assert copia["areas"]["alimentacion"]["tabla_nmax"] == "PLANTILLA"
 
 
 def test_el_config_del_usuario_manda_siempre(congelado: Path) -> None:
     destino = resolve_config_path()
     destino.write_text(
-        json.dumps({"tia": {"plc": "EL_MIO"}, "areas": {}}),
+        json.dumps({"areas": {"alimentacion": {"tabla_nmax": "EL_MIO"}}}),
         encoding="utf-8",
     )
 
     assert resolve_config_path() == destino
-    assert json.loads(destino.read_text(encoding="utf-8"))["tia"]["plc"] == "EL_MIO"
+    copia = json.loads(destino.read_text(encoding="utf-8"))
+    assert copia["areas"]["alimentacion"]["tabla_nmax"] == "EL_MIO"
 
 
 def test_un_config_invalido_no_se_pisa(congelado: Path) -> None:
@@ -125,16 +127,17 @@ def test_la_plantilla_del_repo_es_valida() -> None:
     config = cargar_config(RAIZ / "config" / "config.json")
 
     assert isinstance(config, Config)
-    assert config.tia.plc
     assert "alimentacion" in config.areas
 
 
-def test_el_libro_maestro_vive_en_el_area_y_no_en_las_rutas_globales() -> None:
-    """El libro maestro es de cada area, no de la maquina."""
+def test_la_plantilla_no_lleva_rutas_de_la_maquina_del_operario() -> None:
+    """La plantilla es portable: no lleva rutas absolutas ni el Excel."""
     config = cargar_config(RAIZ / "config" / "config.json")
+    seccion = config.areas["alimentacion"]
 
-    assert "excel" in config.areas["alimentacion"]
-    assert "excel" not in config.paths.model_dump()
+    assert "excel" not in seccion
+    assert "plantillas_path" not in seccion
+    assert seccion["plantillas_procesos"] == "plantillas"
 
 
 def test_un_config_valido_se_carga(tmp_path: Path) -> None:
@@ -142,11 +145,10 @@ def test_un_config_valido_se_carga(tmp_path: Path) -> None:
     ruta.write_text(
         json.dumps(
             {
-                "tia": {"plc": "PLC_1", "proyecto": ""},
                 "areas": {
                     "alimentacion": {
-                        "excel": "D:\\datos\\maestro.xlsm",
-                        "global_config_table_name": "0_Config",
+                        "tabla_nmax": "0_Config",
+                        "plantillas_procesos": "plantillas",
                     }
                 },
             }
@@ -156,9 +158,8 @@ def test_un_config_valido_se_carga(tmp_path: Path) -> None:
 
     config = cargar_config(ruta)
 
-    assert config.tia.plc == "PLC_1"
-    assert config.areas["alimentacion"]["excel"] == "D:\\datos\\maestro.xlsm"
-    assert config.areas["alimentacion"]["global_config_table_name"] == "0_Config"
+    assert config.areas["alimentacion"]["tabla_nmax"] == "0_Config"
+    assert config.areas["alimentacion"]["plantillas_procesos"] == "plantillas"
 
 
 def test_un_config_que_no_es_json_falla(tmp_path: Path) -> None:
@@ -176,7 +177,7 @@ def test_un_config_inexistente_falla(tmp_path: Path) -> None:
 
 def test_un_config_con_el_tipo_mal_falla(tmp_path: Path) -> None:
     ruta = tmp_path / "config.json"
-    ruta.write_text(json.dumps({"tia": {"plc": 42}}), encoding="utf-8")
+    ruta.write_text(json.dumps({"areas": {"alimentacion": "no es una seccion"}}), encoding="utf-8")
 
     with pytest.raises(ConfigError, match="esquema"):
         cargar_config(ruta)
@@ -188,18 +189,21 @@ def test_una_config_vacia_usa_los_valores_por_defecto(tmp_path: Path) -> None:
 
     config = cargar_config(ruta)
 
-    assert config.tia.plc == ""
     assert config.areas == {}
+    assert config.paths.model_dump() == {}
 
 
 def test_un_config_con_bom_no_tumba_la_app(tmp_path: Path) -> None:
     """Hay editores que guardan con BOM: el config se lee igual."""
     ruta = tmp_path / "config.json"
-    ruta.write_bytes(b"\xef\xbb\xbf" + json.dumps({"tia": {"plc": "PLC_1"}}).encode())
+    ruta.write_bytes(
+        b"\xef\xbb\xbf"
+        + json.dumps({"areas": {"alimentacion": {"tabla_nmax": "0_Config"}}}).encode()
+    )
 
     config = cargar_config(ruta)
 
-    assert config.tia.plc == "PLC_1"
+    assert config.areas["alimentacion"]["tabla_nmax"] == "0_Config"
 
 
 # ── secciones de area ──────────────────────────────────────────────────────
@@ -207,25 +211,25 @@ def test_un_config_con_bom_no_tumba_la_app(tmp_path: Path) -> None:
 
 def test_la_seccion_del_area_mezcla_defaults_y_usuario() -> None:
     config = Config.model_validate(
-        {"areas": {"alimentacion": {"plc": "el mio", "extra": 1}}}
+        {"areas": {"alimentacion": {"tabla_nmax": "el mio", "extra": 1}}}
     )
 
     seccion = config.seccion_area(
         "alimentacion",
-        {"plc": "por defecto", "tia_folders": {"disp": "2000"}},
+        {"tabla_nmax": "por defecto", "carpetas_tia": {"dispositivos": "2000"}},
     )
 
-    assert seccion["plc"] == "el mio"
+    assert seccion["tabla_nmax"] == "el mio"
     assert seccion["extra"] == 1
-    assert seccion["tia_folders"] == {"disp": "2000"}
+    assert seccion["carpetas_tia"] == {"dispositivos": "2000"}
 
 
 def test_un_area_sin_configuracion_usa_los_defaults() -> None:
     config = Config.model_validate({})
 
-    seccion = config.seccion_area("alimentacion", {"tia_folders": {"disp": "2000"}})
+    seccion = config.seccion_area("alimentacion", {"carpetas_tia": {"dispositivos": "2000"}})
 
-    assert seccion == {"tia_folders": {"disp": "2000"}}
+    assert seccion == {"carpetas_tia": {"dispositivos": "2000"}}
 
 
 def test_la_seccion_devuelta_no_altera_la_configuracion() -> None:
@@ -242,7 +246,7 @@ def test_la_seccion_devuelta_no_altera_la_configuracion() -> None:
 
 def test_un_config_sin_areas_es_incompatible() -> None:
     """Sin la seccion 'areas' el config es de otra version: no vale."""
-    config = Config.model_validate({"tia": {"plc": "ZC_PLC_STD"}})
+    config = Config.model_validate({})
 
     motivo = config_incompatible(config, ["alimentacion"])
 

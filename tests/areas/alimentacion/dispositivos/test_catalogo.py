@@ -7,12 +7,13 @@ from __future__ import annotations
 
 from typing import Any
 
+from zc_suite.areas.alimentacion.config import ConfigArea
 from zc_suite.areas.alimentacion.dispositivos import catalogo as dispositivos_catalogo
 
 
-def test_las_pestanas_salen_en_el_orden_del_config(seccion: dict[str, Any]) -> None:
+def test_las_pestanas_salen_en_el_orden_del_config(modelo: ConfigArea) -> None:
     """Las pestanas van en el orden de declaracion del ``config.json``."""
-    pestanas = dispositivos_catalogo.construir_pestanas(seccion)
+    pestanas = dispositivos_catalogo.construir_pestanas(modelo)
 
     assert [pestana["hw_type"] for pestana in pestanas] == [
         "ed",
@@ -30,9 +31,9 @@ def test_las_pestanas_salen_en_el_orden_del_config(seccion: dict[str, Any]) -> N
     ]
 
 
-def test_las_etiquetas_de_las_pestanas(seccion: dict[str, Any]) -> None:
-    """La etiqueta sale del tipo: ``"m_vf"`` -> ``"MVF"``."""
-    pestanas = dispositivos_catalogo.construir_pestanas(seccion)
+def test_las_etiquetas_de_las_pestanas(modelo: ConfigArea) -> None:
+    """La etiqueta de la pestaña sale del config: ``"m_vf"`` -> ``"MVF"``."""
+    pestanas = dispositivos_catalogo.construir_pestanas(modelo)
 
     assert [pestana["label"] for pestana in pestanas] == [
         "ED",
@@ -50,28 +51,18 @@ def test_las_etiquetas_de_las_pestanas(seccion: dict[str, Any]) -> None:
     ]
 
 
-def test_el_canonico_de_cada_pestana(seccion: dict[str, Any]) -> None:
-    """El canonico es el nombre del dominio: ``"DispED"``, ``"DispM_VF"``."""
-    pestanas = dispositivos_catalogo.construir_pestanas(seccion)
-    canonicos = {pestana["hw_type"]: pestana["canonical"] for pestana in pestanas}
-
-    assert canonicos["ed"] == "DispED"
-    assert canonicos["m_vf"] == "DispM_VF"
-    assert canonicos["tq_ae"] == "DispTQ_AE"
-
-
-def test_las_etiquetas_de_n_max(seccion: dict[str, Any]) -> None:
+def test_las_etiquetas_de_n_max(modelo: ConfigArea) -> None:
     """La etiqueta de un N_MAX sale de su nombre canonico."""
-    tarjetas = dispositivos_catalogo.construir_n_max(seccion)
+    tarjetas = dispositivos_catalogo.construir_n_max(modelo)
     etiquetas = {tarjeta["name"]: tarjeta["label"] for tarjeta in tarjetas}
 
     assert etiquetas["N_MAX_DISP_ED"] == "num_disp_ed"
     assert etiquetas["N_MAX_DISP_M_VF"] == "num_disp_m_vf"
 
 
-def test_los_n_max_salen_en_el_orden_del_catalogo(seccion: dict[str, Any]) -> None:
-    """Las tarjetas de N_MAX van en el orden del ``n_max_catalog``."""
-    tarjetas = dispositivos_catalogo.construir_n_max(seccion)
+def test_los_n_max_salen_en_el_orden_del_catalogo(modelo: ConfigArea) -> None:
+    """Las tarjetas de N_MAX van en el orden del catalogo de N_MAX."""
+    tarjetas = dispositivos_catalogo.construir_n_max(modelo)
 
     assert [tarjeta["name"] for tarjeta in tarjetas][:2] == [
         "N_MAX_DISP_EA",
@@ -91,11 +82,11 @@ def test_el_catalogo_del_area_lleva_pestanas_y_n_max(seccion: dict[str, Any]) ->
 
 
 def test_las_pestanas_no_cambian_con_el_formato_del_config(
-    seccion: dict[str, Any],
+    modelo: ConfigArea,
     dorado: dict[str, Any],
 ) -> None:
     """Las pestanas son las de antes: mismas y en el mismo orden."""
-    pestanas = dispositivos_catalogo.construir_pestanas(seccion)
+    pestanas = dispositivos_catalogo.construir_pestanas(modelo)
 
     assert [{"hw_type": p["hw_type"], "label": p["label"]} for p in pestanas] == dorado["catalogo"][
         "device_tabs"
@@ -103,10 +94,10 @@ def test_las_pestanas_no_cambian_con_el_formato_del_config(
 
 
 def test_las_tarjetas_de_n_max_no_cambian_con_el_formato_del_config(
-    seccion: dict[str, Any],
+    modelo: ConfigArea,
     dorado: dict[str, Any],
 ) -> None:
     """Las tarjetas de N_MAX son las de antes: mismas y en el mismo orden."""
-    tarjetas = dispositivos_catalogo.construir_n_max(seccion)
+    tarjetas = dispositivos_catalogo.construir_n_max(modelo)
 
     assert tarjetas == dorado["catalogo"]["nmax"]

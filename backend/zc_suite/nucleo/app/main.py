@@ -109,8 +109,8 @@ def log_de_arranque(
         config_en_uso.origen,
     )
     for id_area, catalogo in catalogos.items():
-        tipos = len(catalogo.get("Dispositivos") or {})
-        n_max = len(catalogo.get("n_max_catalog") or [])
+        tipos = len(catalogo.get("device_tabs") or [])
+        n_max = len(catalogo.get("nmax") or [])
         logger.info(
             "Area '%s': %d tipos de dispositivo, %d N_MAX",
             id_area,
@@ -167,7 +167,16 @@ def montar_app(
     app.config["ZC_CONFIG"] = config_app
     app.config[CLAVE_SESION] = sesion if sesion is not None else Sesion()
     ids_areas = [area.ID for area in AREAS]
+    secciones = {
+        area.ID: config_app.seccion_area(
+            area.ID,
+            area.defaults(config_app.areas.get(area.ID, {})),
+        )
+        for area in AREAS
+    }
     estado = estado_config(config_app, config_en_uso, ids_areas)
+    for area in AREAS:
+        _anotar_incompatible(estado, area.valida_config(secciones[area.ID]))
     app.config[CLAVE_ESTADO_CONFIG] = estado
     if estado["incompatible"]:
         logger.error("Config incompatible: %s", estado["motivo"])
@@ -179,10 +188,7 @@ def montar_app(
     catalogos: dict[str, Any] = {}
     session_areas: dict[str, Any] = {}
     for area in AREAS:
-        seccion = config_app.seccion_area(
-            area.ID,
-            area.defaults(config_app.areas.get(area.ID, {})),
-        )
+        seccion = secciones[area.ID]
         area.al_arrancar(seccion)
         catalogos[area.ID] = area.catalogo(seccion)
         session_areas[area.ID] = area.estado_sesion
@@ -192,6 +198,19 @@ def montar_app(
     app.config[CLAVE_SESION_AREAS] = session_areas
     log_de_arranque(config_en_uso, catalogos)
     return app
+
+
+def _anotar_incompatible(estado: dict[str, Any], problema: str | None) -> None:
+    """Anota en el estado del config el problema que ha encontrado un area.
+
+    El nucleo no sabe que es valido en el config de un area: lo pregunta al
+    area y anota lo que contesta.
+    """
+    if not problema:
+        return
+    estado["incompatible"] = True
+    motivo = estado.get("motivo")
+    estado["motivo"] = f"{motivo} {problema}" if motivo else problema
 
 
 def arrancar(

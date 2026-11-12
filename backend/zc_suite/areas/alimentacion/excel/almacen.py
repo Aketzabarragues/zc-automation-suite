@@ -12,6 +12,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from zc_suite.areas.alimentacion.config import ConfigArea, ConfigInvalidoError
 from zc_suite.areas.alimentacion.excel import parser
 
 #: Extensiones admitidas: el Excel maestro del operario es ``.xlsm``.
@@ -26,8 +27,8 @@ class AlmacenExcel:
     """
 
     def __init__(self) -> None:
-        #: La seccion del area en el ``config.json``.
-        self.config: dict[str, Any] = {}
+        #: El modelo del area, tal y como lo dice el ``config.json``.
+        self.config: ConfigArea | None = None
         self._archivo: str | None = None
         self._cargado_en: str | None = None
         self._datos: dict[str, Any] | None = None
@@ -94,7 +95,12 @@ class AlmacenExcel:
 
         Raises:
             OperacionError: si el fichero no existe o si tiene una fila mala.
+            ConfigInvalidoError: si el config del area no es valido.
         """
+        if self.config is None:
+            raise ConfigInvalidoError(
+                "El config del area no es valido: no se puede leer el Excel maestro."
+            )
         datos = parser.leer_excel(ruta, self.config)
         self._datos = datos
         self._archivo = Path(ruta).name

@@ -23,6 +23,8 @@ from openpyxl import Workbook
 from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.table import Table, TableStyleInfo
 
+from zc_suite.areas.alimentacion import config as config_area
+from zc_suite.areas.alimentacion.config import ConfigArea
 from zc_suite.areas.alimentacion.excel.almacen import AlmacenExcel
 from zc_suite.areas.alimentacion.funciones.dispositivos import (
     generar_prevision as modulo_prevision,
@@ -755,6 +757,12 @@ def seccion() -> dict[str, Any]:
 
 
 @pytest.fixture
+def modelo(seccion: dict[str, Any]) -> ConfigArea:
+    """El modelo del area: la seccion del ``config.json`` ya validada."""
+    return config_area.cargar(seccion)
+
+
+@pytest.fixture
 def dorado() -> dict[str, Any]:
     """El resultado que el area daba antes de cambiar el formato del config.
 
@@ -923,12 +931,12 @@ class Entorno:
         self,
         servicio: Any,
         almacen: AlmacenExcel,
-        seccion: dict[str, Any],
+        modelo: ConfigArea,
         eventos: list[tuple[str, dict[str, Any]]],
     ) -> None:
         self.servicio = servicio
         self.almacen = almacen
-        self.seccion = seccion
+        self.modelo = modelo
         self.eventos = eventos
 
     def prevision(self) -> dict[str, Any]:
@@ -937,7 +945,7 @@ class Entorno:
             modulo_prevision.generar_prevision,
             plc=NOMBRE_PLC,
             almacen=self.almacen,
-            config=self.seccion,
+            config=self.modelo,
         )
         evento = self._esperar(job_id)
         assert evento["estado"] == "ok", evento.get("error")
@@ -958,14 +966,14 @@ class Entorno:
 def entorno_disp(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
-    seccion: dict[str, Any],
+    modelo: ConfigArea,
     excel_dispositivos: Path,
     constantes_tia: dict[str, tuple[tuple[str, int], ...]],
     xml_tabla: Callable[[str, tuple[tuple[str, int], ...]], str],
 ) -> Any:
     """El almacen con el Excel del fixture y un TIA falso conectado."""
     almacen = AlmacenExcel()
-    almacen.config = seccion
+    almacen.config = modelo
     almacen.volcar(excel_dispositivos)
 
     monkeypatch.setattr(
@@ -984,7 +992,7 @@ def entorno_disp(
     )
     conectar = servicio.lanzar(tia.conectar)
     _esperar_job(eventos, conectar)
-    yield Entorno(servicio, almacen, seccion, eventos)
+    yield Entorno(servicio, almacen, modelo, eventos)
     servicio.parar()
 
 

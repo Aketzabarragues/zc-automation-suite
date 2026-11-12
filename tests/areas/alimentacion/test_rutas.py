@@ -15,6 +15,7 @@ from typing import Any
 import pytest
 from openpyxl import Workbook
 
+from zc_suite.areas.alimentacion.config import ConfigArea
 from zc_suite.areas.alimentacion.excel.almacen import AlmacenExcel
 from zc_suite.areas.alimentacion.rutas import CLAVE_ALMACEN, TAMANO_MAXIMO, rutas
 from zc_suite.nucleo.tia.eventos import BusEventos
@@ -34,10 +35,10 @@ def eventos() -> list[tuple[str, dict[str, Any]]]:
 
 
 @pytest.fixture
-def almacen(seccion: dict[str, Any]) -> AlmacenExcel:
+def almacen(modelo: ConfigArea) -> AlmacenExcel:
     """La cache del area: en memoria, sin copia guardada."""
     store = AlmacenExcel()
-    store.config = seccion
+    store.config = modelo
     return store
 
 

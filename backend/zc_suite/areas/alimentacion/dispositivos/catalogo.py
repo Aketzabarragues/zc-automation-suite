@@ -6,17 +6,7 @@ etiqueta de cada N_MAX.
 """
 from __future__ import annotations
 
-from typing import Any
-
-from zc_suite.areas.alimentacion.excel import tablas
-
-
-def etiqueta_de_tipo(tipo: str) -> str:
-    """La etiqueta de un tipo de dispositivo.
-
-    ``"ed"`` -> ``"ED"``, ``"m_vf"`` -> ``"MVF"``, ``"m_sina"`` -> ``"MSINA"``.
-    """
-    return tipo.replace("_", "").upper()
+from zc_suite.areas.alimentacion.config import ConfigArea, n_max_de
 
 
 def etiqueta_de_n_max(nombre: str) -> str:
@@ -29,36 +19,26 @@ def etiqueta_de_n_max(nombre: str) -> str:
     return nombre
 
 
-def construir_pestanas(config: dict[str, Any]) -> list[dict[str, str]]:
+def construir_pestanas(config: ConfigArea) -> list[dict[str, str]]:
     """Las pestañas por tipo de dispositivo.
 
     Returns:
-        La lista de ``{"hw_type", "canonical", "label"}``, en el orden del
+        La lista de ``{"hw_type", "label"}``, en el orden del
         ``config.json``.
     """
-    pestanas: list[dict[str, str]] = []
-    for tipo in config.get("Dispositivos", {}):
-        _hoja, _tabla, canonico = tablas.destino_de_dispositivo(str(tipo), config)
-        pestanas.append(
-            {
-                "hw_type": str(tipo),
-                "canonical": canonico,
-                "label": etiqueta_de_tipo(str(tipo)),
-            }
-        )
-    return pestanas
+    return [
+        {"hw_type": tipo, "label": dispositivo.etiqueta}
+        for tipo, dispositivo in config.dispositivos.items()
+    ]
 
 
-def construir_n_max(config: dict[str, Any]) -> list[dict[str, str]]:
+def construir_n_max(config: ConfigArea) -> list[dict[str, str]]:
     """Las tarjetas de N_MAX.
 
     Returns:
         La lista de ``{"name", "label"}``, en el orden del catalogo de N_MAX.
     """
-    tarjetas: list[dict[str, str]] = []
-    for entrada in config.get("n_max_catalog", []):
-        nombre = str(entrada.get("name", "")).strip()
-        if not nombre:
-            continue
-        tarjetas.append({"name": nombre, "label": etiqueta_de_n_max(nombre)})
-    return tarjetas
+    return [
+        {"name": entrada.constante, "label": etiqueta_de_n_max(entrada.constante)}
+        for entrada in n_max_de(config)
+    ]

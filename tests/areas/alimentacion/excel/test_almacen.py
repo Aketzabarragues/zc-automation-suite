@@ -9,17 +9,18 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from zc_suite.areas.alimentacion.config import ConfigArea
 from zc_suite.areas.alimentacion.excel.almacen import AlmacenExcel
 
 
 def test_el_almacen_guarda_el_volcado(
     excel_completo: Path,
-    seccion: dict[str, Any],
+    modelo: ConfigArea,
     esperado_plcs: dict[str, Any],
     tabla: Callable[..., dict[str, Any]],
 ) -> None:
     almacen = AlmacenExcel()
-    almacen.config = seccion
+    almacen.config = modelo
 
     almacen.volcar(excel_completo)
 
@@ -47,10 +48,10 @@ def test_el_almacen_vacio_sale_vacio() -> None:
 
 def test_vaciar_deja_el_almacen_sin_excel(
     excel_completo: Path,
-    seccion: dict[str, Any],
+    modelo: ConfigArea,
 ) -> None:
     almacen = AlmacenExcel()
-    almacen.config = seccion
+    almacen.config = modelo
     almacen.volcar(excel_completo)
 
     almacen.vaciar()

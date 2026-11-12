@@ -1,233 +1,30 @@
 {
-  "tia": {
-    "_comment": "Ajustes globales de la conexion con TIA Portal. 'plc' es el nombre del PLC sobre el que se opera por defecto.",
-    "plc": "PLC_1",
-    "proyecto": ""
-  },
   "areas": {
     "alimentacion": {
-      "_comment": "Configuracion del area de alimentacion: jerarquia TIA, catalogos de N_MAX, DBs por tipo de dispositivo y columnas visibles.",
-      "_comment_folders": "Carpetas TIA: 'nmax' es la tabla global de N_MAX; 'dispositivos' son las tag tables de los Disp*. El sync unificado parsea SOLO esos 10 XMLs.",
-      "_comment_plantillas": "Ruta base de plantillas TIA para generar procesos. Cada subcarpeta contiene un manifest.json con base/codigo/nombre/minimos. Cadena vacia = sin configurar; el operario la configura desde la SPA.",
-      "_comment_excel": "Ruta del libro maestro del area. Cada area tiene el suyo.",
-      "excel": "",
-      "global_config_table_name": "0_Config_Dispositivos",
-      "plantillas_path": "D:\\Zeus Control\\Proyectos\\GitHub\\zc-automation-suite\\_plan\\Generar_Proceso",
-      "tia_folders": {
-        "proceso": "0_Procesos",
+      "carpetas_tia": {
         "dispositivos": "2000_Dispositivos",
-        "nmax": "0_Sistema",
-        "entidades_config": "0_Sistema",
-        "entidades_tags": "6_Entidades"
+        "sistema": "0_Sistema",
+        "entidades": "6_Entidades",
+        "procesos": "0_Procesos"
       },
-      "n_max_catalog": [
-        {
-          "name": "N_MAX_DISP_EA",
-          "hw_type": "ea",
-          "plc_tag_table": "2000_Disp_EA",
-          "comment": "Numero max. entradas analogicas",
-          "excel_column": "N_Max_EA"
-        },
-        {
-          "name": "N_MAX_DISP_ED",
-          "hw_type": "ed",
-          "plc_tag_table": "2000_Disp_ED",
-          "comment": "Numero max. entrada digital",
-          "excel_column": "N_Max_ED"
-        },
-        {
-          "name": "N_MAX_DISP_M",
-          "hw_type": "m",
-          "plc_tag_table": "2000_Disp_M",
-          "comment": "Numero max. motores",
-          "excel_column": "N_Max_M"
-        },
-        {
-          "name": "N_MAX_DISP_M_SINA",
-          "hw_type": "m_sina",
-          "plc_tag_table": "2000_Disp_M_SINA",
-          "comment": "Numero max. motores sinamics",
-          "excel_column": "N_Max_M_SINA"
-        },
-        {
-          "name": "N_MAX_DISP_M_VF",
-          "hw_type": "m_vf",
-          "plc_tag_table": "2000_Disp_M_VF",
-          "comment": "Numero max. motores con variador",
-          "excel_column": "N_Max_M_VF"
-        },
-        {
-          "name": "N_MAX_DISP_PID",
-          "hw_type": "pid",
-          "plc_tag_table": "2000_Disp_PID",
-          "comment": "Numero max. controladores PID",
-          "excel_column": "N_Max_PID"
-        },
-        {
-          "name": "N_MAX_DISP_SA",
-          "hw_type": "sa",
-          "plc_tag_table": "2000_Disp_SA",
-          "comment": "Numero max. salidas analogicas",
-          "excel_column": "N_Max_SA"
-        },
-        {
-          "name": "N_MAX_DISP_SD",
-          "hw_type": "sd",
-          "plc_tag_table": "2000_Disp_SD",
-          "comment": "Numero max. salidas digitales",
-          "excel_column": "N_Max_SD"
-        },
-        {
-          "name": "N_MAX_DISP_TOT",
-          "hw_type": "tot",
-          "plc_tag_table": "2000_Disp_TOT",
-          "comment": "Numero max. totalizadores",
-          "excel_column": "N_Max_TOT"
-        },
-        {
-          "name": "N_MAX_DISP_TQ",
-          "hw_type": "tq",
-          "plc_tag_table": "2000_Disp_TQ",
-          "comment": "Numero max. tanques (sensor analogico de nivel)",
-          "excel_column": "N_Max_TQ"
-        },
-        {
-          "name": "N_MAX_DISP_TQ_AE",
-          "hw_type": "tq_ae",
-          "plc_tag_table": "2000_Disp_TQ_AE",
-          "comment": "Numero max. tanques aire esteril (sensor analogico)",
-          "excel_column": "N_Max_TQ_AE"
-        },
-        {
-          "name": "N_MAX_DISP_V",
-          "hw_type": "v",
-          "plc_tag_table": "2000_Disp_V",
-          "comment": "Numero max. valvulas",
-          "excel_column": "N_Max_V"
-        },
-        {
-          "name": "N_MAX_ENTIDAD",
-          "hw_type": "",
-          "plc_tag_table": "0_Config_Generales",
-          "comment": "Numero max. entidades (dimension del array ENT de DB6_ENT)",
-          "excel_column": "N_Max_ENT"
-        }
-      ],
-      "pending_nmax": [
-        "N_MAX_DISP_AGRUP",
-        "N_MAX_DISP_FF",
-        "N_MAX_DISP_FF_SEC",
-        "N_MAX_DISP_MEDIA",
-        "N_MAX_DISP_MEDIA_VOLUMEN",
-        "N_MAX_DISP_VD",
-        "N_MAX_DISP_TOF",
-        "N_MAX_DISP_TON",
-        "N_MAX_DISP_TONR",
-        "N_MAX_DISP_TP"
-      ],
-      "pending_dispositivos": {},
-      "Dispositivos": {
+      "tabla_nmax": "0_Config_Dispositivos",
+      "plantillas_procesos": "plantillas",
+      "dispositivos": {
         "ed": {
-          "db_name": "DB2000_ED",
-          "db_array_name": "ED",
-          "tag_table": "2000_Disp_ED",
-          "config_table": "0_Config_Dispositivos"
-        },
-        "ea": {
-          "db_name": "DB2001_EA",
-          "db_array_name": "EA",
-          "tag_table": "2000_Disp_EA",
-          "config_table": "0_Config_Dispositivos"
-        },
-        "sa": {
-          "db_name": "DB2006_SA",
-          "db_array_name": "SA",
-          "tag_table": "2000_Disp_SA",
-          "config_table": "0_Config_Dispositivos"
-        },
-        "sd": {
-          "db_name": "DB2005_SD",
-          "db_array_name": "SD",
-          "tag_table": "2000_Disp_SD",
-          "config_table": "0_Config_Dispositivos",
-          "excel_target": {
-            "sheet": "DISP_SD",
-            "table": "Tabla_Disp_SD",
-            "canonical": "DispSD"
-          }
-        },
-        "v": {
-          "db_name": "DB2010_V",
-          "db_array_name": "V",
-          "tag_table": "2000_Disp_V",
-          "config_table": "0_Config_Dispositivos"
-        },
-        "m": {
-          "db_name": "DB2015_M",
-          "db_array_name": "M",
-          "tag_table": "2000_Disp_M",
-          "config_table": "0_Config_Dispositivos"
-        },
-        "m_vf": {
-          "db_name": "DB2016_M_VF",
-          "db_array_name": "M_VF",
-          "tag_table": "2000_Disp_M_VF",
-          "config_table": "0_Config_Dispositivos"
-        },
-        "m_sina": {
-          "db_name": "DB2017_M_SINA",
-          "db_array_name": "M_SINA",
-          "tag_table": "2000_Disp_M_SINA",
-          "config_table": "0_Config_Dispositivos"
-        },
-        "tq": {
-          "db_name": "DB2040_TQ",
-          "db_array_name": "TQ",
-          "tag_table": "2000_Disp_TQ",
-          "config_table": "0_Config_Dispositivos",
-          "excel_target": {
-            "sheet": "DISP_TQ",
-            "table": "Tabla_Disp_TQ",
-            "canonical": "DispTQ"
-          }
-        },
-        "tq_ae": {
-          "db_name": "DB2041_TQ_AE",
-          "db_array_name": "TQ_AE",
-          "tag_table": "2000_Disp_TQ_AE",
-          "config_table": "0_Config_Dispositivos",
-          "excel_target": {
-            "sheet": "DISP_TQ_AE",
-            "table": "Tabla_Disp_TQ_AE",
-            "canonical": "DispTQ_AE"
-          }
-        },
-        "tot": {
-          "db_name": "DB2025_TOT",
-          "db_array_name": "TOT",
-          "tag_table": "2000_Disp_TOT",
-          "config_table": "0_Config_Dispositivos"
-        },
-        "pid": {
-          "db_name": "DB2035_PID",
-          "db_array_name": "PID",
-          "tag_table": "2000_Disp_PID",
-          "config_table": "0_Config_Dispositivos"
-        }
-      },
-      "procesos": {
-        "_comment_nmax": "Sufijos N_MAX de procesos: el nombre completo se computa como f'{proc.uid}_N_MAX_{suffix}' (p. ej. '100_N_MAX_PREAL'). Las constantes viven en la tabla del proceso (<uid>_<codigo>, p. ej. '100_CPR').",
-        "n_max_suffixes": {
-          "preal": "PREAL",
-          "pint": "PINT",
-          "alm": "ALM",
-          "alm_hmi": "ALM_HMI"
-        }
-      },
-      "disp_catalog": {
-        "_comment_display_order": "Override data-driven de columnas visibles en el panel de dispositivos. Override por canonical = reemplazo total (visibilidad explicita por ausencia). Sin override, el backend usa el default (TODOS los campos del DTO).",
-        "display_order": {
-          "DispED": [
+          "etiqueta": "ED",
+          "db": "DB2000_ED",
+          "array": "ED",
+          "tabla_tags": "2000_Disp_ED",
+          "excel": {
+            "hoja": "DISP_ED",
+            "tabla": "Tabla_Disp_ED"
+          },
+          "nmax": {
+            "constante": "N_MAX_DISP_ED",
+            "columna_excel": "N_Max_ED",
+            "comentario": "Numero max. entrada digital"
+          },
+          "columnas": [
             "plc_name",
             "numero",
             "tag",
@@ -238,8 +35,23 @@
             "gr_alarma",
             "cuadro",
             "observaciones"
-          ],
-          "DispEA": [
+          ]
+        },
+        "ea": {
+          "etiqueta": "EA",
+          "db": "DB2001_EA",
+          "array": "EA",
+          "tabla_tags": "2000_Disp_EA",
+          "excel": {
+            "hoja": "DISP_EA",
+            "tabla": "Tabla_Disp_EA"
+          },
+          "nmax": {
+            "constante": "N_MAX_DISP_EA",
+            "columna_excel": "N_Max_EA",
+            "comentario": "Numero max. entradas analogicas"
+          },
+          "columnas": [
             "plc_name",
             "numero",
             "tag",
@@ -252,8 +64,23 @@
             "gr_alarma",
             "cuadro",
             "observaciones"
-          ],
-          "DispSA": [
+          ]
+        },
+        "sa": {
+          "etiqueta": "SA",
+          "db": "DB2006_SA",
+          "array": "SA",
+          "tabla_tags": "2000_Disp_SA",
+          "excel": {
+            "hoja": "DISP_SA",
+            "tabla": "Tabla_Disp_SA"
+          },
+          "nmax": {
+            "constante": "N_MAX_DISP_SA",
+            "columna_excel": "N_Max_SA",
+            "comentario": "Numero max. salidas analogicas"
+          },
+          "columnas": [
             "plc_name",
             "numero",
             "tag",
@@ -266,8 +93,50 @@
             "gr_alarma",
             "cuadro",
             "observaciones"
-          ],
-          "DispV": [
+          ]
+        },
+        "sd": {
+          "etiqueta": "SD",
+          "db": "DB2005_SD",
+          "array": "SD",
+          "tabla_tags": "2000_Disp_SD",
+          "excel": {
+            "hoja": "DISP_SD",
+            "tabla": "Tabla_Disp_SD"
+          },
+          "nmax": {
+            "constante": "N_MAX_DISP_SD",
+            "columna_excel": "N_Max_SD",
+            "comentario": "Numero max. salidas digitales"
+          },
+          "columnas": [
+            "plc_name",
+            "numero",
+            "tag",
+            "descripcion",
+            "fat",
+            "s_byte",
+            "s_bit",
+            "gr_alarma",
+            "cuadro",
+            "observaciones"
+          ]
+        },
+        "v": {
+          "etiqueta": "V",
+          "db": "DB2010_V",
+          "array": "V",
+          "tabla_tags": "2000_Disp_V",
+          "excel": {
+            "hoja": "DISP_V",
+            "tabla": "Tabla_Disp_V"
+          },
+          "nmax": {
+            "constante": "N_MAX_DISP_V",
+            "columna_excel": "N_Max_V",
+            "comentario": "Numero max. valvulas"
+          },
+          "columnas": [
             "plc_name",
             "numero",
             "tag",
@@ -282,8 +151,23 @@
             "gr_alarma",
             "cuadro",
             "observaciones"
-          ],
-          "DispM": [
+          ]
+        },
+        "m": {
+          "etiqueta": "M",
+          "db": "DB2015_M",
+          "array": "M",
+          "tabla_tags": "2000_Disp_M",
+          "excel": {
+            "hoja": "DISP_M",
+            "tabla": "Tabla_Disp_M"
+          },
+          "nmax": {
+            "constante": "N_MAX_DISP_M",
+            "columna_excel": "N_Max_M",
+            "comentario": "Numero max. motores"
+          },
+          "columnas": [
             "plc_name",
             "numero",
             "tag",
@@ -298,8 +182,23 @@
             "gr_alarma",
             "cuadro",
             "observaciones"
-          ],
-          "DispM_VF": [
+          ]
+        },
+        "m_vf": {
+          "etiqueta": "MVF",
+          "db": "DB2016_M_VF",
+          "array": "M_VF",
+          "tabla_tags": "2000_Disp_M_VF",
+          "excel": {
+            "hoja": "DISP_M_VF",
+            "tabla": "Tabla_Disp_M_VF"
+          },
+          "nmax": {
+            "constante": "N_MAX_DISP_M_VF",
+            "columna_excel": "N_Max_M_VF",
+            "comentario": "Numero max. motores con variador"
+          },
+          "columnas": [
             "plc_name",
             "numero",
             "tag",
@@ -315,8 +214,23 @@
             "gr_alarma",
             "cuadro",
             "observaciones"
-          ],
-          "DispM_SINA": [
+          ]
+        },
+        "m_sina": {
+          "etiqueta": "MSINA",
+          "db": "DB2017_M_SINA",
+          "array": "M_SINA",
+          "tabla_tags": "2000_Disp_M_SINA",
+          "excel": {
+            "hoja": "DISP_M_SINA",
+            "tabla": "Tabla_Disp_M_SINA"
+          },
+          "nmax": {
+            "constante": "N_MAX_DISP_M_SINA",
+            "columna_excel": "N_Max_M_SINA",
+            "comentario": "Numero max. motores sinamics"
+          },
+          "columnas": [
             "plc_name",
             "numero",
             "tag",
@@ -330,8 +244,67 @@
             "gr_alarma",
             "cuadro",
             "observaciones"
-          ],
-          "DispTOT": [
+          ]
+        },
+        "tq": {
+          "etiqueta": "TQ",
+          "db": "DB2040_TQ",
+          "array": "TQ",
+          "tabla_tags": "2000_Disp_TQ",
+          "excel": {
+            "hoja": "DISP_TQ",
+            "tabla": "Tabla_Disp_TQ"
+          },
+          "nmax": {
+            "constante": "N_MAX_DISP_TQ",
+            "columna_excel": "N_Max_TQ",
+            "comentario": "Numero max. tanques (sensor analogico de nivel)"
+          },
+          "columnas": [
+            "plc_name",
+            "numero",
+            "tag",
+            "descripcion",
+            "observaciones"
+          ]
+        },
+        "tq_ae": {
+          "etiqueta": "TQAE",
+          "db": "DB2041_TQ_AE",
+          "array": "TQ_AE",
+          "tabla_tags": "2000_Disp_TQ_AE",
+          "excel": {
+            "hoja": "DISP_TQ_AE",
+            "tabla": "Tabla_Disp_TQ_AE"
+          },
+          "nmax": {
+            "constante": "N_MAX_DISP_TQ_AE",
+            "columna_excel": "N_Max_TQ_AE",
+            "comentario": "Numero max. tanques aire esteril (sensor analogico)"
+          },
+          "columnas": [
+            "plc_name",
+            "numero",
+            "tag",
+            "descripcion",
+            "observaciones"
+          ]
+        },
+        "tot": {
+          "etiqueta": "TOT",
+          "db": "DB2025_TOT",
+          "array": "TOT",
+          "tabla_tags": "2000_Disp_TOT",
+          "excel": {
+            "hoja": "DISP_TOT",
+            "tabla": "Tabla_Disp_TOT"
+          },
+          "nmax": {
+            "constante": "N_MAX_DISP_TOT",
+            "columna_excel": "N_Max_TOT",
+            "comentario": "Numero max. totalizadores"
+          },
+          "columnas": [
             "plc_name",
             "numero",
             "tag",
@@ -344,8 +317,23 @@
             "gr_alarma",
             "proceso",
             "observaciones"
-          ],
-          "DispPID": [
+          ]
+        },
+        "pid": {
+          "etiqueta": "PID",
+          "db": "DB2035_PID",
+          "array": "PID",
+          "tabla_tags": "2000_Disp_PID",
+          "excel": {
+            "hoja": "DISP_PID",
+            "tabla": "Tabla_Disp_PID"
+          },
+          "nmax": {
+            "constante": "N_MAX_DISP_PID",
+            "columna_excel": "N_Max_PID",
+            "comentario": "Numero max. controladores PID"
+          },
+          "columnas": [
             "plc_name",
             "numero",
             "tag",
@@ -356,79 +344,86 @@
             "disp_tag",
             "proceso",
             "observaciones"
-          ],
-          "DispSD": [
-            "plc_name",
-            "numero",
-            "tag",
-            "descripcion",
-            "fat",
-            "s_byte",
-            "s_bit",
-            "gr_alarma",
-            "cuadro",
-            "observaciones"
-          ],
-          "DispTQ": [
-            "plc_name",
-            "numero",
-            "tag",
-            "descripcion",
-            "observaciones"
-          ],
-          "DispTQ_AE": [
-            "plc_name",
-            "numero",
-            "tag",
-            "descripcion",
-            "observaciones"
           ]
-        },
-        "_comment_col_labels": "Etiquetas de las columnas del panel de dispositivos. Si un campo no esta, se ensena su nombre tal cual.",
-        "col_labels": {
-          "uid": "UID",
-          "numero": "Número",
-          "plc_tag": "PLC.Tag",
-          "plc_comentario": "Comentario PLC",
-          "descripcion": "Descripción",
-          "tag": "TAG",
-          "fat": "FAT",
-          "e_byte": "E.Byte",
-          "e_bit": "E.Bit",
-          "s_byte": "S.Byte",
-          "s_bit": "S.Bit",
-          "rr_byte": "RR.Byte",
-          "rr_bit": "RR.Bit",
-          "rt_byte": "RT.Byte",
-          "rt_bit": "RT.Bit",
-          "rm_byte": "RM.Byte",
-          "rm_bit": "RM.Bit",
-          "sa_byte": "SA.Byte",
-          "vel_min": "Vel.Min",
-          "vel_max": "Vel.Max",
-          "cons_k": "ConsK",
-          "unidades": "Unidades",
-          "rii": "RII",
-          "rsi": "RSI",
-          "tipo": "Tipo",
-          "incxpulso": "IncXPulso",
-          "proceso": "Proceso",
-          "pv": "PV",
-          "disp_tipo": "Disp.Tipo",
-          "disp_tag": "Disp.Tag",
-          "gr_alarma": "Gr.Alarma",
-          "cuadro": "Cuadro",
-          "observaciones": "Observaciones",
-          "plc_tipo": "PLC.Tipo",
-          "plc_index": "PLC.Index",
-          "hmi_index": "Hmi.Index",
-          "hmi_texto": "Hmi.Texto",
-          "comentario_db": "ComentarioDB"
         }
       },
-      "proc_catalog": {
-        "_comment_display_order": "Override data-driven de columnas visibles en el panel de software (Procesos / PInt / PReal / Alarmas). Misma politica que disp_catalog.display_order.",
-        "display_order": {
+      "etiquetas_dispositivos": {
+        "uid": "UID",
+        "numero": "Número",
+        "plc_tag": "PLC.Tag",
+        "plc_comentario": "Comentario PLC",
+        "descripcion": "Descripción",
+        "tag": "TAG",
+        "fat": "FAT",
+        "e_byte": "E.Byte",
+        "e_bit": "E.Bit",
+        "s_byte": "S.Byte",
+        "s_bit": "S.Bit",
+        "rr_byte": "RR.Byte",
+        "rr_bit": "RR.Bit",
+        "rt_byte": "RT.Byte",
+        "rt_bit": "RT.Bit",
+        "rm_byte": "RM.Byte",
+        "rm_bit": "RM.Bit",
+        "sa_byte": "SA.Byte",
+        "vel_min": "Vel.Min",
+        "vel_max": "Vel.Max",
+        "cons_k": "ConsK",
+        "unidades": "Unidades",
+        "rii": "RII",
+        "rsi": "RSI",
+        "tipo": "Tipo",
+        "incxpulso": "IncXPulso",
+        "proceso": "Proceso",
+        "pv": "PV",
+        "disp_tipo": "Disp.Tipo",
+        "disp_tag": "Disp.Tag",
+        "gr_alarma": "Gr.Alarma",
+        "cuadro": "Cuadro",
+        "observaciones": "Observaciones",
+        "plc_tipo": "PLC.Tipo",
+        "plc_index": "PLC.Index",
+        "hmi_index": "Hmi.Index",
+        "hmi_texto": "Hmi.Texto",
+        "comentario_db": "ComentarioDB"
+      },
+      "entidades": {
+        "db": "DB6_ENT",
+        "array": "ENT",
+        "tabla_tags": "6_Entidades",
+        "tabla_config": "0_Config_Generales",
+        "nmax": {
+          "constante": "N_MAX_ENTIDAD",
+          "columna_excel": "N_Max_ENT",
+          "comentario": "Numero max. entidades (dimension del array ENT de DB6_ENT)"
+        },
+        "columnas": [
+          "plc_name",
+          "numero",
+          "descripcion",
+          "plc_tag",
+          "plc_tipo",
+          "plc_index",
+          "plc_comentario"
+        ],
+        "etiquetas": {
+          "numero": "Numero",
+          "plc_name": "PLC",
+          "plc_tag": "PLC.Tag",
+          "plc_tipo": "PLC.Tipo",
+          "plc_index": "PLC.Index",
+          "plc_comentario": "PLC.Comentario",
+          "descripcion": "Descripcion"
+        }
+      },
+      "procesos": {
+        "sufijos_nmax": {
+          "preal": "PREAL",
+          "pint": "PINT",
+          "alm": "ALM",
+          "alm_hmi": "ALM_HMI"
+        },
+        "columnas": {
           "procesos": [
             "plc_name",
             "codigo",
@@ -438,14 +433,14 @@
             "alarmas",
             "alm_hmi"
           ],
-          "parametros_int": [
+          "preal": [
             "plc_name",
             "numero",
             "codigo",
             "num_db",
             "descripcion"
           ],
-          "parametros_real": [
+          "pint": [
             "plc_name",
             "numero",
             "codigo",
@@ -461,8 +456,7 @@
             "comentario_db"
           ]
         },
-        "_comment_col_labels": "Etiquetas de las columnas del panel de software (Procesos / PInt / PReal / Alarmas). Si un campo no esta, se ensena su nombre tal cual.",
-        "col_labels": {
+        "etiquetas": {
           "uid": "UID",
           "numero": "No",
           "nombre": "Nombre",
@@ -484,37 +478,7 @@
           "txt_lista": "Txt.Lista",
           "plc_name": "PLC"
         }
-      },
-      "entidades": {
-        "db_name": "DB6_ENT",
-        "db_array_name": "ENT",
-        "tag_table": "6_Entidades",
-        "config_table": "0_Config_Generales"
-      },
-      "entidades_catalog": {
-        "_comment_display_order": "Override data-driven de las columnas visibles de la SPA para el DTO Entidad. Override por dominio = reemplazo total.",
-        "display_order": {
-          "entidades": [
-            "plc_name",
-            "numero",
-            "descripcion",
-            "plc_tag",
-            "plc_tipo",
-            "plc_index",
-            "plc_comentario"
-          ]
-        },
-        "col_labels": {
-          "numero": "Numero",
-          "plc_name": "PLC",
-          "plc_tag": "PLC.Tag",
-          "plc_tipo": "PLC.Tipo",
-          "plc_index": "PLC.Index",
-          "plc_comentario": "PLC.Comentario",
-          "descripcion": "Descripcion"
-        }
-      },
-      "_todo_legacy_types": "Tipos legacy (agrup/ff/ff_sec/media/media_volumen/vd/tof/ton/tonr/tp) NO activos. Sus N_MAX viven en 'pending_nmax'."
+      }
     }
   }
 }

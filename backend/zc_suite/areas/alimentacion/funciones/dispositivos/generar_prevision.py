@@ -18,6 +18,7 @@ import logging
 from pathlib import Path
 from typing import Any
 
+from zc_suite.areas.alimentacion.config import ConfigArea, n_max_de
 from zc_suite.areas.alimentacion.dispositivos.diferencias import (
     DiffNMax,
     DiffTabla,
@@ -41,19 +42,15 @@ def workdir_dispositivos() -> Any:
     return workdir(AREA, CONTEXTO, preview=("config", "disp"))
 
 
-def tablas_de_dispositivos(config: dict[str, Any]) -> list[tuple[str, str]]:
+def tablas_de_dispositivos(config: ConfigArea) -> list[tuple[str, str]]:
     """Las tablas de tags de los dispositivos.
 
     Returns:
         La lista de ``(tipo, tabla_de_tags)``, en el orden del ``config.json``.
     """
-    tablas: list[tuple[str, str]] = []
-    for tipo, entrada in config.get("Dispositivos", {}).items():
-        tabla = str(entrada.get("tag_table", ""))
-        if not tabla:
-            continue
-        tablas.append((str(tipo), tabla))
-    return tablas
+    return [
+        (tipo, dispositivo.tabla_tags) for tipo, dispositivo in config.dispositivos.items()
+    ]
 
 
 def _dispositivos_del_excel(
@@ -72,27 +69,26 @@ def _dispositivos_del_excel(
 def _n_max_del_excel(
     almacen: AlmacenExcel,
     plc: str,
-    config: dict[str, Any],
+    config: ConfigArea,
 ) -> dict[str, int]:
     """Los N_MAX de dispositivos del Excel del PLC elegido.
 
     Los N_MAX de las entidades son otra cosa (van en su propia tabla): aqui no
     entran, igual que en ``main``.
 
-    El orden es el del catalogo de N_MAX del ``config.json``, no el de las
-    columnas del Excel: las tarjetas de N_MAX se pintan en ese orden.
+    El orden es el del catalogo de N_MAX, no el de las columnas del Excel: las
+    tarjetas de N_MAX se pintan en ese orden.
     """
     for fila in almacen.estado()["configuracion"]["filas"]:
         if str(fila.get("PLC", "")) != plc:
             continue
         valores: dict[str, int] = {}
-        for entrada in config.get("n_max_catalog", []):
-            nombre = str(entrada.get("name", "")).strip()
-            if not nombre.startswith("N_MAX_DISP_"):
+        for entrada in n_max_de(config):
+            if not entrada.tipo:
                 continue
-            valor = fila.get(nombre)
+            valor = fila.get(entrada.constante)
             if isinstance(valor, (int, float)):
-                valores[nombre] = int(valor)
+                valores[entrada.constante] = int(valor)
         return valores
     return {}
 
@@ -101,7 +97,7 @@ def generar_prevision(
     job: Job,
     plc: str,
     almacen: AlmacenExcel,
-    config: dict[str, Any],
+    config: ConfigArea,
 ) -> dict[str, Any]:
     """Exporta del PLC y calcula el diff de los dispositivos contra el Excel.
 
@@ -109,7 +105,7 @@ def generar_prevision(
         job: el trabajo en curso.
         plc: el PLC cuyos dispositivos se comparan.
         almacen: la cache del Excel maestro.
-        config: la seccion del area en el ``config.json``.
+        config: el modelo del area.
 
     Returns:
         El shape que consume la SPA: ``agregados``, ``eliminados``,
@@ -131,7 +127,7 @@ def generar_prevision(
     destino_disp = carpeta.preview_de("disp")
 
     tablas = tablas_de_dispositivos(config)
-    tabla_n_max = str(config.get("global_config_table_name", ""))
+    tabla_n_max = config.tabla_nmax
 
     with job.paso("exportar") as paso:
         if not tablas:

@@ -1,102 +1,103 @@
 """Las columnas que se ensenan y como se titulan.
 
-El ``display_order`` del ``config.json`` decide **que columnas se ven**; el
-``col_labels`` del mismo catalogo decide **como se titulan**. Donde no haya
-etiqueta, el titulo es el nombre del campo tal cual.
+Las columnas de cada tipo de dispositivo salen de su entrada del
+``config.json`` del area; las de las entidades y las del software, de las
+secciones ``entidades`` y ``procesos``. Los titulos salen de las etiquetas
+de su seccion: donde no hay etiqueta, el titulo es el nombre del campo.
+
+Las etiquetas van separadas por seccion a proposito: el mismo campo se
+titula distinto en cada una (``numero`` es "Número" en los dispositivos,
+"No" en el software y "Numero" en las entidades).
 
 El modelo completo de cada fila lo decide el parser: el almacen lo guarda
 todo, y la vista solo enseña estas columnas.
 """
 from __future__ import annotations
 
-from typing import Any
+from zc_suite.areas.alimentacion.config import ConfigArea, n_max_de
 
-#: La clave de cada catalogo de columnas.
-CATALOGOS = ("disp", "proc", "entidades")
-
-
-def _display_order(catalogo: str, config: dict[str, Any]) -> dict[str, list[str]]:
-    """El ``display_order`` de un catalogo."""
-    clave = f"{catalogo}_catalog"
-    orden = config.get(clave, {}).get("display_order", {})
-    return {str(k): [str(c) for c in v] for k, v in orden.items()}
+#: La clave de cada subdominio del software en ``procesos.columnas``.
+SUBDOMINIOS: dict[str, str] = {
+    "Procesos": "procesos",
+    "ParametrosEnteros": "pint",
+    "ParametrosReales": "preal",
+    "Alarmas": "alarmas",
+}
 
 
-def col_labels(catalogo: str, config: dict[str, Any]) -> dict[str, str]:
-    """Las etiquetas de las columnas de un catalogo.
-
-    Args:
-        catalogo: ``"disp"``, ``"proc"`` o ``"entidades"``.
-        config: la seccion del area en el ``config.json``.
-
-    Returns:
-        El dict ``{campo: etiqueta}`` del catalogo. Vacio si no lo tiene.
-    """
-    clave = f"{catalogo}_catalog"
-    etiquetas = config.get(clave, {}).get("col_labels", {})
-    return {str(k): str(v) for k, v in etiquetas.items() if k != "_comment"}
-
-
-def etiquetas_de(catalogo: str, config: dict[str, Any], columnas: list[str]) -> dict[str, str]:
-    """Las etiquetas de las columnas que se ensenan.
-
-    Args:
-        catalogo: el catalogo del que salen las etiquetas.
-        config: la seccion del area en el ``config.json``.
-        columnas: las columnas que se ven.
-
-    Returns:
-        El dict ``{campo: etiqueta}`` solo con las columnas indicadas.
-    """
-    etiquetas = col_labels(catalogo, config)
+def _etiquetas(etiquetas: dict[str, str], columnas: list[str]) -> dict[str, str]:
+    """Las etiquetas de las columnas que se ven."""
     return {columna: etiquetas[columna] for columna in columnas if columna in etiquetas}
 
 
-def columnas_de_dispositivo(canonico: str, config: dict[str, Any]) -> list[str]:
+def columnas_de_dispositivo(clave: str, config: ConfigArea) -> list[str]:
     """Las columnas que se ensenan de un tipo de dispositivo.
 
     Args:
-        canonico: el nombre canonico del tipo (``"DispED"``).
-        config: la seccion del area en el ``config.json``.
+        clave: la clave del tipo en el ``config.json``.
+        config: el modelo del area.
     """
-    return _display_order("disp", config).get(canonico, [])
+    dispositivo = config.dispositivos.get(clave)
+    if dispositivo is None:
+        return []
+    return list(dispositivo.columnas)
 
 
-def columnas_de_configuracion(config: dict[str, Any]) -> list[str]:
+def columnas_de_configuracion(config: ConfigArea) -> list[str]:
     """Las columnas de la vista de configuracion: el PLC y los N_MAX.
 
     Args:
-        config: la seccion del area en el ``config.json``.
+        config: el modelo del area.
     """
-    columnas = ["PLC"]
-    for entrada in config.get("n_max_catalog", []):
-        nombre = entrada.get("name")
-        if nombre:
-            columnas.append(str(nombre))
-    return columnas
+    return ["PLC", *[entrada.constante for entrada in n_max_de(config)]]
 
 
-def columnas_de_procesos(subdominio: str, config: dict[str, Any]) -> list[str]:
+def columnas_de_procesos(subdominio: str, config: ConfigArea) -> list[str]:
     """Las columnas de un subdominio de los procesos.
 
     Args:
         subdominio: ``"Procesos"``, ``"ParametrosEnteros"``,
             ``"ParametrosReales"`` o ``"Alarmas"``.
-        config: la seccion del area en el ``config.json``.
+        config: el modelo del area.
     """
-    claves = {
-        "Procesos": "procesos",
-        "ParametrosEnteros": "parametros_int",
-        "ParametrosReales": "parametros_real",
-        "Alarmas": "alarmas",
-    }
-    return _display_order("proc", config).get(claves.get(subdominio, ""), [])
+    clave = SUBDOMINIOS.get(subdominio, "")
+    return list(config.procesos.columnas.get(clave, []))
 
 
-def columnas_de_entidades(config: dict[str, Any]) -> list[str]:
+def columnas_de_entidades(config: ConfigArea) -> list[str]:
     """Las columnas de la vista de entidades.
 
     Args:
-        config: la seccion del area en el ``config.json``.
+        config: el modelo del area.
     """
-    return _display_order("entidades", config).get("entidades", [])
+    return list(config.entidades.columnas)
+
+
+def etiquetas_de_dispositivo(config: ConfigArea, columnas: list[str]) -> dict[str, str]:
+    """Los titulos de las columnas de los dispositivos.
+
+    Args:
+        config: el modelo del area.
+        columnas: las columnas que se ven.
+    """
+    return _etiquetas(config.etiquetas_dispositivos, columnas)
+
+
+def etiquetas_de_procesos(config: ConfigArea, columnas: list[str]) -> dict[str, str]:
+    """Los titulos de las columnas del software.
+
+    Args:
+        config: el modelo del area.
+        columnas: las columnas que se ven.
+    """
+    return _etiquetas(config.procesos.etiquetas, columnas)
+
+
+def etiquetas_de_entidades(config: ConfigArea, columnas: list[str]) -> dict[str, str]:
+    """Los titulos de las columnas de las entidades.
+
+    Args:
+        config: el modelo del area.
+        columnas: las columnas que se ven.
+    """
+    return _etiquetas(config.entidades.etiquetas, columnas)

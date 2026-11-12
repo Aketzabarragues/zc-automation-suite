@@ -11,8 +11,8 @@ import { useTiaStore } from "../../../nucleo/stores/tia.js";
 const CATALOGO = {
   alimentacion: {
     device_tabs: [
-      { hw_type: "ed", canonical: "DispED", label: "ED" },
-      { hw_type: "ea", canonical: "DispEA", label: "EA" },
+      { hw_type: "ed", label: "ED" },
+      { hw_type: "ea", label: "EA" },
     ],
     nmax: [{ name: "N_MAX_DISP_ED", label: "num_disp_ed" }],
   },

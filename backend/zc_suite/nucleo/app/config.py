@@ -59,15 +59,6 @@ class ConfigError(Exception):
     """El ``config.json`` no se puede leer o no es valido."""
 
 
-class ConfigTia(BaseModel):
-    """Ajustes de la conexion con TIA Portal."""
-
-    model_config = ConfigDict(extra="allow")
-
-    plc: str = ""
-    proyecto: str = ""
-
-
 class ConfigRutas(BaseModel):
     """Rutas del equipo del operario.
 
@@ -86,7 +77,6 @@ class Config(BaseModel):
 
     model_config = ConfigDict(extra="allow")
 
-    tia: ConfigTia = Field(default_factory=ConfigTia)
     paths: ConfigRutas = Field(default_factory=ConfigRutas)
     areas: dict[str, dict[str, Any]] = Field(default_factory=dict)
 

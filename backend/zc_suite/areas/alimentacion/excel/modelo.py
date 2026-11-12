@@ -52,10 +52,12 @@ class Dominio:
     """Una tabla del Excel: donde vive y que campos tiene.
 
     Attributes:
-        clave: el nombre del dominio (``"DispED"``, ``"Procesos"``...).
-        hoja: la hoja donde vive la tabla.
-        tabla: el nombre de la tabla nombrada.
+        clave: el nombre del dominio (``"ed"``, ``"Procesos"``...).
         campos: los campos del modelo.
+        hoja: la hoja donde vive la tabla. Vacia cuando la location la
+            dice el ``config.json`` del area.
+        tabla: el nombre de la tabla nombrada. Vacio cuando la location la
+            dice el ``config.json`` del area.
         catalogo: el catalogo del ``config.json`` del que salen las
             etiquetas de las columnas (``"disp"``, ``"proc"``,
             ``"entidades"``). Vacio si no hay.
@@ -69,9 +71,9 @@ class Dominio:
     """
 
     clave: str
-    hoja: str
-    tabla: str
     campos: tuple[Campo, ...]
+    hoja: str = ""
+    tabla: str = ""
     catalogo: str = ""
     descartar_si_vacias: tuple[str, ...] = ()
     exigir_no_vacias: tuple[str, ...] = ()

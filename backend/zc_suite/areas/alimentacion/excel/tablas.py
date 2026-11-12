@@ -1,16 +1,16 @@
 """Donde vive cada dominio del Excel maestro.
 
 Un dominio es una tabla nombrada: la hoja donde esta y los campos del
-modelo. Las hojas y tablas de los dispositivos se pueden sobreescribir desde
-el ``config.json`` (``excel_target``); el resto son fijas.
+modelo. De los doce tipos de dispositivo, la hoja y la tabla las dice el
+``config.json`` del area (``dispositivos.<tipo>.excel``); del resto, son
+fijas.
 
 Los campos son los de los DTO de ``main``: los mismos nombres y los mismos
 tipos, para que las fases siguientes los usen tal cual.
 """
 from __future__ import annotations
 
-from typing import Any
-
+from zc_suite.areas.alimentacion.config import ConfigArea
 from zc_suite.areas.alimentacion.excel.modelo import (
     CAMPOS_DISPOSITIVO,
     CAMPOS_PLC,
@@ -38,8 +38,6 @@ HOJA_ENTIDADES = "ENTIDADES"
 
 _DISP_ED = Dominio(
     clave="ed",
-    hoja="DISP_ED",
-    tabla="Tabla_Disp_ED",
     catalogo="disp",
     descartar_si_vacias=("uid", "numero"),
     campos=(
@@ -57,8 +55,6 @@ _DISP_ED = Dominio(
 
 _DISP_EA = Dominio(
     clave="ea",
-    hoja="DISP_EA",
-    tabla="Tabla_Disp_EA",
     catalogo="disp",
     descartar_si_vacias=("uid", "numero"),
     campos=(
@@ -79,8 +75,6 @@ _DISP_EA = Dominio(
 
 _DISP_SA = Dominio(
     clave="sa",
-    hoja="DISP_SA",
-    tabla="Tabla_Disp_SA",
     catalogo="disp",
     descartar_si_vacias=("uid", "numero"),
     campos=_DISP_EA.campos,
@@ -88,8 +82,6 @@ _DISP_SA = Dominio(
 
 _DISP_SD = Dominio(
     clave="sd",
-    hoja="DISP_SD",
-    tabla="Tabla_Disp_SD",
     catalogo="disp",
     descartar_si_vacias=("uid", "numero"),
     campos=(
@@ -107,8 +99,6 @@ _DISP_SD = Dominio(
 
 _DISP_V = Dominio(
     clave="v",
-    hoja="DISP_V",
-    tabla="Tabla_Disp_V",
     catalogo="disp",
     descartar_si_vacias=("uid", "numero"),
     campos=(
@@ -136,8 +126,6 @@ _DISP_V = Dominio(
 
 _DISP_M = Dominio(
     clave="m",
-    hoja="DISP_M",
-    tabla="Tabla_Disp_M",
     catalogo="disp",
     descartar_si_vacias=("uid", "numero"),
     campos=(
@@ -165,8 +153,6 @@ _DISP_M = Dominio(
 
 _DISP_M_VF = Dominio(
     clave="m_vf",
-    hoja="DISP_M_VF",
-    tabla="Tabla_Disp_M_VF",
     catalogo="disp",
     descartar_si_vacias=("uid", "numero"),
     campos=(
@@ -178,8 +164,6 @@ _DISP_M_VF = Dominio(
 
 _DISP_M_SINA = Dominio(
     clave="m_sina",
-    hoja="DISP_M_SINA",
-    tabla="Tabla_Disp_M_SINA",
     catalogo="disp",
     descartar_si_vacias=("uid", "numero"),
     campos=(
@@ -203,8 +187,6 @@ _DISP_M_SINA = Dominio(
 
 _DISP_TQ = Dominio(
     clave="tq",
-    hoja="DISP_TQ",
-    tabla="Tabla_Disp_TQ",
     catalogo="disp",
     descartar_si_vacias=("uid", "numero"),
     campos=(
@@ -215,8 +197,6 @@ _DISP_TQ = Dominio(
 
 _DISP_TQ_AE = Dominio(
     clave="tq_ae",
-    hoja="DISP_TQ_AE",
-    tabla="Tabla_Disp_TQ_AE",
     catalogo="disp",
     descartar_si_vacias=("uid", "numero"),
     campos=_DISP_TQ.campos,
@@ -224,8 +204,6 @@ _DISP_TQ_AE = Dominio(
 
 _DISP_TOT = Dominio(
     clave="tot",
-    hoja="DISP_TOT",
-    tabla="Tabla_Disp_TOT",
     catalogo="disp",
     descartar_si_vacias=("uid", "numero"),
     campos=(
@@ -245,8 +223,6 @@ _DISP_TOT = Dominio(
 
 _DISP_PID = Dominio(
     clave="pid",
-    hoja="DISP_PID",
-    tabla="Tabla_Disp_PID",
     catalogo="disp",
     descartar_si_vacias=("uid", "numero"),
     campos=(
@@ -398,42 +374,18 @@ DIMENSIONES = Dominio(
     campos=(),
 )
 
-#: Columna del Excel con el N_MAX de las entidades.
-COLUMNA_N_MAX_ENTIDADES = "N_Max_ENT"
 
-#: Nombre canonico del N_MAX de las entidades.
-N_MAX_ENTIDADES = "N_MAX_ENTIDAD"
-
-
-def canonico_de_tipo(clave: str) -> str:
-    """El nombre canonico de un tipo de dispositivo.
-
-    ``"ed"`` -> ``"DispED"``, ``"m_vf"`` -> ``"DispM_VF"``, ``"tq_ae"`` ->
-    ``"DispTQ_AE"``.
+def destino_de_dispositivo(clave: str, config: ConfigArea) -> tuple[str, str]:
+    """La hoja y la tabla del Excel de un tipo de dispositivo.
 
     Args:
         clave: la clave del tipo en el ``config.json``.
-    """
-    return f"Disp{clave.upper()}"
-
-
-def destino_de_dispositivo(clave: str, config: dict[str, Any]) -> tuple[str, str, str]:
-    """La hoja, la tabla y el canonico de un tipo de dispositivo.
-
-    Args:
-        clave: la clave del tipo en el ``config.json``.
-        config: la seccion del area en el ``config.json``.
+        config: el modelo del area.
 
     Returns:
-        La tupla ``(hoja, tabla, canonico)``. Por defecto son los nombres
-        del modelo; el ``excel_target`` del config los sobreescribe.
+        La tupla ``(hoja, tabla)``. Vacia si el config no tiene ese tipo.
     """
-    dominio = DISPOSITIVOS.get(clave)
-    if dominio is None:
-        return "", "", canonico_de_tipo(clave)
-    objetivo = config.get("Dispositivos", {}).get(clave, {})
-    excel_target = objetivo.get("excel_target", {}) if isinstance(objetivo, dict) else {}
-    hoja = str(excel_target.get("sheet") or dominio.hoja)
-    tabla = str(excel_target.get("table") or dominio.tabla)
-    canonico = str(excel_target.get("canonical") or canonico_de_tipo(clave))
-    return hoja, tabla, canonico
+    dispositivo = config.dispositivos.get(clave)
+    if dispositivo is None:
+        return "", ""
+    return dispositivo.excel.hoja, dispositivo.excel.tabla

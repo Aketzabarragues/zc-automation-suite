@@ -12,19 +12,25 @@ Contrato del area:
 - ``defaults(config)``  valores por defecto que el area aporta a la config.
 - ``al_arrancar(config)``  deja el area lista para la sesion.
 - ``estado_sesion()``  lo que el area tiene en la sesion: el Excel cargado.
+- ``valida_config(config)``  el motivo por el que su seccion del
+  ``config.json`` no vale, o ``None`` si vale.
 
 El area no se importa desde el nucleo: ``zc_suite.nucleo.app.main`` la registra en la
 lista ``AREAS`` y monta su Blueprint.
 """
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from flask.sansio.blueprints import BlueprintSetupState
 
+from zc_suite.areas.alimentacion import config as config_area
 from zc_suite.areas.alimentacion.dispositivos import catalogo as dispositivos_catalogo
 from zc_suite.areas.alimentacion.excel.almacen import AlmacenExcel
 from zc_suite.areas.alimentacion.rutas import CLAVE_ALMACEN, ID, rutas
+
+logger = logging.getLogger(__name__)
 
 __all__ = [
     "DESCRIPCION",
@@ -36,6 +42,7 @@ __all__ = [
     "defaults",
     "estado_sesion",
     "rutas",
+    "valida_config",
 ]
 
 #: Nombre del area, como lo ve el operario.
@@ -67,18 +74,15 @@ def catalogo(config: dict[str, Any]) -> dict[str, Any]:
         config: la seccion del area en el ``config.json``.
 
     Returns:
-        Solo datos primitivos: los catalogos de columnas, el de N_MAX y el
-        de dispositivos.
+        Solo datos primitivos: las pestañas por tipo de dispositivo y las
+        tarjetas de N_MAX. Vacio si la seccion del config no es valida.
     """
+    modelo = _modelo(config)
+    if modelo is None:
+        return {"device_tabs": [], "nmax": []}
     return {
-        "disp_catalog": config.get("disp_catalog", {}),
-        "proc_catalog": config.get("proc_catalog", {}),
-        "entidades_catalog": config.get("entidades_catalog", {}),
-        "n_max_catalog": config.get("n_max_catalog", []),
-        "Dispositivos": config.get("Dispositivos", {}),
-        "excel": {"tabla_config": config.get("global_config_table_name", "")},
-        "device_tabs": dispositivos_catalogo.construir_pestanas(config),
-        "nmax": dispositivos_catalogo.construir_n_max(config),
+        "device_tabs": dispositivos_catalogo.construir_pestanas(modelo),
+        "nmax": dispositivos_catalogo.construir_n_max(modelo),
     }
 
 
@@ -89,10 +93,21 @@ def defaults(config: dict[str, Any]) -> dict[str, Any]:
         config: la seccion del area en el ``config.json``.
 
     Returns:
-        Un dict con los ajustes por defecto del area. Vacio de momento: el
-        area no tiene ajustes propios todavia.
+        Un dict con los ajustes por defecto del area.
     """
-    return {}
+    return {"plantillas_procesos": "plantillas"}
+
+
+def valida_config(config: dict[str, Any]) -> str | None:
+    """El motivo por el que la seccion del area no vale, o ``None`` si vale.
+
+    Args:
+        config: la seccion del area en el ``config.json``.
+
+    Returns:
+        El mensaje para el operario, o ``None`` si la seccion es valida.
+    """
+    return config_area.problema(config)
 
 
 def al_arrancar(config: dict[str, Any]) -> None:
@@ -104,8 +119,8 @@ def al_arrancar(config: dict[str, Any]) -> None:
     Args:
         config: la seccion del area en el ``config.json``.
     """
-    ALMACEN.config = config
     ALMACEN.vaciar()
+    ALMACEN.config = _modelo(config)
 
 
 def estado_sesion() -> dict[str, Any]:
@@ -118,3 +133,12 @@ def estado_sesion() -> dict[str, Any]:
         Un dict con ``excel``: el volcado del Excel y cuando se cargo.
     """
     return {"excel": ALMACEN.estado()}
+
+
+def _modelo(config: dict[str, Any]) -> config_area.ConfigArea | None:
+    """El modelo del area, o ``None`` si su seccion no es valida."""
+    try:
+        return config_area.cargar(config)
+    except config_area.ConfigInvalidoError as exc:
+        logger.error("Config del area invalido: %s", exc)
+        return None

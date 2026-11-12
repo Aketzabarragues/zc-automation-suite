@@ -12,10 +12,12 @@ from typing import Any
 import pytest
 from flask import Flask
 
-from zc_suite.nucleo.app.config import Config
+from zc_suite.nucleo.app.config import Config, cargar_config
 from zc_suite.nucleo.app.main import AREAS, montar_app
 from zc_suite.nucleo.tia.eventos import BusEventos
 from zc_suite.nucleo.tia.servicio import ServicioTIA
+
+RAIZ = Path(__file__).resolve().parents[3]
 
 
 class TsFalso:
@@ -40,8 +42,8 @@ def _app(config: Config) -> Flask:
 
 @pytest.fixture
 def app() -> Flask:
-    """La app con un config que vale."""
-    config = Config.model_validate({"areas": {"alimentacion": {}}})
+    """La app con un config que vale: el del repo."""
+    config = cargar_config(RAIZ / "config" / "config.json")
     return _app(config)
 
 
@@ -69,7 +71,7 @@ def test_un_config_que_sirve_no_avisa(app: Flask) -> None:
 
 def test_un_config_sin_la_seccion_areas_avisa() -> None:
     """Un config sin la seccion 'areas' es de otra version de la app."""
-    config = Config.model_validate({"tia": {"plc": "ZC_PLC_STD"}})
+    config = Config.model_validate({})
     app = _app(config)
 
     estado = _estado(app.test_client())
@@ -100,7 +102,7 @@ def test_el_estado_dice_de_donde_sale_el_config(app: Flask) -> None:
 
 def test_el_estado_avisa_de_todas_las_areas_registradas() -> None:
     """Cada area registrada tiene que estar en el config."""
-    config = Config.model_validate({"areas": {"alimentacion": {}}})
+    config = cargar_config(RAIZ / "config" / "config.json")
     app = _app(config)
 
     estado = _estado(app.test_client())
@@ -125,12 +127,12 @@ def test_el_config_incompatible_no_se_sustituye(
     meipass = tmp_path / "meipass"
     (meipass / "config").mkdir(parents=True)
     (meipass / "config" / "config.json").write_text(
-        json.dumps({"tia": {"plc": "PLANTILLA"}, "areas": {"alimentacion": {}}}),
+        json.dumps({"areas": {"alimentacion": {"tabla_nmax": "PLANTILLA"}}}),
         encoding="utf-8",
     )
 
     destino = exe_dir / "config" / "config.json"
-    contenido = json.dumps({"tia": {"plc": "ZC_PLC_STD"}})
+    contenido = json.dumps({"areas": {"alimentacion": {"tabla_nmax": "DEL_OPERARIO"}}})
     destino.write_text(contenido, encoding="utf-8")
 
     monkeypatch.setattr(sys, "frozen", True, raising=False)
