@@ -41,12 +41,10 @@ Restricciones aplicadas (decisiones arquitectónicas del proyecto):
     archivo tracked.
 
   - **Los datos van junto al ``.exe``, nunca en ``_MEIPASS``**: el
-    ``config.json`` del operario, la copia del Excel maestro
-    (``excel/``) y el ``.build_cache`` se escriben en la carpeta del
-    ejecutable. ``_MEIPASS`` se recrea en cada arranque: ahi no se puede
-    guardar nada. Lo resuelven ``zc_suite.nucleo.app.config``, ``zc_suite.nucleo.tia.workdir`` y
-    ``zc_suite.areas.alimentacion.excel.almacen``, que miran
-    ``sys.frozen``.
+    ``config.json`` del operario y el ``.build_cache`` se escriben en la
+    carpeta del ejecutable. ``_MEIPASS`` se recrea en cada arranque: ahi no se
+    puede guardar nada. Lo resuelven ``zc_suite.nucleo.app.config`` y
+    ``zc_suite.nucleo.tia.workdir``, que miran ``sys.frozen``.
 """
 from __future__ import annotations
 
@@ -880,7 +878,7 @@ def report_artifact(exit_code: int) -> int:
         print("  1. Doble-clic sobre el .exe -> aparece el icono de bandeja.")
         print("  2. La app sirve la SPA en http://127.0.0.1:9484/.")
         print("  3. Conectar TIA desde la SPA: boton 'Conectar' del panel PLC.")
-        print("  4. Los datos del operario (config/, excel/, .build_cache/)")
+        print("  4. Los datos del operario (config/, .build_cache/)")
         print("     se crean junto al .exe, no dentro de _MEIPASS.")
         return 0
 

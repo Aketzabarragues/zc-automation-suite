@@ -47,11 +47,12 @@ backend/zc_suite/
   nucleo/app/        main.py (arranque + lista AREAS), config.py, logs.py,
                      bandeja.py, icono.py, servidor.py
   nucleo/web/        app.py (Flask, estaticos, /api/eventos, lanzar())
-                     rutas/{conexion,plc,catalogo}.py
+                     rutas/{conexion,plc,catalogo,config,sesion}.py
   nucleo/tia/        servicio.py (hilo unico, conectar/desconectar),
                      job.py (Job y sus pasos), transaccion.py, errores.py
                      (TIAError y los suyos), eventos.py (bus SSE + handler
                      de logging), workdir.py (.build_cache/<area>/<contexto>/)
+  nucleo/sesion.py   el estado de la sesion, en memoria
   nucleo/funciones/  plc/buscar_plcs.py, plc/escanear.py,
                      bloques/preparar.py, bloques/aplicar.py
   tia_ops/           proyecto.py, exportar.py, importar.py, compilar.py,
@@ -59,7 +60,8 @@ backend/zc_suite/
   simatic/ml/        constantes_parser.py, constantes_modificador.py,
                      rutas_xml.py
   simatic/sd/        cabecera.py, comentarios_array.py, mlc.py
-  areas/<id>/        ID, NOMBRE, rutas, catalogo(), defaults(), al_arrancar()
+  areas/<id>/        ID, NOMBRE, rutas, catalogo(), defaults(), al_arrancar(),
+                     estado_sesion()
                      <id>/rutas.py con el Blueprint del area
                      <id>/funciones/    un FB por fichero
                      <id>/excel/        parser.py, modelo.py, tablas.py,
@@ -147,6 +149,9 @@ ocioso, cada `INTERVALO_PING` segundos. Si el portal no responde, la conexion
 pasa a desconectada y se publica el evento `tia`. Un fallo de trabajo, en
 cambio, no cambia el estado de la conexion.
 
+Al desconectar (o al perder el portal) se invalidan los escaneos de la
+sesion: sus datos ya no son de fiar.
+
 ## Eventos SSE
 
 `GET /api/eventos` emite cuatro tipos:
@@ -192,10 +197,13 @@ ultimo `progress` y el ultimo `tia`.
 ## Anadir un area
 
 1. Crea `backend/zc_suite/areas/<id>/__init__.py` con `ID`, `NOMBRE`, `rutas`
-   (Blueprint), `catalogo(config)`, `defaults(config)` y `al_arrancar(seccion)`.
-   `al_arrancar` se llama al montar la app, con la seccion de configuracion
-   del area: ahi es donde el area recarga lo que tenga guardado (el Excel
-   maestro, por ejemplo). No es opcional: todas las areas lo implementan.
+   (Blueprint), `catalogo(config)`, `defaults(config)`, `al_arrancar(seccion)`
+   y `estado_sesion()`. `al_arrancar` se llama al montar la app, con la seccion
+   de configuracion del area: ahi es donde el area se prepara para la sesion
+   (por ejemplo, vaciando su almacen: el Excel maestro no se guarda entre
+   arranques). `estado_sesion()` devuelve lo que el area tiene en la sesion
+   (el Excel cargado, por ejemplo) y lo sirve `GET /api/v1/sesion`. Ninguno de
+   los dos es opcional: todas las areas los implementan.
 2. Las rutas van en `backend/zc_suite/areas/<id>/rutas.py`, con el `Blueprint`
    del area. El `__init__.py` lo expone como `rutas`.
 3. Registra el area en la lista `AREAS` de `backend/zc_suite/nucleo/app/main.py`. No hay
@@ -203,6 +211,20 @@ ultimo `progress` y el ultimo `tia`.
 4. Frontend: `frontend/src/areas/<id>/index.js` exporta `{id, nombre, rutas,
    menu}`. El shell las recoge con `import.meta.glob`.
 5. Tests en `tests/areas/<id>/`.
+
+## La sesion
+
+El estado de la sesion (el PLC seleccionado y sus escaneos, y lo que cada
+area aporta) vive en la **memoria del backend**, en
+`backend/zc_suite/nucleo/sesion.py`. No se guarda nada en disco.
+
+- La SPA se hidrata al cargar con `GET /api/v1/sesion`. Un F5 no pierde nada.
+- Al cerrar la app, se pierde: cada arranque empieza en blanco.
+- Un escaneo deja de servir a los 5 minutos (`TTL_ESCANEO`): hay que
+  reescanear.
+- Al desconectar de TIA (o al perder el portal) los escaneos se invalidan.
+- Los stores del navegador solo reflejan lo que hay en el servidor. Nada de
+  `localStorage`.
 
 ## Anadir un tipo de dispositivo
 
@@ -221,6 +243,8 @@ ultimo `progress` y el ultimo `tia`.
 - El **almacen** guarda el modelo completo de cada fila. El `display_order`
   del `config.json` decide solo que columnas se ensenan; el `col_labels`
   del mismo catalogo decide como se titulan.
+- El almacen vive **en la memoria del backend**: no hay copia en disco. Cada
+  sesion de la app empieza sin Excel.
 - Una hoja o una tabla que no esta **no es un error**: el dominio sale
   vacio y el trabajo lleva un aviso.
 
@@ -232,7 +256,7 @@ ultimo `progress` y el ultimo `tia`.
 - Las funciones de dominio son puras y reciben kwargs explicitos. Sin
   singletons dentro de la logica.
 - Los modulos nativos de TIA no se importan nunca en el proceso principal: el
-  hilo de `tia.py` es su unico dueno.
+  hilo de `nucleo/tia/servicio.py` es su unico dueno.
 - Comentarios: contrato, restricciones y nombres no obvios. Nada de planes,
   fechas ni narrativas de refactor.
 - Nada de shims, re-exports ni alias "legacy". Si algo se llama distinto, se
@@ -241,9 +265,9 @@ ultimo `progress` y el ultimo `tia`.
 ## Tests
 
 - Backend: `pytest tests/`. Nombra el fichero como el modulo que prueba
-  (`tests/nucleo/test_tia.py`).
-- Frontend: `npm test` en `frontend/` (Vitest). Nombra el spec como la vista
-  (`vistas/Bloques.spec.js`).
+  (`nucleo/tia/servicio.py` -> `tests/nucleo/tia/test_servicio.py`).
+- Frontend: `npm test` en `frontend/` (Vitest). El spec va en `__tests__/` y se
+  llama como la vista (`vistas/Plc.vue` -> `__tests__/plc.spec.js`).
 - Mockea el portal con un doble de test propio (un objeto falso con
   `get_process_id`, `projects`, ...), nunca con el SDK real.
 - Los fixtures de `tests/fixtures/` se comparan byte a byte con lo que

@@ -12,9 +12,10 @@ contenido que la app sincroniza entre el Excel maestro y TIA Portal.
 
 - **Own:**
   - `backend/zc_suite/areas/<id>/` — `__init__.py` (`ID`, `NOMBRE`, `rutas`,
-    `catalogo(config)`, `defaults(config)`, `al_arrancar(seccion)`),
-    `rutas.py` (el Blueprint del area), `funciones/<dominio>/<verbo>.py` (un
-    trabajo por fichero) y el dominio puro (`excel/`, `dispositivos/`).
+    `catalogo(config)`, `defaults(config)`, `al_arrancar(seccion)`,
+    `estado_sesion()`), `rutas.py` (el Blueprint del area),
+    `funciones/<dominio>/<verbo>.py` (un trabajo por fichero) y el dominio
+    puro (`excel/`, `dispositivos/`).
   - `tests/areas/<id>/`.
 - **Don't own:** el nucleo y el hilo de TIA (`backend/zc_suite/nucleo/`, agente
   `nucleo`), las operaciones genericas contra TIA (agente `tia-ops`), el
@@ -23,9 +24,13 @@ contenido que la app sincroniza entre el Excel maestro y TIA Portal.
 ## How you work
 
 - **Contrato de un area:** `ID`, `NOMBRE`, `rutas` (Blueprint Flask),
-  `catalogo(config)`, `defaults(config)` y `al_arrancar(seccion)`. Se registra
-  en la lista `AREAS` de `backend/zc_suite/nucleo/app/main.py`. No hay registro
-  automatico, ni `AreaSpec`, ni ganchos opcionales.
+  `catalogo(config)`, `defaults(config)`, `al_arrancar(seccion)` y
+  `estado_sesion()`. Se registra en la lista `AREAS` de
+  `backend/zc_suite/nucleo/app/main.py`. No hay registro automatico, ni
+  `AreaSpec`, ni ganchos opcionales.
+- **El area no guarda nada en disco.** Lo que tiene (el Excel maestro) vive
+  en la memoria del backend, mientras la app esta abierta: `al_arrancar`
+  vacia el almacen y `estado_sesion()` devuelve lo que hay.
 - **Un trabajo = un fichero = una funcion.** En `funciones/<dominio>/` el
   fichero se llama como la funcion (`generar_prevision.py` ->
   `generar_prevision`). Solo esos ficheros reciben el `job`, declaran pasos y

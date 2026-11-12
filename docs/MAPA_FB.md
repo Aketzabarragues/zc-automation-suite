@@ -43,7 +43,7 @@ tenia en `main`.
 
 | FB en `main` | Donde vive ahora | Ruta HTTP | Store / vista | Pasos del faceplate | Estado |
 |---|---|---|---|---|---|
-| `subir_excel`<br>`areas/alimentacion/functions/function_excel_cargar.py` | `zc_suite/areas/alimentacion/funciones/excel/cargar.py::cargar` | `POST /api/v1/areas/alimentacion/excel` | `areas/alimentacion/stores/excel.js` -> `areas/alimentacion/vistas/DefinicionProgramacion.vue` | main: Parsear y volcar Excel<br>ahora: `validar`, `parsear`, `guardar`, `avisos` | **portado** |
+| `subir_excel`<br>`areas/alimentacion/functions/function_excel_cargar.py` | `zc_suite/areas/alimentacion/funciones/excel/cargar.py::cargar` | `POST /api/v1/areas/alimentacion/excel` | `areas/alimentacion/stores/excel.js` -> `areas/alimentacion/vistas/DefinicionProgramacion.vue` | main: Parsear y volcar Excel, Guardar la copia, Revisar los avisos<br>ahora: `validar`, `parsear`, `avisos` | **portado** |
 | `disp_generar_preview`<br>`areas/alimentacion/functions/function_disp_generar_preview.py` | `zc_suite/areas/alimentacion/funciones/dispositivos/generar_prevision.py::generar_prevision` | `POST /api/v1/areas/alimentacion/dispositivos/preview` | `areas/alimentacion/stores/dispositivos.js` -> `areas/alimentacion/vistas/Dispositivos.vue` | main: Exportar etiquetas, Calcular diferencias de dispositivos, Calcular diferencias de N_MAX, Componer respuesta<br>ahora: `exportar`, `dispositivos`, `n_max`, `componer` | **portado** |
 | `disp_sincronizar`<br>`areas/alimentacion/functions/function_disp_sincronizar.py` | `zc_suite/areas/alimentacion/funciones/dispositivos/sincronizar.py::sincronizar` (previsto) | (a escribir) | `areas/alimentacion/stores/dispositivos.js` -> `areas/alimentacion/vistas/Dispositivos.vue` | main: Exportar etiquetas, Calcular diferencias de dispositivos, Preparar operaciones, Aplicar N_MAX y renombres, Esperar consolidacion TIA, Re-exportar etiquetas, Editar archivos XML, Aplicar dispositivos, Compilar bloques, Aplicar comentarios, Generar preview post-sincronizacion<br>ahora: (a definir en la 4.3) | **pendiente** (fase 4.3) |
 | `entidades_generar_preview`<br>`areas/alimentacion/functions/function_entidades_generar_preview.py` | `zc_suite/areas/alimentacion/funciones/entidades/generar_prevision.py::generar_prevision` (previsto) | (a escribir) | (a escribir) | main: Exportar etiquetas y DB, Calcular diferencias de N_MAX_ENTIDAD, Calcular diferencias de constantes, Calcular diferencias de comentarios, Componer respuesta<br>ahora: (a definir) | **pendiente** (fase 4.4) |
@@ -76,10 +76,16 @@ la reescritura son trabajos, pero sin pasos:
 | Conectar: `POST /api/v1/portal/attach` | `zc_suite/nucleo/tia/servicio.py::conectar` | `POST /api/v1/tia/conectar` | `nucleo/stores/tia.js` -> `nucleo/vistas/Plc.vue` |
 | Desconectar: el `disconnect` del FB | `zc_suite/nucleo/tia/servicio.py::desconectar` | `POST /api/v1/tia/desconectar` | `nucleo/stores/tia.js` -> `nucleo/vistas/Plc.vue` |
 | Listar PLCs: `GET /api/v1/plcs` | `zc_suite/nucleo/funciones/plc/buscar_plcs.py::buscar_plcs` | `POST /api/v1/tia/plcs/listar` | `nucleo/stores/plc.js` -> `nucleo/vistas/Plc.vue` |
-| Recargar el Excel guardado | `zc_suite/areas/alimentacion/funciones/excel/recargar.py::recargar` | `POST /api/v1/areas/alimentacion/excel/recargar` | `areas/alimentacion/stores/excel.js` (la SPA recarga con un GET al subir) |
+| Seleccionar PLC: `loadAndApplyPlcBlocks` | `zc_suite/nucleo/web/rutas/plc.py::seleccionar` | `POST /api/v1/tia/plcs/seleccionar` | `nucleo/stores/plc.js` -> `nucleo/vistas/Plc.vue` |
+| Recargar el Excel guardado | (eliminado) | (eliminado) | (eliminado) |
 
-El catalogo de la SPA (`GET /api/v1/catalog`) y el estado de la conexion
-(`GET /api/v1/tia/estado`) no son trabajos: son lecturas.
+El Excel ya no se guarda en disco: cada sesion de la app empieza sin Excel y
+el volcado vive en la memoria del backend. Por eso no hay copia persistente
+ni ruta para recargarla.
+
+El catalogo de la SPA (`GET /api/v1/catalog`), el estado de la conexion
+(`GET /api/v1/tia/estado`) y el estado de la sesion
+(`GET /api/v1/sesion`) no son trabajos: son lecturas.
 
 ## Como se crea un trabajo nuevo
 

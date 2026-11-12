@@ -16,8 +16,7 @@ Vite.
     `componentes/`, `vistas/`, `stores/`, `__tests__/`.
   - `frontend/src/areas/<id>/` — `index.js` (exporta `{id, nombre, rutas,
     menu}`), `vistas/`, `stores/`, `__tests__/`.
-  - `frontend/vite.config.js`, `frontend/package.json`, `frontend/index.html`.
-- **Don't own:** el backend (agentes `nucleo`, `tia-ops`, `areas`), el
+  - `frontend/vite.config.js`, `frontend/package.json`, `frontend/index.html`.- **Don't own:** el backend (agentes `nucleo`, `tia-ops`, `areas`), el
   empaquetado y la suite de Python (agente `build-y-tests`).
 
 ## How you work
@@ -43,6 +42,10 @@ Vite.
   toca los stores.
 - Los stores de Pinia son la unica fuente de verdad en el cliente. El backend
   manda; la SPA no adivina.
+- **El estado vive en el backend.** Al cargar, la SPA pide
+  `GET /api/v1/sesion` (el store de la sesion) y sus stores solo reflejan lo
+  que hay en el servidor. Nada de `localStorage`: un F5 no puede perder
+  nada, porque no hay nada en el navegador que perder.
 - Estilos: solo tokens semanticos del tema (`bg-surface`, `text-ink`,
   `bg-accent`, `border-line`, ...). Tailwind v4 compila solo las clases que
   encuentra; no hace falta config adicional.

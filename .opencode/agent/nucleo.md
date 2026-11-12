@@ -21,6 +21,7 @@ con TIA Portal, el contrato de los trabajos, el bus de eventos y la capa HTTP.
     conectar y desconectar), `job.py` (`Job` y sus pasos), `transaccion.py`,
     `errores.py` (`TIAError` y los suyos), `eventos.py` (bus SSE y handler de
     logging), `workdir.py` (`.build_cache/<area>/<contexto>/`).
+  - `backend/zc_suite/nucleo/sesion.py` — el estado de la sesion, en memoria.
   - `backend/zc_suite/nucleo/funciones/` — los trabajos del nucleo, uno por
     fichero: `plc/{buscar_plcs,escanear}.py`, `bloques/{preparar,aplicar}.py`.
   - `backend/zc_suite/errores.py` — `ZCError` y `OperacionError`.
@@ -54,6 +55,13 @@ con TIA Portal, el contrato de los trabajos, el bus de eventos y la capa HTTP.
   `TIAError` cuelga de `ZCError` y son los propios de TIA.
 - El SSE es push, no polling. Al conectarse, un cliente recibe de inmediato el
   ultimo `progress` y el ultimo `tia`.
+- **La sesion vive en el backend, no en el navegador.** `Sesion` guarda los
+  PLCs, el PLC seleccionado y un escaneo por PLC (con su momento: a los 5
+  minutos deja de servir). `GET /api/v1/sesion` la sirve; `POST
+  /api/v1/tia/plcs/seleccionar` guarda la seleccion y escanea **una sola vez**
+  si el escaneo no esta fresco.
+- Al desconectar de TIA (o al perder el portal) los escaneos se invalidan:
+  `ServicioTIA.enganchar_perdida_tia(...)`.
 - Sin asyncio, sin timeouts que abandonen hilos, sin CDN.
 
 ## Stop when

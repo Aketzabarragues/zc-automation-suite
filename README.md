@@ -88,8 +88,8 @@ se puede lanzar con `run_build.bat`.
 
 El `.exe` de esta reescritura y el `.exe` de la app anterior **no pueden
 vivir en la misma carpeta**: los dos usan el puerto 9484 y escriben en las
-mismas carpetas de datos (`config/`, `excel/`, `logs/`, `.build_cache/`) con
-formatos distintos. Cada uno en la suya.
+mismas carpetas de datos (`config/`, `logs/`, `.build_cache/`) con formatos
+distintos. Cada uno en la suya.
 
 El `.exe` no necesita Python ni Node: la SPA va dentro. Los binarios de
 Siemens (el `.pyd` y las `.dll` del SDK de Openness) tambien van dentro, en
@@ -124,13 +124,28 @@ Sin TIA abierto, la app arranca igual: se ve la SPA, se puede subir el
 Excel maestro y se trabaja con la app en modo desconectado.
 
 Junto al `.exe` la app va creando sus datos: `config/` con el
-`config.json` del operario, `excel/` con la copia del Excel maestro,
-`logs/` con el log y `.build_cache/` con lo que va exportando de TIA. Nada
-de eso se guarda dentro del `.exe`: los datos del operario se pueden copiar
-de una maquina a otra sin tocar el ejecutable.
+`config.json` del operario, `logs/` con el log y `.build_cache/` con lo que va
+exportando de TIA. Nada de eso se guarda dentro del `.exe`: los datos del
+operario se pueden copiar de una maquina a otra sin tocar el ejecutable.
 
-Para llevar los datos a otra maquina, copia la carpeta del `.exe` entera
-(o solo `config/` y `excel/`).
+El Excel maestro **no** se guarda: vive en la memoria del backend mientras la
+app esta abierta. Para llevar los datos a otra maquina, copia la carpeta del
+`.exe` entera (o solo `config/`).
+
+## La sesion
+
+El estado de la sesion (el Excel cargado, el PLC seleccionado y su escaneo)
+vive en la memoria del backend:
+
+- Sobrevive a un F5 de la web: la SPA se hidrata al cargar con
+  `GET /api/v1/sesion`.
+- Se pierde al cerrar la app: cada arranque empieza en blanco, sin Excel y
+  sin escaneos.
+- Al desconectar de TIA (o al perder el portal) los escaneos se invalidan:
+  sus datos ya no son de fiar.
+
+Los stores del navegador solo reflejan lo que hay en el servidor. La SPA no
+guarda nada en `localStorage`.
 
 ## Estructura
 
@@ -138,7 +153,8 @@ Para llevar los datos a otra maquina, copia la carpeta del `.exe` entera
 backend/zc_suite/
   errores.py  el contrato de errores de la app
   nucleo/       app/ (arranque, config, log, bandeja), web/ (Flask y rutas),
-                tia/ (hilo, Job, transaccion), funciones/ (un trabajo por fichero)
+                tia/ (hilo, Job, transaccion), funciones/ (un trabajo por fichero),
+                sesion.py (el estado de la sesion, en memoria)
   tia_ops/      operaciones contra TIA Portal
   simatic/      ml/ (SimaticML), sd/ (SimaticSD)
   areas/        areas de negocio; el nucleo no las importa
