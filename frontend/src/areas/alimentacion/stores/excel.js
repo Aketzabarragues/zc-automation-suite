@@ -7,8 +7,8 @@
  * se recargan cuando el trabajo termina.
  */
 import { defineStore } from "pinia";
-import { pedir } from "../api.js";
-import { useTrabajosStore } from "./trabajos.js";
+import { pedir } from "../../../nucleo/api.js";
+import { useTrabajosStore } from "../../../nucleo/stores/trabajos.js";
 
 /** Ruta de los endpoints del Excel maestro. */
 export const RUTA_EXCEL = "/api/v1/areas/alimentacion/excel";

@@ -1,8 +1,8 @@
 import { flushPromises, mount } from "@vue/test-utils";
 import { createPinia, setActivePinia } from "pinia";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import DefinicionProgramacion from "../areas/alimentacion/vistas/DefinicionProgramacion.vue";
-import { useTrabajosStore } from "../stores/trabajos.js";
+import DefinicionProgramacion from "../vistas/DefinicionProgramacion.vue";
+import { useTrabajosStore } from "../../../nucleo/stores/trabajos.js";
 
 /** El Excel maestro que devuelve el backend. */
 const EXCEL = {

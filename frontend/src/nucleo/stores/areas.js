@@ -7,7 +7,7 @@
  * para todas las areas.
  */
 import { defineStore } from "pinia";
-import { AREAS, VISTAS } from "../areas/index.js";
+import { AREAS, VISTAS } from "../../areas/index.js";
 
 /** Vistas del shell, comunes a todas las areas. */
 export const VISTAS_SHELL = [

@@ -8,7 +8,7 @@
  * termina, asi que la vista se recarga sola.
  */
 import { computed, onMounted, ref, watch } from "vue";
-import { useExcelStore } from "../../../stores/excel.js";
+import { useExcelStore } from "../stores/excel.js";
 
 const excel = useExcelStore();
 

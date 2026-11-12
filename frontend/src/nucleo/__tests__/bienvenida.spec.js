@@ -1,7 +1,7 @@
 import { mount } from "@vue/test-utils";
 import { createPinia, setActivePinia } from "pinia";
 import { beforeEach, describe, expect, it } from "vitest";
-import Bienvenida from "../components/Bienvenida.vue";
+import Bienvenida from "../componentes/Bienvenida.vue";
 import { useAreasStore } from "../stores/areas.js";
 
 describe("Bienvenida", () => {

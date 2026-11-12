@@ -7,10 +7,10 @@
  * es la fase 4.3.
  */
 import { computed, onMounted, ref, watch } from "vue";
-import { DISP_STATUS, useDispositivosStore } from "../../../stores/dispositivos.js";
-import { useExcelStore } from "../../../stores/excel.js";
-import { usePlcStore } from "../../../stores/plc.js";
-import { useTiaStore } from "../../../stores/tia.js";
+import { DISP_STATUS, useDispositivosStore } from "../stores/dispositivos.js";
+import { useExcelStore } from "../stores/excel.js";
+import { usePlcStore } from "../../../nucleo/stores/plc.js";
+import { useTiaStore } from "../../../nucleo/stores/tia.js";
 
 const dispositivos = useDispositivosStore();
 const excel = useExcelStore();

@@ -13,7 +13,7 @@ export default {
   /** Prefijo de las rutas del area en el backend. */
   rutas: "/api/v1/areas/alimentacion",
   menu: [
-    { clave: "inicio", etiqueta: "Inicio", icono: "🏠", vista: "AreaInicio.vue" },
+    { clave: "inicio", etiqueta: "Inicio", icono: "🏠", vista: "Inicio.vue" },
     {
       clave: "def",
       etiqueta: "Definición programación",

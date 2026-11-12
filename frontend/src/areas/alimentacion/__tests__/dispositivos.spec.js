@@ -1,11 +1,11 @@
 import { flushPromises, mount } from "@vue/test-utils";
 import { createPinia, setActivePinia } from "pinia";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import Dispositivos from "../areas/alimentacion/vistas/Dispositivos.vue";
+import Dispositivos from "../vistas/Dispositivos.vue";
 import { useDispositivosStore } from "../stores/dispositivos.js";
 import { useExcelStore } from "../stores/excel.js";
-import { usePlcStore } from "../stores/plc.js";
-import { useTiaStore } from "../stores/tia.js";
+import { usePlcStore } from "../../../nucleo/stores/plc.js";
+import { useTiaStore } from "../../../nucleo/stores/tia.js";
 
 /** El catalogo del area, como lo sirve el backend. */
 const CATALOGO = {

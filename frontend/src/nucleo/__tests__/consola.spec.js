@@ -1,7 +1,7 @@
 import { mount } from "@vue/test-utils";
 import { createPinia, setActivePinia } from "pinia";
 import { beforeEach, describe, expect, it } from "vitest";
-import ConsolaLogs from "../components/ConsolaLogs.vue";
+import ConsolaLogs from "../componentes/ConsolaLogs.vue";
 import { useLogsStore } from "../stores/logs.js";
 
 describe("ConsolaLogs", () => {

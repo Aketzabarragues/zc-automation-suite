@@ -1,7 +1,7 @@
 import { mount } from "@vue/test-utils";
 import { createPinia, setActivePinia } from "pinia";
 import { beforeEach, describe, expect, it } from "vitest";
-import ShellSidebar from "../components/ShellSidebar.vue";
+import ShellSidebar from "../componentes/ShellSidebar.vue";
 import { useAreasStore } from "../stores/areas.js";
 
 describe("ShellSidebar", () => {

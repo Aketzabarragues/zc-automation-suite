@@ -6,13 +6,13 @@
  * area (barra lateral, barra superior, contenido y consola).
  */
 import { computed } from "vue";
-import Bienvenida from "./components/Bienvenida.vue";
-import ConsolaLogs from "./components/ConsolaLogs.vue";
-import ShellSidebar from "./components/ShellSidebar.vue";
-import ShellTopbar from "./components/ShellTopbar.vue";
-import EditorBloques from "./vistas/EditorBloques.vue";
-import VistaPlc from "./vistas/VistaPlc.vue";
-import { useAreasStore } from "./stores/areas.js";
+import Bienvenida from "./nucleo/componentes/Bienvenida.vue";
+import ConsolaLogs from "./nucleo/componentes/ConsolaLogs.vue";
+import ShellSidebar from "./nucleo/componentes/ShellSidebar.vue";
+import ShellTopbar from "./nucleo/componentes/ShellTopbar.vue";
+import EditorBloques from "./nucleo/vistas/EditorBloques.vue";
+import VistaPlc from "./nucleo/vistas/Plc.vue";
+import { useAreasStore } from "./nucleo/stores/areas.js";
 
 const areas = useAreasStore();
 

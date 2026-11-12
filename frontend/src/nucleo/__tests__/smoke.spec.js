@@ -1,7 +1,7 @@
 import { mount } from "@vue/test-utils";
 import { createPinia, setActivePinia } from "pinia";
 import { beforeEach, describe, expect, it } from "vitest";
-import App from "../App.vue";
+import App from "../../App.vue";
 import { useAreasStore } from "../stores/areas.js";
 
 describe("App", () => {

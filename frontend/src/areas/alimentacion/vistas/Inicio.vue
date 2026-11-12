@@ -6,7 +6,7 @@
  * implementadas avisan en la propia vista, con su aviso en rojo.
  */
 import { computed } from "vue";
-import { useAreasStore } from "../../../stores/areas.js";
+import { useAreasStore } from "../../../nucleo/stores/areas.js";
 
 const areas = useAreasStore();
 

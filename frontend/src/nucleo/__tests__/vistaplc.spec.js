@@ -1,7 +1,7 @@
 import { mount } from "@vue/test-utils";
 import { createPinia, setActivePinia } from "pinia";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import VistaPlc from "../vistas/VistaPlc.vue";
+import VistaPlc from "../vistas/Plc.vue";
 import { usePlcStore } from "../stores/plc.js";
 import { useTiaStore } from "../stores/tia.js";
 

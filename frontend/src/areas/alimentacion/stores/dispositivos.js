@@ -9,8 +9,8 @@
  * catalogo del backend (`GET /api/v1/catalog`), igual que en la app original.
  */
 import { defineStore } from "pinia";
-import { pedir } from "../api.js";
-import { useTrabajosStore } from "./trabajos.js";
+import { pedir } from "../../../nucleo/api.js";
+import { useTrabajosStore } from "../../../nucleo/stores/trabajos.js";
 
 /** Ruta del endpoint de la prevision. */
 export const RUTA_PREVIEW = "/api/v1/areas/alimentacion/dispositivos/preview";
