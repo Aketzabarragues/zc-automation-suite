@@ -3,6 +3,12 @@
 Los ficheros de ``tests/fixtures/expected/`` son la salida que produce el
 codigo de ``main`` con los mismos datos de entrada: la comparacion es byte a
 byte.
+
+TIA exporta con saltos CRLF y ``main`` escribe en Windows con CRLF, asi que
+los fixtures de ``expected/`` van con CRLF y ``.gitattributes`` los deja
+intactos (``tests/fixtures/** -text``). El XML de entrada se escribe con
+CRLF explicitos: ElementTree devuelve los saltos tal cual los lee, y sin
+fijarlos la salida cambiaria entre sistemas.
 """
 from __future__ import annotations
 
@@ -20,6 +26,9 @@ ORIGEN = Path(__file__).resolve().parents[1] / "fixtures" / "source" / "Bloques"
 
 #: Las salidas que produce ``main`` con esos datos.
 ESPERADO = Path(__file__).resolve().parents[1] / "fixtures" / "expected"
+
+#: Los saltos de linea de los ficheros de TIA.
+NEWLINE = "\r\n"
 
 #: El XML de la tabla de constantes de usuario.
 XML_ENTRADA = (
@@ -111,7 +120,7 @@ def test_inyectar_un_slot_sale_byte_a_byte_como_en_main(
 def test_anadir_constantes_sale_byte_a_byte_como_en_main(tmp_path: Path) -> None:
     """El modificador de constantes de usuario sale igual que en ``main``."""
     ruta_xml = tmp_path / "2000_Disp_ED.xml"
-    ruta_xml.write_text(XML_ENTRADA, encoding="utf-8")
+    ruta_xml.write_text(XML_ENTRADA, encoding="utf-8", newline=NEWLINE)
     modificador = ModificadorConstantesUsuario(ruta_xml)
 
     modificador.anadir_constantes_de_tabla(

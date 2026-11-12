@@ -13,3 +13,7 @@
 *.exe binary
 *.whl binary
 *.so binary
+
+# Los fixtures se comparan byte a byte con lo que produce la app: git no
+# debe tocar sus saltos de linea.
+tests/fixtures/** -text

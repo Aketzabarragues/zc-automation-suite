@@ -82,6 +82,10 @@ _logger = logging.getLogger(__name__)
 # ``utf-8-sig`` para que el BOM no contamine los strings.
 SD_ENCODING = "utf-8-sig"
 
+# TIA exporta con saltos CRLF. Se escriben siempre con CRLF, en cualquier
+# sistema operativo, para que el resultado no dependa de la maquina.
+SD_NEWLINE = "\r\n"
+
 
 # Regex a nivel de modulo para encontrar TODAS las asignaciones de un
 # array (usado por ``indices_de_array``). Captura array name y indice.
@@ -416,10 +420,11 @@ def confirmar_comentarios_array(
     else:
         out_dcl = dcl_path.parent / f"modificado_{dcl_path.name}"
         out_res = res_path.parent / f"modificado_{res_path.name}"
-    out_dcl.write_text(dcl_text, encoding=SD_ENCODING)
+    out_dcl.write_text(dcl_text, encoding=SD_ENCODING, newline=SD_NEWLINE)
     out_res.write_text(
         yaml.dump(res_data, allow_unicode=True, sort_keys=False),
         encoding=SD_ENCODING,
+        newline=SD_NEWLINE,
     )
 
     _logger.debug(
