@@ -939,13 +939,14 @@ class Entorno:
         self.modelo = modelo
         self.eventos = eventos
 
-    def prevision(self) -> dict[str, Any]:
+    def prevision(self, sesion: Any = None) -> dict[str, Any]:
         """Lanza la prevision y devuelve su resultado."""
         job_id = self.servicio.lanzar(
             modulo_prevision.generar_prevision,
             plc=NOMBRE_PLC,
             almacen=self.almacen,
             config=self.modelo,
+            sesion=sesion,
         )
         evento = self._esperar(job_id)
         assert evento["estado"] == "ok", evento.get("error")

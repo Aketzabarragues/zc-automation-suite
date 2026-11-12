@@ -23,6 +23,7 @@ from zc_suite.areas.alimentacion.funciones.dispositivos.generar_prevision import
     generar_prevision,
 )
 from zc_suite.areas.alimentacion.funciones.excel.cargar import cargar
+from zc_suite.nucleo.sesion import CLAVE_SESION, Sesion
 from zc_suite.nucleo.web.app import HTTPError, lanzar, servicio
 
 logger = logging.getLogger(__name__)
@@ -67,7 +68,7 @@ def subir_excel() -> tuple[Response, int]:
         return jsonify({"error": "El fichero es demasiado grande (maximo 20 MB)."}), 400
 
     ruta = _guardar(contenido, nombre, sufijo)
-    return lanzar(cargar, ruta=str(ruta), almacen=_almacen())
+    return lanzar(cargar, ruta=str(ruta), almacen=_almacen(), sesion=_sesion())
 
 
 @rutas.post("/dispositivos/preview")
@@ -97,6 +98,7 @@ def preview_dispositivos() -> tuple[Response, int]:
         plc=plc,
         almacen=almacen,
         config=almacen.config,
+        sesion=_sesion(),
     )
 
 
@@ -110,6 +112,11 @@ def _almacen() -> AlmacenExcel:
     if valor is None:
         raise HTTPError("El almacen del Excel del area no esta registrado.", 500)
     return valor
+
+
+def _sesion() -> Sesion | None:
+    """La sesion del backend, o ``None`` si la app no la registra (tests)."""
+    return current_app.config.get(CLAVE_SESION)
 
 
 def _guardar(contenido: bytes, nombre: str, sufijo: str) -> Path:

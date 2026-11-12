@@ -15,9 +15,14 @@ from pathlib import Path
 from typing import Any
 
 from zc_suite.areas.alimentacion.excel import almacen as modulo_almacen
+from zc_suite.areas.alimentacion.dispositivos import CLAVE_PREVISION
 from zc_suite.areas.alimentacion.excel.almacen import AlmacenExcel
+from zc_suite.nucleo.sesion import Sesion
 from zc_suite.errores import OperacionError
 from zc_suite.nucleo.tia.job import Job
+
+#: Identificador del area.
+AREA = "alimentacion"
 
 logger = logging.getLogger(__name__)
 
@@ -25,13 +30,20 @@ logger = logging.getLogger(__name__)
 PREFIJO_TEMPORAL = "zc_excel_"
 
 
-def cargar(job: Job, ruta: str, almacen: AlmacenExcel) -> dict[str, Any]:
+def cargar(
+    job: Job,
+    ruta: str,
+    almacen: AlmacenExcel,
+    sesion: Sesion | None = None,
+) -> dict[str, Any]:
     """Parsea el fichero indicado y lo deja en la cache del area.
 
     Args:
         job: el trabajo en curso.
         ruta: el fichero ``.xlsx`` o ``.xlsm`` a parsear.
         almacen: la cache del area.
+        sesion: la sesion del backend. Un Excel nuevo deja sin valor la
+            prevision de dispositivos guardada, asi que se borra.
 
     Returns:
         ``{"archivo", "cargado_en", "plcs", "filas", "avisos"}``.
@@ -56,6 +68,9 @@ def cargar(job: Job, ruta: str, almacen: AlmacenExcel) -> dict[str, Any]:
             paso["detail"] = f"{len(datos['plcs'])} PLCs"
     finally:
         _limpiar_temporal(fichero)
+
+    if sesion is not None:
+        sesion.borrar_dato_area(AREA, CLAVE_PREVISION)
 
     avisos = modulo_almacen.avisos(almacen)
     with job.paso("avisos") as paso:

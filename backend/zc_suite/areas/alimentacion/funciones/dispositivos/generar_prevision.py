@@ -25,7 +25,9 @@ from zc_suite.areas.alimentacion.dispositivos.diferencias import (
     disp_calcular_diff_n_max,
     disp_calcular_diff_tabla,
 )
+from zc_suite.areas.alimentacion.dispositivos import CLAVE_PREVISION
 from zc_suite.areas.alimentacion.excel.almacen import AlmacenExcel
+from zc_suite.nucleo.sesion import Sesion
 from zc_suite.nucleo.tia.job import Job
 from zc_suite.nucleo.tia.workdir import workdir
 from zc_suite.tia_ops.exportar import exportar_tablas
@@ -98,6 +100,7 @@ def generar_prevision(
     plc: str,
     almacen: AlmacenExcel,
     config: ConfigArea,
+    sesion: Sesion | None = None,
 ) -> dict[str, Any]:
     """Exporta del PLC y calcula el diff de los dispositivos contra el Excel.
 
@@ -106,6 +109,8 @@ def generar_prevision(
         plc: el PLC cuyos dispositivos se comparan.
         almacen: la cache del Excel maestro.
         config: el modelo del area.
+        sesion: la sesion del backend. La prevision se guarda en ella para
+            que sobreviva a un F5 (como ``preview_disp`` en main).
 
     Returns:
         El shape que consume la SPA: ``agregados``, ``eliminados``,
@@ -199,6 +204,8 @@ def generar_prevision(
         resultado = componer_respuesta(diffs, diff_n_max, tabla_n_max, destino_config)
         paso["detail"] = f"{resultado['summary']['total']} entradas en la vista unificada"
 
+    if sesion is not None:
+        sesion.guardar_dato_area(AREA, CLAVE_PREVISION, {"plc": plc, "resultado": resultado})
     return resultado
 
 

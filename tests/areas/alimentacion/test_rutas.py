@@ -283,3 +283,30 @@ def test_el_trabajo_avisa_de_los_dominios_sin_tabla(
 
 def test_el_tamano_maximo_por_defecto_es_de_20_mb() -> None:
     assert TAMANO_MAXIMO == 20 * 1024 * 1024
+
+
+def test_subir_otro_excel_borra_la_prevision_guardada(
+    app: Any,
+    cliente: Any,
+    eventos: list[tuple[str, dict[str, Any]]],
+    excel_maestro: Path,
+) -> None:
+    """La prevision guardada era del Excel anterior: deja de valer."""
+    from zc_suite.areas.alimentacion.dispositivos import CLAVE_PREVISION
+    from zc_suite.nucleo.sesion import CLAVE_SESION, Sesion
+
+    sesion = Sesion()
+    sesion.guardar_dato_area("alimentacion", CLAVE_PREVISION, {"plc": "ZC_PLC_STD"})
+    app.config[CLAVE_SESION] = sesion
+
+    with excel_maestro.open("rb") as fichero:
+        respuesta = cliente.post(
+            "/api/v1/areas/alimentacion/excel",
+            data={"fichero": (fichero, "Maestro_ZC_PLC_STD.xlsx")},
+            base_url=BASE,
+            headers={"Origin": BASE},
+        )
+    evento = _esperar_job(eventos, respuesta.get_json()["job_id"])
+
+    assert evento["estado"] == "ok"
+    assert CLAVE_PREVISION not in sesion.datos_area("alimentacion")

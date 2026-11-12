@@ -154,3 +154,16 @@ def test_avisa_si_no_hay_tablas_que_exportar(entorno_disp: Any) -> None:
     ]
 
     assert any("No hay tablas de dispositivos que exportar" in aviso for aviso in avisos)
+
+
+def test_la_prevision_queda_en_la_sesion(entorno_disp: Any) -> None:
+    """Como ``preview_disp`` en main: la prevision sobrevive a un F5."""
+    from zc_suite.areas.alimentacion.dispositivos import CLAVE_PREVISION
+    from zc_suite.nucleo.sesion import Sesion
+
+    sesion = Sesion()
+    resultado = entorno_disp.prevision(sesion=sesion)
+
+    guardada = sesion.datos_area("alimentacion")[CLAVE_PREVISION]
+    assert guardada["plc"] == "ZC_PLC_STD"
+    assert guardada["resultado"] == resultado
