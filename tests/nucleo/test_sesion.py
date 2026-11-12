@@ -105,20 +105,6 @@ def test_el_estado_marca_el_escaneo_caducado() -> None:
     assert estado["escaneo"]["plc"] == "ZC_PLC_STD"
 
 
-def test_invalidar_los_escaneos_los_borra() -> None:
-    """Al desconectar de TIA los escaneos dejan de servir."""
-    sesion = _sesion()
-    sesion.seleccionar("ZC_PLC_STD")
-    sesion.guardar_escaneo("ZC_PLC_STD", [], [], [])
-
-    sesion.invalidar_escaneos()
-
-    assert sesion.escaneo("ZC_PLC_STD") is None
-    assert sesion.escaneo_fresco("ZC_PLC_STD") is None
-    # La seleccion y la lista de PLCs no se tocan: siguen siendo validas.
-    assert sesion.seleccionado == "ZC_PLC_STD"
-
-
 def test_vaciar_deja_la_sesion_en_blanco() -> None:
     """Reiniciar la app vacia la sesion entera."""
     sesion = _sesion()
@@ -142,3 +128,73 @@ def test_el_escaneo_parte_de_listas_vacias() -> None:
     assert escaneo.bloques == []
     assert escaneo.caducado() is False
     assert escaneo.estado()["plc"] == "ZC_PLC_STD"
+
+
+# ── perder TIA y datos de las areas (como main: resetPlcState) ──────────────
+
+
+def _sesion_con_todo() -> Sesion:
+    """Una sesion con PLCs, seleccion, escaneo y un dato de area."""
+    sesion = _sesion()
+    sesion.guardar_plcs([{"nombre": "ZC_PLC_STD"}], {"nombre": "P", "ruta": "R"})
+    sesion.seleccionar("ZC_PLC_STD")
+    sesion.guardar_escaneo("ZC_PLC_STD", [{"nombre": "OB1"}], [], [])
+    sesion.guardar_dato_area("area_x", "prevision", {"plc": "ZC_PLC_STD"})
+    return sesion
+
+
+def test_perder_tia_vacia_todo_lo_que_dependia_de_tia() -> None:
+    """Al desconectar o perder el portal: sin PLCs, sin seleccion, sin escaneos ni datos de area."""
+    sesion = _sesion_con_todo()
+
+    sesion.perder_tia()
+
+    estado = sesion.estado()
+    assert estado["plcs"] == []
+    assert estado["proyecto"] is None
+    assert estado["plc_seleccionado"] == ""
+    assert estado["escaneo"] is None
+    assert sesion.escaneo("ZC_PLC_STD") is None
+    assert sesion.datos_area("area_x") == {}
+
+
+def test_cambiar_de_plc_borra_los_datos_de_las_areas() -> None:
+    """Los datos de un area eran del PLC anterior."""
+    sesion = _sesion_con_todo()
+
+    sesion.seleccionar("OTRO_PLC")
+
+    assert sesion.datos_area("area_x") == {}
+
+
+def test_deseleccionar_borra_los_datos_de_las_areas() -> None:
+    sesion = _sesion_con_todo()
+
+    sesion.seleccionar("")
+
+    assert sesion.datos_area("area_x") == {}
+
+
+def test_volver_a_seleccionar_el_mismo_plc_conserva_los_datos() -> None:
+    sesion = _sesion_con_todo()
+
+    sesion.seleccionar("ZC_PLC_STD")
+
+    assert sesion.datos_area("area_x") == {"prevision": {"plc": "ZC_PLC_STD"}}
+
+
+def test_borrar_un_dato_de_area() -> None:
+    sesion = _sesion_con_todo()
+
+    sesion.borrar_dato_area("area_x", "prevision")
+    sesion.borrar_dato_area("area_que_no_existe", "prevision")
+
+    assert sesion.datos_area("area_x") == {}
+
+
+def test_vaciar_borra_los_datos_de_las_areas() -> None:
+    sesion = _sesion_con_todo()
+
+    sesion.vaciar()
+
+    assert sesion.datos_area("area_x") == {}

@@ -233,9 +233,9 @@ def arrancar(
     bus = BusEventos()
     sesion = Sesion()
     servicio = ServicioTIA(publicador=bus.publicar)
-    # Al desconectar o al perder el portal, los escaneos dejan de servir:
-    # sus datos ya no son de fiar.
-    servicio.enganchar_perdida_tia(sesion.invalidar_escaneos)
+    # Al desconectar o al perder el portal se vacia lo que dependia de TIA:
+    # PLCs, seleccion, escaneos y datos de las areas (como main).
+    servicio.enganchar_perdida_tia(sesion.perder_tia)
     servicio.arrancar()
     app = montar_app(servicio, bus, desarrollo=desarrollo, puerto=puerto, sesion=sesion)
     url = f"http://{host}:{puerto}"

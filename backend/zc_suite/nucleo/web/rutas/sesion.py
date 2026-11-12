@@ -22,10 +22,11 @@ rutas = Blueprint("sesion", __name__, url_prefix="/api/v1")
 @rutas.get("/sesion")
 def estado_sesion() -> Response:
     """El estado de la sesion: lo que la SPA necesita para hidratarse."""
-    estado = _sesion().estado()
+    sesion = _sesion()
+    estado = sesion.estado()
     estado["tia"] = servicio().estado()
     estado["areas"] = {
-        id_area: obtener()
+        id_area: {**obtener(), **sesion.datos_area(id_area)}
         for id_area, obtener in current_app.config.get(CLAVE_SESION_AREAS, {}).items()
     }
     return jsonify(estado)

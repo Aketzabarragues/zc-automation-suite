@@ -138,3 +138,13 @@ def test_reiniciar_la_app_deja_la_sesion_en_blanco(sesion: Sesion) -> None:
 def test_la_app_registra_la_sesion(app: Flask, sesion: Sesion) -> None:
     """La sesion es una dependencia de la app, como el hilo de TIA."""
     assert app.config[CLAVE_SESION] is sesion
+
+
+def test_la_sesion_junta_los_datos_de_area_con_lo_del_area(app: Flask, sesion: Sesion) -> None:
+    """Lo que un area guarda en la sesion (su prevision) sale junto a lo suyo."""
+    sesion.guardar_dato_area("alimentacion", "prevision_dispositivos", {"plc": "ZC_PLC_STD"})
+
+    estado = _estado(app.test_client())
+
+    assert "excel" in estado["areas"]["alimentacion"]
+    assert estado["areas"]["alimentacion"]["prevision_dispositivos"] == {"plc": "ZC_PLC_STD"}

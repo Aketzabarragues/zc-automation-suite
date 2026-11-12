@@ -72,8 +72,12 @@ class Sesion:
     """El estado de la sesion: los PLCs, la seleccion y los escaneos.
 
     La sesion empieza vacia y se vacia al cerrar la app. Al desconectar de
-    TIA (o al perder el portal) se invalidan los escaneos: sus datos ya no
-    son de fiar.
+    TIA (o al perder el portal) se vacia todo lo que dependia de la conexion:
+    PLCs, seleccion, escaneos y los datos de las areas (como main:
+    ``resetPlcState`` y ``area_clear_disp_preview``).
+
+    Los datos de un area (por ejemplo su ultima prevision) van ligados al PLC
+    seleccionado: al cambiar de PLC se borran.
     """
 
     def __init__(self) -> None:
@@ -82,6 +86,7 @@ class Sesion:
         self._proyecto: dict[str, Any] | None = None
         self._seleccionado: str = ""
         self._escaneos: dict[str, Escaneo] = {}
+        self._datos_area: dict[str, dict[str, Any]] = {}
 
     # ── PLCs ─────────────────────────────────────────────────────────────
 
@@ -117,10 +122,15 @@ class Sesion:
     def seleccionar(self, plc: str) -> None:
         """Guarda el PLC seleccionado.
 
+        Cambiar de PLC (o deseleccionar) borra los datos de las areas: eran
+        del PLC anterior.
+
         Args:
             plc: el nombre del PLC. Vacio para deseleccionar.
         """
         with self._lock:
+            if plc != self._seleccionado:
+                self._datos_area.clear()
             self._seleccionado = plc
 
     @property
@@ -197,14 +207,43 @@ class Sesion:
             return None
         return escaneo
 
-    def invalidar_escaneos(self) -> None:
-        """Invalida todos los escaneos.
+    def perder_tia(self) -> None:
+        """Vacia lo que dependia de la conexion con TIA.
 
-        Se llama al desconectar de TIA y al perder el portal: sus datos ya
-        no son de fiar.
+        Se llama al desconectar y al perder el portal: los PLCs, la
+        seleccion, los escaneos y los datos de las areas ya no son de fiar.
+        Lo que cada area guarda por su cuenta (lo que no depende de TIA)
+        no se toca.
         """
         with self._lock:
+            self._plcs = []
+            self._proyecto = None
+            self._seleccionado = ""
             self._escaneos.clear()
+            self._datos_area.clear()
+
+    # ── datos de las areas ───────────────────────────────────────────────
+
+    def guardar_dato_area(self, area: str, clave: str, valor: Any) -> None:
+        """Guarda un dato de un area en la sesion (por ejemplo su prevision).
+
+        Args:
+            area: identificador del area.
+            clave: nombre del dato.
+            valor: el dato, en tipos primitivos.
+        """
+        with self._lock:
+            self._datos_area.setdefault(area, {})[clave] = valor
+
+    def borrar_dato_area(self, area: str, clave: str) -> None:
+        """Borra un dato de un area, si lo tiene."""
+        with self._lock:
+            self._datos_area.get(area, {}).pop(clave, None)
+
+    def datos_area(self, area: str) -> dict[str, Any]:
+        """Los datos que un area tiene en la sesion."""
+        with self._lock:
+            return dict(self._datos_area.get(area, {}))
 
     # ── ciclo de vida ────────────────────────────────────────────────────
 
@@ -218,6 +257,7 @@ class Sesion:
             self._proyecto = None
             self._seleccionado = ""
             self._escaneos.clear()
+            self._datos_area.clear()
 
     # ── lo que ve la SPA ─────────────────────────────────────────────────
 
