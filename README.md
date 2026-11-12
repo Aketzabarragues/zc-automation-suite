@@ -86,6 +86,11 @@ genera `dist/zc_automation_suite.exe`, un unico fichero.
 Si falta algo, el build para con un mensaje que dice que. En Windows tambien
 se puede lanzar con `run_build.bat`.
 
+El `.exe` de esta reescritura y el `.exe` de la app anterior **no pueden
+vivir en la misma carpeta**: los dos usan el puerto 9484 y escriben en las
+mismas carpetas de datos (`config/`, `excel/`, `logs/`, `.build_cache/`) con
+formatos distintos. Cada uno en la suya.
+
 El `.exe` no necesita Python ni Node: la SPA va dentro. Los binarios de
 Siemens (el `.pyd` y las `.dll` del SDK de Openness) tambien van dentro, en
 la raiz del bundle: salen de la wheel instalada, de la misma carpeta donde
