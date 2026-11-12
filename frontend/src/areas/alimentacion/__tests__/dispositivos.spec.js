@@ -5,6 +5,7 @@ import Dispositivos from "../vistas/Dispositivos.vue";
 import { useDispositivosStore } from "../stores/dispositivos.js";
 import { useExcelStore } from "../stores/excel.js";
 import { usePlcStore } from "../../../nucleo/stores/plc.js";
+import { useSesionStore } from "../../../nucleo/stores/sesion.js";
 import { useTiaStore } from "../../../nucleo/stores/tia.js";
 
 /** El catalogo del area, como lo sirve el backend. */
@@ -97,6 +98,19 @@ function montar() {
 }
 
 /**
+ * Monta la vista con una prevision vigente: la del PLC seleccionado y con
+ * TIA conectado.
+ */
+function montarConPrevision() {
+  const montado = montar();
+  montado.tia.conectado = true;
+  montado.plc.seleccionado = "ZC_PLC_STD";
+  montado.dispositivos.preview = PREVISION;
+  montado.dispositivos.previewPlc = "ZC_PLC_STD";
+  return montado;
+}
+
+/**
  * Los numeros de la primera columna de la tabla.
  *
  * @param {object} wrapper la vista montada.
@@ -146,8 +160,7 @@ describe("Dispositivos", () => {
   });
 
   it("con prevision enseña el resumen, las pestañas y el diff", async () => {
-    const { wrapper, dispositivos } = montar();
-    dispositivos.preview = PREVISION;
+    const { wrapper, dispositivos } = montarConPrevision();
     await flushPromises();
 
     const resumen = wrapper.find('[data-testid="dispositivos-resumen"]');
@@ -159,8 +172,7 @@ describe("Dispositivos", () => {
   });
 
   it("las pestañas salen del catalogo, con su etiqueta y su contador", async () => {
-    const { wrapper, dispositivos } = montar();
-    dispositivos.preview = PREVISION;
+    const { wrapper, dispositivos } = montarConPrevision();
     await flushPromises();
 
     const pestana = wrapper.find('[data-testid="dispositivos-tipo-ed"]');
@@ -171,8 +183,7 @@ describe("Dispositivos", () => {
   });
 
   it("las filas salen con el estado y el color de cada caso", async () => {
-    const { wrapper, dispositivos } = montar();
-    dispositivos.preview = PREVISION;
+    const { wrapper, dispositivos } = montarConPrevision();
     await flushPromises();
 
     const tabla = wrapper.find('[data-testid="dispositivos-tabla"]');
@@ -184,16 +195,14 @@ describe("Dispositivos", () => {
   });
 
   it("las filas salen ordenadas por numero", async () => {
-    const { wrapper, dispositivos } = montar();
-    dispositivos.preview = PREVISION;
+    const { wrapper, dispositivos } = montarConPrevision();
     await flushPromises();
 
     expect(numeros(wrapper)).toEqual(["1", "2", "3", "9"]);
   });
 
   it("la fila a eliminar enseña el valor actual tachado y en rojo", async () => {
-    const { wrapper, dispositivos } = montar();
-    dispositivos.preview = PREVISION;
+    const { wrapper, dispositivos } = montarConPrevision();
     await flushPromises();
 
     const fila = wrapper.findAll('[data-testid="dispositivos-tabla"] tbody tr')[2];
@@ -204,8 +213,7 @@ describe("Dispositivos", () => {
   });
 
   it("una pestaña sin dispositivos avisa", async () => {
-    const { wrapper, dispositivos } = montar();
-    dispositivos.preview = PREVISION;
+    const { wrapper, dispositivos } = montarConPrevision();
     await flushPromises();
 
     await wrapper.find('[data-testid="dispositivos-tipo-ea"]').trigger("click");
@@ -217,8 +225,7 @@ describe("Dispositivos", () => {
   });
 
   it("las tarjetas de N_MAX salen todas, con la etiqueta del catalogo", async () => {
-    const { wrapper, dispositivos } = montar();
-    dispositivos.preview = PREVISION;
+    const { wrapper, dispositivos } = montarConPrevision();
     await flushPromises();
 
     const tarjetas = wrapper.find('[data-testid="dispositivos-nmax"]');
@@ -229,12 +236,65 @@ describe("Dispositivos", () => {
   });
 
   it("el boton de aplicar dice que esta pendiente y no hace nada", async () => {
-    const { wrapper, dispositivos } = montar();
-    dispositivos.preview = PREVISION;
+    const { wrapper, dispositivos } = montarConPrevision();
     await flushPromises();
 
     const boton = wrapper.find('[data-testid="dispositivos-aplicar"]');
     expect(boton.text()).toContain("Pendiente (fase 4.3)");
     expect(boton.attributes("disabled")).toBeDefined();
+  });
+
+  it("subir el Excel y entrar en Dispositivos no pisa el Excel con la foto de la sesion", async () => {
+    const pinia = createPinia();
+    setActivePinia(pinia);
+    // La foto de la sesion es de cuando se cargo la pagina: sin Excel.
+    useSesionStore().estado = { areas: { alimentacion: { excel: { cargado: false } } } };
+    const excel = useExcelStore();
+    excel.aplicar({ cargado: true, archivo: "Maestro.xlsm" });
+    const tia = useTiaStore();
+    tia.conectado = true;
+    usePlcStore().seleccionado = "ZC_PLC_STD";
+
+    const wrapper = mount(Dispositivos, { global: { plugins: [pinia] } });
+    await flushPromises();
+
+    expect(excel.cargado).toBe(true);
+    expect(
+      wrapper.find('[data-testid="dispositivos-generar"]').attributes("disabled"),
+    ).toBeUndefined();
+  });
+
+  it("la prevision guardada en la sesion se ve tras un F5", async () => {
+    const pinia = createPinia();
+    setActivePinia(pinia);
+    useSesionStore().estado = {
+      areas: {
+        alimentacion: { prevision_dispositivos: { plc: "ZC_PLC_STD", resultado: PREVISION } },
+      },
+    };
+    useTiaStore().conectado = true;
+    usePlcStore().seleccionado = "ZC_PLC_STD";
+
+    const wrapper = mount(Dispositivos, { global: { plugins: [pinia] } });
+    await flushPromises();
+
+    expect(wrapper.find('[data-testid="dispositivos-tabla"]').exists()).toBe(true);
+  });
+
+  it("la prevision de otro PLC no se ve", async () => {
+    const { wrapper, plc } = montarConPrevision();
+    plc.seleccionado = "OTRO_PLC";
+    await flushPromises();
+
+    expect(wrapper.find('[data-testid="dispositivos-tabla"]').exists()).toBe(false);
+    expect(wrapper.find('[data-testid="dispositivos-vacio"]').exists()).toBe(true);
+  });
+
+  it("sin TIA la prevision no se ve", async () => {
+    const { wrapper, tia } = montarConPrevision();
+    tia.conectado = false;
+    await flushPromises();
+
+    expect(wrapper.find('[data-testid="dispositivos-tabla"]').exists()).toBe(false);
   });
 });

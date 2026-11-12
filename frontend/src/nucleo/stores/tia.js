@@ -53,7 +53,14 @@ export const useTiaStore = defineStore("tia", {
      * @param {object} evento el evento.
      */
     aplicar(evento) {
+      const estabaConectado = this.conectado;
       this.aplicarSesion(evento);
+      if (estabaConectado && !this.conectado && !this.demo) {
+        // Se ha perdido TIA (o se ha desconectado): los PLCs, la seleccion y
+        // el escaneo ya no valen. El backend ya los ha vaciado; aqui se
+        // refleja (como main: resetPlcState).
+        usePlcStore().vaciar();
+      }
       if (this.demo && this.conectado) {
         // En el demo, conectar es buscar los PLCs: los datos simulados.
         usePlcStore().buscarPlcs();

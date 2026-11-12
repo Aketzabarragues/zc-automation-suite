@@ -86,4 +86,30 @@ describe("store de la sesion", () => {
     expect(window.localStorage.length).toBe(0);
     expect(window.sessionStorage.length).toBe(0);
   });
+
+  it("perder TIA vacia los PLCs, la seleccion y el escaneo (como main: resetPlcState)", () => {
+    const tia = useTiaStore();
+    const plc = usePlcStore();
+    tia.aplicar({ conectado: true });
+    plc.plcs = [{ nombre: "ZC_PLC_STD" }];
+    plc.seleccionado = "ZC_PLC_STD";
+    plc.bloques = [{ nombre: "OB1_MAIN" }];
+
+    tia.aplicar({ conectado: false, ultimo_error: "TIA Portal se ha cerrado o no responde" });
+
+    expect(plc.plcs).toEqual([]);
+    expect(plc.seleccionado).toBe("");
+    expect(plc.bloques).toEqual([]);
+  });
+
+  it("un evento tia sin cambio de conexion no vacia el PLC", () => {
+    const tia = useTiaStore();
+    const plc = usePlcStore();
+    tia.aplicar({ conectado: true });
+    plc.seleccionado = "ZC_PLC_STD";
+
+    tia.aplicar({ conectado: true, trabajo_actual: "escanear" });
+
+    expect(plc.seleccionado).toBe("ZC_PLC_STD");
+  });
 });

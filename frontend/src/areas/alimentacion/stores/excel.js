@@ -12,6 +12,7 @@ import { defineStore } from "pinia";
 import { pedir } from "../../../nucleo/api.js";
 import { useSesionStore } from "../../../nucleo/stores/sesion.js";
 import { useTrabajosStore } from "../../../nucleo/stores/trabajos.js";
+import { useDispositivosStore } from "./dispositivos.js";
 
 /** Ruta de los endpoints del Excel maestro. */
 export const RUTA_EXCEL = "/api/v1/areas/alimentacion/excel";
@@ -33,6 +34,11 @@ export const useExcelStore = defineStore("excel", {
     error: null,
     /** `true` mientras se sube un fichero. */
     subiendo: false,
+    /**
+     * `true` cuando el store ya tiene el Excel de la sesion. La foto de la
+     * sesion solo se aplica una vez: despues mandan los trabajos.
+     */
+    hidratado: false,
   }),
 
   getters: {
@@ -80,15 +86,19 @@ export const useExcelStore = defineStore("excel", {
       this.cargadoEn = datos.cargado_en || null;
       this.datos = datos || null;
       this.error = null;
+      this.hidratado = true;
     },
 
     /**
-     * Carga el Excel de la sesion.
+     * Carga el Excel de la sesion, una sola vez.
      *
-     * Si la SPA ya se hidrató, el Excel viene en el estado de la sesion; si
-     * no, se pide al backend.
+     * La foto de `GET /api/v1/sesion` es la de cuando se cargo la pagina: si
+     * se aplicara cada vez que se monta una vista, pisaria un Excel subido
+     * despues. Por eso solo se aplica si el store aun no tiene nada; a partir
+     * de ahi, el Excel lo actualiza la subida.
      */
     async hidratar() {
+      if (this.hidratado) return;
       const sesion = useSesionStore();
       const estado = sesion.area(ID_AREA);
       if (estado && estado.excel) {
@@ -159,6 +169,8 @@ export const useExcelStore = defineStore("excel", {
       const job = await trabajos.esperar(job_id);
       if (job.estado === "ok") {
         await this.cargar();
+        // La prevision de dispositivos era del Excel anterior.
+        useDispositivosStore().limpiar();
         return;
       }
       if (job.estado === "error") {

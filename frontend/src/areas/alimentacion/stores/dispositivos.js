@@ -10,7 +10,14 @@
  */
 import { defineStore } from "pinia";
 import { pedir } from "../../../nucleo/api.js";
+import { usePlcStore } from "../../../nucleo/stores/plc.js";
+import { useSesionStore } from "../../../nucleo/stores/sesion.js";
+import { useTiaStore } from "../../../nucleo/stores/tia.js";
 import { useTrabajosStore } from "../../../nucleo/stores/trabajos.js";
+
+/** Identificador del area y clave de la prevision en la sesion del backend. */
+const ID_AREA = "alimentacion";
+const CLAVE_PREVISION = "prevision_dispositivos";
 
 /** Ruta del endpoint de la prevision. */
 export const RUTA_PREVIEW = "/api/v1/areas/alimentacion/dispositivos/preview";
@@ -30,8 +37,12 @@ export const useDispositivosStore = defineStore("dispositivos", {
   state: () => ({
     /** El catalogo del area: las pestañas y las etiquetas de los N_MAX. */
     catalog: null,
-    /** La prevision en curso, con su shape del backend. */
+    /** La ultima prevision, con su shape del backend. */
     preview: null,
+    /** El PLC de la prevision: solo vale mientras siga seleccionado. */
+    previewPlc: "",
+    /** `true` cuando ya se aplico la prevision de la sesion (una vez). */
+    hidratado: false,
     /** `true` mientras se genera la prevision. */
     generando: false,
     /** Ultimo error de la vista. */
@@ -39,8 +50,22 @@ export const useDispositivosStore = defineStore("dispositivos", {
   }),
 
   getters: {
+    /**
+     * La prevision que vale ahora: la del PLC seleccionado y con TIA
+     * conectado. Si cambia el PLC o se pierde TIA, deja de verse (como main:
+     * `area_clear_disp_preview`).
+     */
+    vigente(state) {
+      if (!state.preview) return null;
+      if (!useTiaStore().conectado) return null;
+      if (state.previewPlc !== usePlcStore().seleccionado) return null;
+      return state.preview;
+    },
+
     /** `true` si hay prevision. */
-    hayPreview: (state) => Boolean(state.preview && Array.isArray(state.preview.todos)),
+    hayPreview() {
+      return Boolean(this.vigente && Array.isArray(this.vigente.todos));
+    },
 
     /** Las pestañas por tipo de dispositivo, en el orden del config. */
     pestanas: (state) => (state.catalog && state.catalog.device_tabs) || [],
@@ -55,8 +80,8 @@ export const useDispositivosStore = defineStore("dispositivos", {
     },
 
     /** El resumen de la prevision: cuantos hay de cada. */
-    resumen: (state) => {
-      const prevision = state.preview;
+    resumen() {
+      const prevision = this.vigente;
       if (!prevision || !Array.isArray(prevision.todos)) {
         return { agregados: 0, renombrados: 0, eliminados: 0, sin_cambios: 0, total: 0 };
       }
@@ -71,15 +96,15 @@ export const useDispositivosStore = defineStore("dispositivos", {
     },
 
     /** Las tarjetas de N_MAX: todas las del resultado. */
-    tarjetasNMax: (state) => {
-      const prevision = state.preview;
+    tarjetasNMax() {
+      const prevision = this.vigente;
       if (!prevision) return [];
       return (prevision.nmax && prevision.nmax.todos) || [];
     },
 
     /** El resumen de los N_MAX. */
-    resumenNMax: (state) => {
-      const prevision = state.preview;
+    resumenNMax() {
+      const prevision = this.vigente;
       if (!prevision || !prevision.nmax) {
         return { actualizar: 0, sin_cambios: 0, total: 0 };
       }
@@ -87,12 +112,12 @@ export const useDispositivosStore = defineStore("dispositivos", {
     },
 
     /** Cuantas filas del diff hay de cada tipo. */
-    contadorPorTipo: (state) => {
+    contadorPorTipo() {
       const contadores = {};
-      for (const pestana of (state.catalog && state.catalog.device_tabs) || []) {
+      for (const pestana of (this.catalog && this.catalog.device_tabs) || []) {
         contadores[pestana.hw_type] = 0;
       }
-      const filas = (state.preview && state.preview.todos) || [];
+      const filas = (this.vigente && this.vigente.todos) || [];
       for (const fila of filas) {
         if (contadores[fila.type] !== undefined) contadores[fila.type] += 1;
       }
@@ -101,6 +126,21 @@ export const useDispositivosStore = defineStore("dispositivos", {
   },
 
   actions: {
+    /**
+     * Aplica la prevision guardada en la sesion del backend, una sola vez
+     * (la foto de la sesion es la de cuando se cargo la pagina).
+     */
+    hidratar() {
+      if (this.hidratado) return;
+      this.hidratado = true;
+      const estado = useSesionStore().area(ID_AREA);
+      const guardada = estado && estado[CLAVE_PREVISION];
+      if (guardada && guardada.resultado) {
+        this.preview = guardada.resultado;
+        this.previewPlc = guardada.plc || "";
+      }
+    },
+
     /**
      * Carga el catalogo del area: las pestañas y las etiquetas.
      */
@@ -135,6 +175,8 @@ export const useDispositivosStore = defineStore("dispositivos", {
         const job = await useTrabajosStore().esperar(datos.job_id);
         if (job.estado === "ok") {
           this.preview = job.resultado;
+          this.previewPlc = plc;
+          this.hidratado = true;
           return true;
         }
         this.error = job.error || "No se pudo generar la prevision.";
@@ -150,6 +192,7 @@ export const useDispositivosStore = defineStore("dispositivos", {
     /** Limpia la prevision y el error. */
     limpiar() {
       this.preview = null;
+      this.previewPlc = "";
       this.error = null;
     },
   },

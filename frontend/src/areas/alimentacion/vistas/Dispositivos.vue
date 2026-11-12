@@ -27,7 +27,7 @@ const puedeGenerar = computed(
 
 /** Las filas del diff del tipo activo, ordenadas por numero. */
 const filas = computed(() => {
-  const todas = (dispositivos.preview && dispositivos.preview.todos) || [];
+  const todas = (dispositivos.vigente && dispositivos.vigente.todos) || [];
   return todas
     .filter((fila) => fila.type === tipoActivo.value)
     .sort((a, b) => {
@@ -70,6 +70,7 @@ watch(
 
 onMounted(() => {
   excel.hidratar();
+  dispositivos.hidratar();
   dispositivos.cargarCatalogo();
 });
 </script>
