@@ -1,8 +1,11 @@
 """zc_suite.nucleo.sesion — el estado de la sesion viva.
 
-La sesion vive **en la memoria del backend**, no en disco: el Excel
-cargado, el PLC seleccionado y los escaneos por PLC. Sobrevive a un F5 de
-la web (la SPA se hidrata con un ``GET``) y se pierde al cerrar la app.
+La sesion vive **en la memoria del backend**, no en disco: los PLCs, el PLC
+seleccionado y los escaneos por PLC. Sobrevive a un F5 de la web (la SPA se
+hidrata con un ``GET``) y se pierde al cerrar la app.
+
+Lo que cada area tenga en su sesion lo aporta el area: el nucleo no sabe que
+guarda cada una.
 
 El estado lo escriben los trabajos (que corren en el hilo de TIA) y lo leen
 las rutas (que corren en el hilo web). Por eso lleva un cerrojo.
@@ -16,6 +19,14 @@ from typing import Any
 
 #: Segundos que un escaneo sirve antes de darse por caducado.
 TTL_ESCANEO = 300
+
+#: Clave de la sesion en la configuracion de la app.
+CLAVE_SESION = "ZC_SESION"
+
+#: Clave del estado de sesion de las areas en la configuracion de la app.
+#: Cada valor es un ``callable`` que devuelve el estado del area, para que
+#: la respuesta de la sesion lo lea siempre fresco.
+CLAVE_SESION_AREAS = "ZC_SESION_AREAS"
 
 
 @dataclass

@@ -24,6 +24,7 @@ from typing import Any
 
 from flask import Flask, Response, current_app, jsonify, request, send_from_directory
 
+from zc_suite.nucleo.sesion import CLAVE_SESION, Sesion
 from zc_suite.nucleo.tia.errores import OcupadoError
 from zc_suite.nucleo.tia.eventos import (
     BusCerradoError,
@@ -256,6 +257,9 @@ def crear_app(
     app.config[CLAVE_ORIGENES] = set(origenes) if origenes is not None else set(ORIGENES_DEV)
     app.config[CLAVE_DESARROLLO] = desarrollo
     app.config["ZC_PUERTO"] = puerto
+    # La sesion vive en la memoria del backend. Si la app ya trae una
+    # (la que compone ``montar_app``), se respeta.
+    app.config.setdefault(CLAVE_SESION, Sesion())
     _conectar_logging(bus_eventos)
     _registrar_rutas(app)
     return app

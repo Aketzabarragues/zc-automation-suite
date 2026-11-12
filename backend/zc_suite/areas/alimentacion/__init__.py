@@ -11,6 +11,7 @@ Contrato del area:
 - ``catalogo(config)``  lo que la SPA necesita del backend.
 - ``defaults(config)``  valores por defecto que el area aporta a la config.
 - ``al_arrancar(config)``  deja el area lista para la sesion.
+- ``estado_sesion()``  lo que el area tiene en la sesion: el Excel cargado.
 
 El area no se importa desde el nucleo: ``zc_suite.nucleo.app.main`` la registra en la
 lista ``AREAS`` y monta su Blueprint.
@@ -33,6 +34,7 @@ __all__ = [
     "al_arrancar",
     "catalogo",
     "defaults",
+    "estado_sesion",
     "rutas",
 ]
 
@@ -104,3 +106,15 @@ def al_arrancar(config: dict[str, Any]) -> None:
     """
     ALMACEN.config = config
     ALMACEN.vaciar()
+
+
+def estado_sesion() -> dict[str, Any]:
+    """Lo que el area tiene en la sesion.
+
+    La SPA lo pide al hidratarse: aqui vive el Excel maestro que el operario
+    subio en esta sesion.
+
+    Returns:
+        Un dict con ``excel``: el volcado del Excel y cuando se cargo.
+    """
+    return {"excel": ALMACEN.estado()}

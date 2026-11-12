@@ -1,12 +1,14 @@
-"""Tests de las rutas del PLC: listar, escanear y editar bloques."""
+"""Tests de las rutas del PLC: listar, escanear, seleccionar y editar bloques."""
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta
 from typing import Any
 
 import pytest
-from flask import Flask
+from flask import Flask, jsonify
 
+from zc_suite.nucleo.sesion import CLAVE_SESION, Sesion
 from zc_suite.nucleo.tia.eventos import BusEventos
 from zc_suite.nucleo.tia.servicio import ServicioTIA
 from zc_suite.nucleo.web.app import crear_app
@@ -99,8 +101,158 @@ def test_escanear_responde_202_con_el_job_id(cliente: Any) -> None:
     assert respuesta.get_json()["job_id"]
 
 
-# ── preparar y editar ──────────────────────────────────────────────────────
+# ── seleccionar ────────────────────────────────────────────────────────────
 
+
+class _LanzadorDoble:
+    """Cuenta los trabajos que se encolan."""
+
+    def __init__(self) -> None:
+        self.trabajos: list[tuple[Any, dict[str, Any]]] = []
+
+    def __call__(self, funcion: Any, **params: Any) -> tuple[Any, int]:
+        self.trabajos.append((funcion, params))
+        return jsonify({"job_id": "job-de-prueba"}), 202
+
+
+@pytest.fixture
+def lanzador(monkeypatch: pytest.MonkeyPatch) -> _LanzadorDoble:
+    """El encolado de trabajos, sin encolar de verdad."""
+    doble = _LanzadorDoble()
+    monkeypatch.setattr(plc, "lanzar", doble)
+    return doble
+
+
+def _sesion_de(app: Flask) -> Sesion:
+    """La sesion que tiene la app."""
+    return app.config[CLAVE_SESION]
+
+
+def test_seleccionar_sin_escaneo_encola_el_escaneo(
+    app: Flask,
+    cliente: Any,
+    lanzador: _LanzadorDoble,
+) -> None:
+    """Sin escaneo, seleccionar escanea: una sola vez."""
+    respuesta = cliente.post(
+        "/api/v1/tia/plcs/seleccionar",
+        json={"plc": "ZC_PLC_STD"},
+        base_url=BASE,
+        headers={"Origin": BASE},
+    )
+
+    assert respuesta.status_code == 202
+    assert len(lanzador.trabajos) == 1
+    assert lanzador.trabajos[0][1]["plc"] == "ZC_PLC_STD"
+
+
+def test_seleccionar_con_escaneo_fresco_no_escanea(
+    app: Flask,
+    cliente: Any,
+    lanzador: _LanzadorDoble,
+) -> None:
+    """Con un escaneo de menos de 5 minutos no hace falta escanear otra vez."""
+    _sesion_de(app).guardar_escaneo("ZC_PLC_STD", [{"nombre": "DB2000_ED"}], [], [])
+
+    respuesta = cliente.post(
+        "/api/v1/tia/plcs/seleccionar",
+        json={"plc": "ZC_PLC_STD"},
+        base_url=BASE,
+        headers={"Origin": BASE},
+    )
+
+    assert respuesta.status_code == 200
+    assert lanzador.trabajos == []
+    cuerpo = respuesta.get_json()
+    assert cuerpo["plc"] == "ZC_PLC_STD"
+    assert cuerpo["escaneo"]["bloques"] == [{"nombre": "DB2000_ED"}]
+
+
+def test_seleccionar_con_escaneo_caducado_escanea_una_sola_vez(
+    app: Flask,
+    cliente: Any,
+    lanzador: _LanzadorDoble,
+) -> None:
+    """Un escaneo caducado no sirve: hay que rehacerlo, pero una vez."""
+    sesion = _sesion_de(app)
+    sesion.guardar_escaneo("ZC_PLC_STD", [], [], [])
+    escaneo = sesion.escaneo("ZC_PLC_STD")
+    assert escaneo is not None
+    escaneo.momento = datetime.now() - timedelta(seconds=301)
+
+    respuesta = cliente.post(
+        "/api/v1/tia/plcs/seleccionar",
+        json={"plc": "ZC_PLC_STD"},
+        base_url=BASE,
+        headers={"Origin": BASE},
+    )
+
+    assert respuesta.status_code == 202
+    assert len(lanzador.trabajos) == 1
+
+
+def test_seleccionar_una_sola_vez_no_escanea_dos_veces(
+    app: Flask,
+    cliente: Any,
+    lanzador: _LanzadorDoble,
+) -> None:
+    """Seleccionar dos veces el mismo PLC no encadena dos escaneos.
+
+    En la app anterior, seleccionar un PLC disparaba el escaneo dos veces:
+    mantienia TIA ocupado y hacia fallar el primer commit.
+    """
+    sesion = _sesion_de(app)
+    sesion.guardar_escaneo("ZC_PLC_STD", [], [], [])
+
+    for _ in range(2):
+        respuesta = cliente.post(
+            "/api/v1/tia/plcs/seleccionar",
+            json={"plc": "ZC_PLC_STD"},
+            base_url=BASE,
+            headers={"Origin": BASE},
+        )
+        assert respuesta.status_code == 200
+
+    assert lanzador.trabajos == []
+
+
+def test_seleccionar_guarda_la_seleccion_en_el_servidor(
+    app: Flask,
+    cliente: Any,
+    lanzador: _LanzadorDoble,
+) -> None:
+    """La seleccion vive en el backend: un F5 no la pierde."""
+    cliente.post(
+        "/api/v1/tia/plcs/seleccionar",
+        json={"plc": "ZC_PLC_STD"},
+        base_url=BASE,
+        headers={"Origin": BASE},
+    )
+
+    assert _sesion_de(app).seleccionado == "ZC_PLC_STD"
+
+
+def test_seleccionar_sin_plc_responde_400(cliente: Any) -> None:
+    respuesta = cliente.post(
+        "/api/v1/tia/plcs/seleccionar",
+        json={},
+        base_url=BASE,
+        headers={"Origin": BASE},
+    )
+
+    assert respuesta.status_code == 400
+
+
+def test_seleccionar_sin_origin_se_rechaza(cliente: Any) -> None:
+    respuesta = cliente.post(
+        "/api/v1/tia/plcs/seleccionar",
+        json={"plc": "ZC_PLC_STD"},
+    )
+
+    assert respuesta.status_code == 403
+
+
+# ── preparar y editar ──────────────────────────────────────────────────────
 
 def test_preparar_responde_202_con_el_job_id(cliente: Any) -> None:
     respuesta = cliente.post(

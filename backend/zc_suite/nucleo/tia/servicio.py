@@ -197,6 +197,7 @@ class ServicioTIA:
         cargador: Cargador | None = None,
         ruta_log: Path | None = None,
         intervalo_ping: float = INTERVALO_PING,
+        al_perder_tia: Callable[[], None] | None = None,
     ) -> None:
         """Crea el servicio. El hilo no arranca hasta ``arrancar()``.
 
@@ -207,11 +208,15 @@ class ServicioTIA:
             ruta_log: fichero donde el SDK escribe su log nativo.
             intervalo_ping: segundos entre comprobaciones de vida del portal
                 cuando no hay ningun trabajo en curso.
+            al_perder_tia: callback que se llama al desconectar o al perder
+                el portal. Lo usa la sesion para invalidar los escaneos:
+                sus datos ya no son de fiar.
         """
         self._publicador = publicador
         self._cargador = cargador
         self._ruta_log = ruta_log or Path(tempfile.gettempdir()) / "zc_tia_scripting.log"
         self._intervalo_ping = intervalo_ping
+        self._al_perder_tia = al_perder_tia
 
         self._lock = threading.Lock()
         self._parar = threading.Event()
@@ -311,6 +316,28 @@ class ServicioTIA:
         self._ultimo_error = mensaje
         self.publicar("log", {"nivel": "error", "mensaje": mensaje})
         self._publicar_conexion()
+        self._avisar_perdida_tia()
+
+    def _avisar_perdida_tia(self) -> None:
+        """Avisa a la sesion de que TIA ya no esta.
+
+        Best effort: un fallo al invalidar los escaneos no puede tumbar el
+        hilo de TIA.
+        """
+        if self._al_perder_tia is None:
+            return
+        try:
+            self._al_perder_tia()
+        except Exception:
+            logger.exception("Fallo invalidando el estado de la sesion.")
+
+    def enganchar_perdida_tia(self, callback: Callable[[], None]) -> None:
+        """Engancha el callback que se avisa al desconectar o perder el portal.
+
+        Args:
+            callback: lo que se llama cuando TIA deja de estar disponible.
+        """
+        self._al_perder_tia = callback
 
     def _asegurar_hilo(self) -> None:
         """Arranca el hilo de TIA si no esta vivo.
@@ -643,6 +670,7 @@ class ServicioTIA:
             self._portal = None
             self._modo_portal = None
             self._publicar_conexion()
+            self._avisar_perdida_tia()
 
 # ── trabajos de conexion ───────────────────────────────────────────────────
 

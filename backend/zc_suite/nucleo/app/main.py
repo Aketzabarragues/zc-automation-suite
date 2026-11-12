@@ -35,6 +35,7 @@ from zc_suite.nucleo.app.config import (
     resolver_config,
 )
 from zc_suite.nucleo.app.servidor import ServidorWeb
+from zc_suite.nucleo.sesion import CLAVE_SESION, CLAVE_SESION_AREAS, Sesion
 from zc_suite.nucleo.tia.eventos import BusEventos
 from zc_suite.nucleo.tia.servicio import ServicioTIA
 from zc_suite.nucleo.web.app import PUERTO_POR_DEFECTO, crear_app
@@ -42,6 +43,7 @@ from zc_suite.nucleo.web.rutas import catalogo as rutas_catalogo
 from zc_suite.nucleo.web.rutas import conexion as rutas_conexion
 from zc_suite.nucleo.web.rutas import config as rutas_config
 from zc_suite.nucleo.web.rutas import plc as rutas_plc
+from zc_suite.nucleo.web.rutas import sesion as rutas_sesion
 from zc_suite.nucleo.web.rutas.config import CLAVE_ESTADO_CONFIG
 
 logger = logging.getLogger(__name__)
@@ -140,6 +142,7 @@ def montar_app(
     puerto: int = PUERTO_POR_DEFECTO,
     config: Config | None = None,
     config_en_uso: ConfigEnUso | None = None,
+    sesion: Sesion | None = None,
 ) -> Flask:
     """Crea la app y monta las rutas del nucleo y de las areas.
 
@@ -152,6 +155,7 @@ def montar_app(
             ``config.json`` del usuario.
         config_en_uso: el ``config.json`` en uso y su origen. Por defecto se
             resuelve.
+        sesion: el estado de la sesion. Por defecto se crea una vacia.
 
     Returns:
         La app lista para servir.
@@ -161,6 +165,7 @@ def montar_app(
         config_en_uso = resolver_config()
     config_app = config if config is not None else cargar_config(config_en_uso.ruta)
     app.config["ZC_CONFIG"] = config_app
+    app.config[CLAVE_SESION] = sesion if sesion is not None else Sesion()
     ids_areas = [area.ID for area in AREAS]
     estado = estado_config(config_app, config_en_uso, ids_areas)
     app.config[CLAVE_ESTADO_CONFIG] = estado
@@ -170,7 +175,9 @@ def montar_app(
     rutas_plc.registrar(app)
     rutas_catalogo.registrar(app)
     rutas_config.registrar(app)
+    rutas_sesion.registrar(app)
     catalogos: dict[str, Any] = {}
+    session_areas: dict[str, Any] = {}
     for area in AREAS:
         seccion = config_app.seccion_area(
             area.ID,
@@ -178,9 +185,11 @@ def montar_app(
         )
         area.al_arrancar(seccion)
         catalogos[area.ID] = area.catalogo(seccion)
+        session_areas[area.ID] = area.estado_sesion
         app.register_blueprint(area.rutas)
         logger.info("Area registrada: %s", area.ID)
     app.config["ZC_CATALOGO"] = catalogos
+    app.config[CLAVE_SESION_AREAS] = session_areas
     log_de_arranque(config_en_uso, catalogos)
     return app
 
@@ -203,9 +212,13 @@ def arrancar(
         abrir_navegador: si es ``True``, se abre el navegador al arrancar.
     """
     bus = BusEventos()
+    sesion = Sesion()
     servicio = ServicioTIA(publicador=bus.publicar)
+    # Al desconectar o al perder el portal, los escaneos dejan de servir:
+    # sus datos ya no son de fiar.
+    servicio.enganchar_perdida_tia(sesion.invalidar_escaneos)
     servicio.arrancar()
-    app = montar_app(servicio, bus, desarrollo=desarrollo, puerto=puerto)
+    app = montar_app(servicio, bus, desarrollo=desarrollo, puerto=puerto, sesion=sesion)
     url = f"http://{host}:{puerto}"
     logger.info("ZC Automation Suite escuchando en %s", url)
 
@@ -216,6 +229,7 @@ def arrancar(
             app.run(host=host, port=puerto, threaded=True)
         finally:
             servicio.parar()
+            sesion.vaciar()
         return
 
     servidor = ServidorWeb(app, host, puerto)
@@ -230,6 +244,7 @@ def arrancar(
     finally:
         servidor.stop()
         servicio.parar()
+        sesion.vaciar()
 
 
 def main() -> None:

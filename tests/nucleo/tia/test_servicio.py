@@ -214,6 +214,48 @@ def test_el_portal_inexistente_lanza_sin_portal(entorno: Any) -> None:
         _ = servicio.portal
 
 
+def test_desconectar_avisa_de_que_tia_se_perdio(
+    entorno: Any,
+    esperar_job: Callable[..., Any],
+) -> None:
+    """Al desconectar se avisa: la sesion invalida sus escaneos."""
+    servicio, _ts, eventos = entorno
+    perdidos: list[str] = []
+    servicio.enganchar_perdida_tia(lambda: perdidos.append("tia"))
+
+    job_id = servicio.lanzar(tia.conectar)
+    esperar_job(eventos, job_id)
+    job_id = servicio.lanzar(tia.desconectar)
+    esperar_job(eventos, job_id)
+
+    assert perdidos == ["tia"]
+
+
+def test_perder_el_portal_avisa_de_que_tia_se_perdio(entorno: Any) -> None:
+    """Perder el portal tambien invalida los escaneos."""
+    servicio, _ts, _eventos = entorno
+    perdidos: list[str] = []
+    servicio.enganchar_perdida_tia(lambda: perdidos.append("tia"))
+
+    servicio._perder_portal("se ha perdido el portal")
+
+    assert perdidos == ["tia"]
+
+
+def test_un_aviso_roto_no_tumba_el_hilo(entorno: Any) -> None:
+    """Si el aviso falla, el hilo de TIA sigue en pie."""
+    servicio, _ts, _eventos = entorno
+
+    def fallar() -> None:
+        raise RuntimeError("fallo al invalidar")
+
+    servicio.enganchar_perdida_tia(fallar)
+
+    servicio._perder_portal("se ha perdido el portal")
+
+    assert servicio.conectado is False
+
+
 def test_un_modo_de_portal_invalido_falla(entorno: Any, esperar_job: Callable[..., Any]) -> None:
     servicio, _ts, eventos = entorno
 
