@@ -1,0 +1,45 @@
+<?xml version='1.0' encoding='utf-8'?>
+<Document>
+  <SW.Tags.PlcTagTable ID="0">
+    <ObjectList>
+      <SW.Tags.PlcUserConstant ID="1">
+        <AttributeList>
+          <DataTypeName>Int</DataTypeName>
+          <Name>ENT_001</Name>
+          <Value>1</Value>
+        </AttributeList>
+        <ObjectList>
+          <MultilingualText ID="2" CompositionName="Comment">
+            <ObjectList>
+              <MultilingualTextItem ID="3">
+                <AttributeList>
+                  <Culture>es-ES</Culture>
+                  <Text>Comentario uno</Text>
+                </AttributeList>
+              </MultilingualTextItem>
+            </ObjectList>
+          </MultilingualText>
+        </ObjectList>
+      </SW.Tags.PlcUserConstant>
+      <SW.Tags.PlcUserConstant ID="5">
+        <AttributeList>
+          <DataTypeName>Int</DataTypeName>
+          <Name>ENT_002_NUEVO</Name>
+          <Value>2</Value>
+        </AttributeList>
+        <ObjectList>
+          <MultilingualText ID="6" CompositionName="Comment">
+            <ObjectList>
+              <MultilingualTextItem ID="7">
+                <AttributeList>
+                  <Culture>es-ES</Culture>
+                  <Text>Comentario dos</Text>
+                </AttributeList>
+              </MultilingualTextItem>
+            </ObjectList>
+          </MultilingualText>
+        </ObjectList>
+      </SW.Tags.PlcUserConstant>
+      </ObjectList>
+  </SW.Tags.PlcTagTable>
+</Document>
