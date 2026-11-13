@@ -115,6 +115,36 @@ def test_las_operaciones_de_n_max_solo_son_las_que_cambian() -> None:
     ]
 
 
+def test_un_n_max_que_no_existe_en_tia_no_se_propone() -> None:
+    """Una constante que no esta en TIA no se puede cambiar: no se propone."""
+    diff = DiffNMax(
+        tabla="0_Config_Dispositivos",
+        actual={"N_MAX_DISP_ED": 5},
+        deseado={"N_MAX_DISP_ED": 8, "N_MAX_DISP_SA": 30},
+        todos=[
+            {
+                "name": "N_MAX_DISP_ED",
+                "actual": 5,
+                "nuevo": 8,
+                "status": "actualizar",
+            },
+            {
+                "name": "N_MAX_DISP_SA",
+                "actual": None,
+                "nuevo": 30,
+                "status": "actualizar",
+            },
+        ],
+        resumen={"actualizar": 2, "sin_cambios": 0, "total": 2},
+    )
+
+    operaciones = disp_calcular_operaciones_n_max("0_Config_Dispositivos", diff)
+
+    assert operaciones == [
+        {"tabla": "0_Config_Dispositivos", "constante": "N_MAX_DISP_ED", "valor": 8}
+    ]
+
+
 def test_sin_xml_de_n_max_no_se_propone_nada() -> None:
     """Sin el XML de TIA no se puede saber el valor actual: no se toca nada."""
     diff = DiffNMax(
