@@ -15,10 +15,11 @@ solo los usa el.
 from __future__ import annotations
 
 import logging
+from contextlib import nullcontext
 from pathlib import Path
 from typing import Any
 
-from zc_suite.areas.alimentacion.config import ConfigArea, n_max_de
+from zc_suite.areas.alimentacion.config import ConfigArea
 from zc_suite.areas.alimentacion.dispositivos import CLAVE_PREVISION
 from zc_suite.areas.alimentacion.dispositivos.diferencias import (
     DiffNMax,
@@ -55,44 +56,13 @@ def tablas_de_dispositivos(config: ConfigArea) -> list[tuple[str, str]]:
     ]
 
 
-def _dispositivos_del_excel(
-    almacen: AlmacenExcel,
-    tipo: str,
-    plc: str,
-) -> list[dict[str, Any]]:
-    """Los dispositivos de un tipo del Excel, filtrados por PLC."""
-    for tabla in almacen.estado()["dispositivos"]:
-        if tabla["tipo"] != tipo:
-            continue
-        return [fila for fila in tabla["filas"] if str(fila.get("plc_name", "")) == plc]
-    return []
+def _paso(job: Job, nombre: str, con_pasos: bool) -> Any:
+    """El paso del trabajo, o un contexto vacio si el trabajo no declara pasos.
 
-
-def _n_max_del_excel(
-    almacen: AlmacenExcel,
-    plc: str,
-    config: ConfigArea,
-) -> dict[str, int]:
-    """Los N_MAX de dispositivos del Excel del PLC elegido.
-
-    Los N_MAX de las entidades son otra cosa (van en su propia tabla): aqui no
-    entran, igual que en ``main``.
-
-    El orden es el del catalogo de N_MAX, no el de las columnas del Excel: las
-    tarjetas de N_MAX se pintan en ese orden.
+    Cuando la prevision se recalcula dentro de otro trabajo (el sync), los
+    pasos los declara ese trabajo: aqui solo se escribe el detalle.
     """
-    for fila in almacen.estado()["configuracion"]["filas"]:
-        if str(fila.get("PLC", "")) != plc:
-            continue
-        valores: dict[str, int] = {}
-        for entrada in n_max_de(config):
-            if not entrada.tipo:
-                continue
-            valor = fila.get(entrada.constante)
-            if isinstance(valor, (int, float)):
-                valores[entrada.constante] = int(valor)
-        return valores
-    return {}
+    return job.paso(nombre) if con_pasos else nullcontext({})
 
 
 def generar_prevision(
@@ -101,6 +71,8 @@ def generar_prevision(
     almacen: AlmacenExcel,
     config: ConfigArea,
     sesion: Sesion | None = None,
+    *,
+    con_pasos: bool = True,
 ) -> dict[str, Any]:
     """Exporta del PLC y calcula el diff de los dispositivos contra el Excel.
 
@@ -111,20 +83,25 @@ def generar_prevision(
         config: el modelo del area.
         sesion: la sesion del backend. La prevision se guarda en ella para
             que sobreviva a un F5 (como ``preview_disp`` en main).
+        con_pasos: si el trabajo declara sus propios pasos. ``False`` cuando
+            la prevision se recalcula **dentro** de otro trabajo (el sync):
+            entonces el paso lo declara el otro trabajo y esta funcion solo
+            calcula.
 
     Returns:
         El shape que consume la SPA: ``agregados``, ``eliminados``,
         ``renombrados``, ``todos``, ``nmax`` y ``summary``.
     """
-    job.empezar(
-        "Prevision de dispositivos",
-        [
-            ("exportar", "Exportar etiquetas"),
-            ("dispositivos", "Calcular diferencias de dispositivos"),
-            ("n_max", "Calcular diferencias de N_MAX"),
-            ("componer", "Componer respuesta"),
-        ],
-    )
+    if con_pasos:
+        job.empezar(
+            "Prevision de dispositivos",
+            [
+                ("exportar", "Exportar etiquetas"),
+                ("dispositivos", "Calcular diferencias de dispositivos"),
+                ("n_max", "Calcular diferencias de N_MAX"),
+                ("componer", "Componer respuesta"),
+            ],
+        )
 
     carpeta = workdir_dispositivos()
     carpeta.limpiar_preview()
@@ -134,7 +111,7 @@ def generar_prevision(
     tablas = tablas_de_dispositivos(config)
     tabla_n_max = config.tabla_nmax
 
-    with job.paso("exportar") as paso:
+    with _paso(job, "exportar", con_pasos) as paso:
         if not tablas:
             aviso = (
                 "No hay tablas de dispositivos que exportar: el catalogo del area "
@@ -160,11 +137,11 @@ def generar_prevision(
         paso["detail"] = f"{len(tablas)} tablas exportadas"
 
     diffs: dict[str, DiffTabla] = {}
-    with job.paso("dispositivos") as paso:
+    with _paso(job, "dispositivos", con_pasos) as paso:
         for tipo, tabla in tablas:
             diff = disp_calcular_diff_tabla(
                 tabla,
-                _dispositivos_del_excel(almacen, tipo, plc),
+                almacen.dispositivos_de(tipo, plc),
                 destino_disp / f"{tabla}.xml",
             )
             if diff.xml_ausente:
@@ -183,10 +160,10 @@ def generar_prevision(
         )
 
     diff_n_max: DiffNMax | None = None
-    with job.paso("n_max") as paso:
+    with _paso(job, "n_max", con_pasos) as paso:
         diff_n_max = disp_calcular_diff_n_max(
             tabla_n_max,
-            _n_max_del_excel(almacen, plc, config),
+            almacen.valores_n_max_de(plc),
             destino_config / f"{tabla_n_max}.xml",
         )
         if diff_n_max.xml_ausente:
@@ -200,7 +177,7 @@ def generar_prevision(
             f"{diff_n_max.resumen['actualizar']} a actualizar de {diff_n_max.resumen['total']}"
         )
 
-    with job.paso("componer") as paso:
+    with _paso(job, "componer", con_pasos) as paso:
         resultado = componer_respuesta(diffs, diff_n_max, tabla_n_max, destino_config)
         paso["detail"] = f"{resultado['summary']['total']} entradas en la vista unificada"
 

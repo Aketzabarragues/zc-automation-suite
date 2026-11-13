@@ -12,7 +12,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from zc_suite.areas.alimentacion.config import ConfigArea, ConfigInvalidoError
+from zc_suite.areas.alimentacion.config import ConfigArea, ConfigInvalidoError, n_max_de
 from zc_suite.areas.alimentacion.excel import parser
 
 #: Extensiones admitidas: el Excel maestro del operario es ``.xlsm``.
@@ -73,6 +73,53 @@ class AlmacenExcel:
         }
 
     # ── escritura ───────────────────────────────────────────────────────
+
+    def dispositivos_de(self, tipo: str, plc: str) -> list[dict[str, Any]]:
+        """Los dispositivos de un tipo, filtrados por PLC.
+
+        Args:
+            tipo: la clave del tipo de dispositivo (``"ed"``...).
+            plc: el nombre del PLC.
+
+        Returns:
+            Las filas del Excel de ese tipo que son de ese PLC.
+        """
+        for tabla in self.estado()["dispositivos"]:
+            if tabla["tipo"] != tipo:
+                continue
+            return [fila for fila in tabla["filas"] if str(fila.get("plc_name", "")) == plc]
+        return []
+
+    def valores_n_max_de(self, plc: str) -> dict[str, int]:
+        """Los N_MAX de dispositivos del Excel del PLC elegido.
+
+        Los N_MAX de las entidades son otra cosa (van en su propia tabla): aqui
+        no entran, igual que en ``main``.
+
+        El orden es el del catalogo de N_MAX, no el de las columnas del Excel:
+        las tarjetas de N_MAX se pintan en ese orden.
+
+        Args:
+            plc: el nombre del PLC.
+
+        Returns:
+            ``{nombre de la constante: valor}``. Vacio si el PLC no esta en
+            el Excel.
+        """
+        if self.config is None:
+            return {}
+        for fila in self.estado()["configuracion"]["filas"]:
+            if str(fila.get("PLC", "")) != plc:
+                continue
+            valores: dict[str, int] = {}
+            for entrada in n_max_de(self.config):
+                if not entrada.tipo:
+                    continue
+                valor = fila.get(entrada.constante)
+                if isinstance(valor, (int, float)):
+                    valores[entrada.constante] = int(valor)
+            return valores
+        return {}
 
     def vaciar(self) -> None:
         """Deja el almacen sin Excel.
