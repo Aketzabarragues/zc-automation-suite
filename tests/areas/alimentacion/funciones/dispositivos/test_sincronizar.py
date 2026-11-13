@@ -9,11 +9,15 @@ from typing import Any
 
 import pytest
 
+from zc_suite.areas.alimentacion.funciones.dispositivos import (
+    sincronizar as modulo_sync,
+)
 from zc_suite.areas.alimentacion.funciones.dispositivos.sincronizar import (
     CONFIRMADA,
     NO_EJECUTADA,
 )
 from zc_suite.nucleo.sesion import Sesion
+from zc_suite.nucleo.tia.errores import CanceladoError
 
 
 def _transaccion_por_nombre(resultado: dict[str, Any], nombre: str) -> dict[str, Any]:
@@ -136,7 +140,7 @@ def test_el_fallo_de_una_transaccion_dice_lo_que_quedo_confirmado(
 ) -> None:
     """Si la importacion falla, el error dice que se confirmo y que no."""
 
-    def _falla(**_kwargs: Any) -> None:
+    def _falla(*_args: Any, **_kwargs: Any) -> None:
         raise RuntimeError("TIA no deja importar")
 
     monkeypatch.setattr(entorno_sync.plc, "import_plc_tags", _falla)
@@ -148,6 +152,22 @@ def test_el_fallo_de_una_transaccion_dice_lo_que_quedo_confirmado(
     assert "N_MAX y renombres: confirmada" in error
     assert "Dispositivos: revertida" in error
     assert "Comentarios: no ejecutada" in error
+
+
+def test_la_cancelacion_no_se_confunde_con_un_error(
+    entorno_sync: Any,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Si el operario cancela, el trabajo termina como cancelado."""
+
+    def _cancela(*_args: Any, **_kwargs: Any) -> None:
+        raise CanceladoError("El trabajo fue cancelado.")
+
+    monkeypatch.setattr(modulo_sync, "importar_tablas", _cancela)
+
+    evento = entorno_sync.sincronizar()
+
+    assert evento["estado"] == "cancelado"
 
 
 def test_los_errores_de_compilacion_no_tumban_el_sync(

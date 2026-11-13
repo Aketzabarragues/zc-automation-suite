@@ -57,6 +57,7 @@ from zc_suite.areas.alimentacion.funciones.dispositivos.generar_prevision import
 )
 from zc_suite.errores import OperacionError
 from zc_suite.nucleo.sesion import Sesion
+from zc_suite.nucleo.tia.errores import CanceladoError
 from zc_suite.nucleo.tia.job import Job
 from zc_suite.nucleo.tia.transaccion import transaccion
 from zc_suite.nucleo.tia.workdir import Workdir, workdir
@@ -334,6 +335,12 @@ def _transaccion(
     try:
         with transaccion(job, texto):
             operacion()
+    except CanceladoError:
+        # La cancelacion del operario no es un fallo: sale tal cual para que
+        # el trabajo termine como cancelado y no como error.
+        transacciones[clave]["estado"] = REVIRTIDA
+        transacciones[clave]["detalle"] = "el trabajo fue cancelado"
+        raise
     except Exception as exc:
         transacciones[clave]["estado"] = REVIRTIDA
         transacciones[clave]["detalle"] = str(exc)
@@ -503,14 +510,20 @@ def _aplicar_comentarios(
         return "no habia comentarios que aplicar"
 
     dbs = [dispositivo.db for dispositivo in config.dispositivos.values()]
-    exportar_bloques(
-        job.tia.portal,
-        plc,
-        carpeta.bloques_export,
-        dbs,
-        mantener_estructura=True,
-        version_tia=job.tia.version_tia,
-    )
+    try:
+        exportar_bloques(
+            job.tia.portal,
+            plc,
+            carpeta.bloques_export,
+            dbs,
+            mantener_estructura=True,
+            version_tia=job.tia.version_tia,
+        )
+    except Exception as exc:
+        transacciones["comentarios"]["detalle"] = str(exc)
+        raise OperacionError(
+            f"{exc}. {_resumen_de_transacciones(transacciones)}"
+        ) from exc
     if carpeta.bloques_export.is_dir():
         shutil.copytree(
             carpeta.bloques_export,
