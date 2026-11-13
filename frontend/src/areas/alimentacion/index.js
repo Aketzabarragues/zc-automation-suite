@@ -22,6 +22,6 @@ export default {
     },
     { clave: "disp", etiqueta: "Dispositivos", icono: "⚡", vista: "Dispositivos.vue" },
     { clave: "proc", etiqueta: "Procesos", icono: "⚙️", vista: null },
-    { clave: "ent", etiqueta: "Entidades", icono: "🗂️", vista: null },
+    { clave: "ent", etiqueta: "Entidades", icono: "🗂️", vista: "Entidades.vue" },
   ],
 };
