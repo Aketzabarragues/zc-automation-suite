@@ -173,6 +173,24 @@ Antes del paso 1, `on_start` valida `plc_name`, comprueba que el PLC existe en T
 - Sobre V18: **no está en main**. En `main` no hay ramificación por versión de TIA en estos flujos, ni detección de versión en `core/infrastructure/tia/`. El formato esperado por el helper SimaticSD está documentado como "TIA V21 export" y la lectura se hace con `utf-8-sig` porque "TIA V21 exporta los archivos en UTF-8 con BOM", pero el código asume ese formato sin comprobar la versión. (`core/helpers/simatic_sd/simatic_sd_db_array_comment_updater.py:20`, `:80`, `:82`)
 - La regla de `keep_folder_structure` está anotada como "V21+": al exportar con `keep_folder_structure=True`, TIA deposita el `.xml` en un subdirectorio (`Tags/` o similar), y el helper `XmlTarget` existe justo para tolerarlo. (`core/infrastructure/tia/tia_export_paths.py:72`, `:99`)
 
+#### En la reescritura
+
+El FB es ``zc_suite/areas/alimentacion/funciones/dispositivos/sincronizar.py`` y
+cambia cuatro cosas sobre ``main``:
+
+- Cada transaccion **comprueba** su resultado. En ``main`` la de los
+  comentarios no lo hacia: un fallo a mitad dejaba el PLC a medias sin que
+  nadie se enterara.
+- La transaccion de comentarios **solo se ejecuta con TIA V21 o superior**: la
+  exportacion en SimaticSD no existe antes.
+- Al terminar se **recalcula la prevision** con la misma funcion que la
+  genera, para que la vista vea el estado final.
+- Un N_MAX que **no existe** en TIA no se propone: no se puede cambiar el
+  valor de una constante que no esta.
+
+El resultado dice cual se confirmo, cual se revirtio y cual no se ejecuto, y el
+faceplate muestra lo mismo en el detalle de cada paso.
+
 ### function_entidades_generar_preview
 `areas/alimentacion/functions/function_entidades_generar_preview.py`
 
