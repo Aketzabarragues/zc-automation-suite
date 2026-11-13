@@ -23,8 +23,12 @@ PATRON = re.compile(
 
 
 def _docs() -> list[Path]:
-    """Los ficheros de ``.opencode/``."""
-    return sorted(DOCS.rglob("*.md"))
+    """Los ficheros de ``.opencode/``, sin los ``node_modules`` de los plugins."""
+    return sorted(
+        doc
+        for doc in DOCS.rglob("*.md")
+        if "node_modules" not in doc.parts
+    )
 
 
 def _rutas_citadas(texto: str) -> list[str]:
