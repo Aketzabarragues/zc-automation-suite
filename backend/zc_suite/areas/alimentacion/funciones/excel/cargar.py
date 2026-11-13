@@ -14,7 +14,8 @@ import shutil
 from pathlib import Path
 from typing import Any
 
-from zc_suite.areas.alimentacion.dispositivos import CLAVE_PREVISION
+from zc_suite.areas.alimentacion.dispositivos import CLAVE_PREVISION as CLAVE_PREVISION_DISPOSITIVOS
+from zc_suite.areas.alimentacion.entidades import CLAVE_PREVISION as CLAVE_PREVISION_ENTIDADES
 from zc_suite.areas.alimentacion.excel import almacen as modulo_almacen
 from zc_suite.areas.alimentacion.excel.almacen import AlmacenExcel
 from zc_suite.errores import OperacionError
@@ -70,7 +71,8 @@ def cargar(
         _limpiar_temporal(fichero)
 
     if sesion is not None:
-        sesion.borrar_dato_area(AREA, CLAVE_PREVISION)
+        sesion.borrar_dato_area(AREA, CLAVE_PREVISION_DISPOSITIVOS)
+        sesion.borrar_dato_area(AREA, CLAVE_PREVISION_ENTIDADES)
 
     avisos = modulo_almacen.avisos(almacen)
     with job.paso("avisos") as paso:
