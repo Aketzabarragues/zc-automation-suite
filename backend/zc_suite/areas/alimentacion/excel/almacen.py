@@ -90,6 +90,46 @@ class AlmacenExcel:
             return [fila for fila in tabla["filas"] if str(fila.get("plc_name", "")) == plc]
         return []
 
+    def entidades_de(self, plc: str) -> list[dict[str, Any]]:
+        """Las entidades del Excel del PLC elegido.
+
+        Args:
+            plc: el nombre del PLC.
+
+        Returns:
+            Las filas del Excel de entidades que son de ese PLC.
+        """
+        return [
+            fila
+            for fila in self.estado()["entidades"]["filas"]
+            if str(fila.get("plc_name", "")) == plc
+        ]
+
+    def n_max_de_entidades(self, plc: str) -> dict[str, int]:
+        """El N_MAX de las entidades del Excel del PLC elegido.
+
+        El N_MAX de las entidades vive en su propia tabla del Excel, no en
+        la de los dispositivos: aqui no entra.
+
+        Args:
+            plc: el nombre del PLC.
+
+        Returns:
+            ``{nombre de la constante: valor}``. Vacio si el PLC no esta en
+            el Excel o si la celda esta vacia.
+        """
+        if self.config is None:
+            return {}
+        constante = self.config.entidades.nmax.constante
+        for fila in self.estado()["configuracion"]["filas"]:
+            if str(fila.get("PLC", "")) != plc:
+                continue
+            valor = fila.get(constante)
+            if isinstance(valor, (int, float)):
+                return {constante: int(valor)}
+            return {}
+        return {}
+
     def valores_n_max_de(self, plc: str) -> dict[str, int]:
         """Los N_MAX de dispositivos del Excel del PLC elegido.
 

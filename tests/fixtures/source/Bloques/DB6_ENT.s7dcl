@@ -1,0 +1,26 @@
+﻿{
+    S7_Author := "HCR";
+    S7_BlockComment := "MLC_3Vz";
+    S7_BlockNumber := "6";
+    S7_BlockTitle := "MLC_32c";
+    S7_Family := "ZeusControl";
+    S7_Optimized := "TRUE";
+    S7_StandardRetain := "TRUE";
+    S7_Version := "1.0"
+}
+DATA_BLOCK DB6_ENT
+    VAR RETAIN
+        {
+            S7_MLC := "MLC_3Vw";
+            S7_Setpoint := "False"
+        }
+        "ENT" : Array[0.._.N_MAX_ENTIDAD] of _.UDT_ZC_ENT;
+    END_VAR
+
+        { S7_MLC := "MLC_a1" }
+        ENT[0] := ();
+        { S7_MLC := "MLC_b2" }
+        ENT[1] := ();
+        { S7_MLC := "MLC_c3" }
+        ENT[2] := ();
+END_DATA_BLOCK
