@@ -1,0 +1,64 @@
+<?xml version='1.0' encoding='utf-8'?>
+<Document>
+  <SW.Tags.PlcTagTable ID="0">
+    <ObjectList>
+      <SW.Tags.PlcUserConstant ID="1">
+        <AttributeList>
+          <DataTypeName>Int</DataTypeName>
+          <Name>ED_000</Name>
+          <Value>0</Value>
+        </AttributeList>
+        <ObjectList>
+          <MultilingualText ID="2" CompositionName="Comment">
+            <ObjectList>
+              <MultilingualTextItem ID="3">
+                <AttributeList>
+                  <Culture>es-ES</Culture>
+                  <Text>DP-000</Text>
+                </AttributeList>
+              </MultilingualTextItem>
+            </ObjectList>
+          </MultilingualText>
+        </ObjectList>
+      </SW.Tags.PlcUserConstant>
+    <SW.Tags.PlcUserConstant ID="4">
+        <AttributeList>
+          <DataTypeName>Int</DataTypeName>
+          <Name>ED_001</Name>
+          <Value>1</Value>
+        </AttributeList>
+        <ObjectList>
+          <MultilingualText ID="5" CompositionName="Comment">
+            <ObjectList>
+              <MultilingualTextItem ID="6">
+                <AttributeList>
+                  <Culture>es-ES</Culture>
+                  <Text>Entrada digital 1</Text>
+                </AttributeList>
+              </MultilingualTextItem>
+            </ObjectList>
+          </MultilingualText>
+        </ObjectList>
+      </SW.Tags.PlcUserConstant>
+    <SW.Tags.PlcUserConstant ID="7">
+        <AttributeList>
+          <DataTypeName>Int</DataTypeName>
+          <Name>ED_002</Name>
+          <Value>2</Value>
+        </AttributeList>
+        <ObjectList>
+          <MultilingualText ID="8" CompositionName="Comment">
+            <ObjectList>
+              <MultilingualTextItem ID="9">
+                <AttributeList>
+                  <Culture>es-ES</Culture>
+                  <Text>DP-000</Text>
+                </AttributeList>
+              </MultilingualTextItem>
+            </ObjectList>
+          </MultilingualText>
+        </ObjectList>
+      </SW.Tags.PlcUserConstant>
+    </ObjectList>
+  </SW.Tags.PlcTagTable>
+</Document>
