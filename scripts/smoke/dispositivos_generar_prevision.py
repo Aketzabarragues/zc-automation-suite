@@ -33,6 +33,7 @@ from typing import Any
 RAIZ = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(RAIZ / "backend"))
 
+from zc_suite.areas.alimentacion import config as config_area  # noqa: E402
 from zc_suite.areas.alimentacion.excel.almacen import AlmacenExcel  # noqa: E402
 from zc_suite.areas.alimentacion.funciones.dispositivos import (  # noqa: E402
     generar_prevision as modulo_prevision,
@@ -70,10 +71,10 @@ def _esperar(bus: BusEventos, job_id: str, timeout: float = 300.0) -> dict[str, 
         suscriptor.cerrar()
 
 
-def _config() -> dict[str, Any]:
-    """La seccion del area en el ``config.json``."""
+def _modelo() -> Any:
+    """El modelo del area, validado a partir del ``config.json``."""
     datos = json.loads((RAIZ / "config" / "config.json").read_text(encoding="utf-8"))
-    return datos["areas"]["alimentacion"]
+    return config_area.cargar(datos["areas"]["alimentacion"])
 
 
 def _pintar(resultado: dict[str, Any]) -> None:
@@ -105,10 +106,10 @@ def _pintar(resultado: dict[str, Any]) -> None:
 def main() -> int:
     """Conecta, exporta y saca el diff."""
     argumentos = _argumentos()
-    config = _config()
+    modelo = _modelo()
 
     almacen = AlmacenExcel()
-    almacen.config = config
+    almacen.config = modelo
     almacen.volcar(Path(argumentos.excel))
     for aviso in almacen.estado()["avisos"]:
         print(f"Aviso del Excel: {aviso}")
@@ -130,7 +131,7 @@ def main() -> int:
             modulo_prevision.generar_prevision,
             plc=argumentos.plc,
             almacen=almacen,
-            config=config,
+            config=modelo,
         )
         exportacion = _esperar(bus, job_id)
         if exportacion["estado"] != "ok":
