@@ -103,6 +103,51 @@ class DiffComentarios:
         return len(self.agregados) + len(self.actualizados)
 
 
+# ── la lectura del par SimaticSD ────────────────────────────────────────────
+
+#: El encoding de los ficheros exportados en SimaticSD.
+ENCODING_SD = "utf-8-sig"
+
+
+def ent_leer_par_sd(carpeta: Path, db: str) -> tuple[str, str]:
+    """Lee el par SimaticSD de un bloque exportado.
+
+    La exportacion puede dejar el bloque en la raiz o en una subcarpeta: se
+    buscan las dos.
+
+    Args:
+        carpeta: la carpeta del export.
+        db: el nombre del bloque.
+
+    Returns:
+        La tupla ``(texto_del_s7dcl, texto_del_s7res)``. Vacia si no estan.
+    """
+    dcl = _localizar(carpeta, f"{db}.s7dcl")
+    res = _localizar(carpeta, f"{db}.s7res")
+    if dcl is None or res is None:
+        return "", ""
+    try:
+        return (
+            dcl.read_text(encoding=ENCODING_SD),
+            res.read_text(encoding=ENCODING_SD),
+        )
+    except OSError as exc:
+        logger.warning("[ent] No se pudo leer el par SimaticSD de '%s': %s", db, exc)
+        return "", ""
+
+
+def _localizar(carpeta: Path, nombre: str) -> Path | None:
+    """Localiza un fichero del export, en la raiz o en una subcarpeta."""
+    if not carpeta.is_dir():
+        return None
+    directo = carpeta / nombre
+    if directo.is_file():
+        return directo
+    for encontrado in sorted(carpeta.rglob(nombre)):
+        return encontrado
+    return None
+
+
 # ── la lectura del XML de TIA ───────────────────────────────────────────────
 
 
