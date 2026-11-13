@@ -1,9 +1,11 @@
-"""Las rutas del area de alimentacion: el Excel maestro.
+"""Las rutas del area de alimentacion: el Excel maestro y los dispositivos.
 
-- ``GET  /excel``   el volcado que tiene el backend.
-- ``POST /excel``   sube un ``.xlsx`` y encola su parseo.
+- ``GET  /excel``            el volcado que tiene el backend.
+- ``POST /excel``            sube un ``.xlsx`` y encola su parseo.
+- ``POST /dispositivos/preview``    encola la prevision de los dispositivos.
+- ``POST /dispositivos/sincronizar`` encola la sincronizacion contra TIA.
 
-Las POST responden ``202`` con el ``job_id``: el parseo va en un trabajo y su
+Las POST responden ``202`` con el ``job_id``: el trabajo va en un trabajo y su
 resultado llega por el stream de eventos, no en la respuesta.
 
 Las dependencias se leen de ``current_app.config``. El router no importa
@@ -22,6 +24,7 @@ from zc_suite.areas.alimentacion.excel.almacen import EXTENSIONES, AlmacenExcel
 from zc_suite.areas.alimentacion.funciones.dispositivos.generar_prevision import (
     generar_prevision,
 )
+from zc_suite.areas.alimentacion.funciones.dispositivos.sincronizar import sincronizar
 from zc_suite.areas.alimentacion.funciones.excel.cargar import cargar
 from zc_suite.nucleo.sesion import CLAVE_SESION, Sesion
 from zc_suite.nucleo.web.app import HTTPError, lanzar, servicio
@@ -95,6 +98,41 @@ def preview_dispositivos() -> tuple[Response, int]:
 
     return lanzar(
         generar_prevision,
+        plc=plc,
+        almacen=almacen,
+        config=almacen.config,
+        sesion=_sesion(),
+    )
+
+
+@rutas.post("/dispositivos/sincronizar")
+def sincronizar_dispositivos() -> tuple[Response, int]:
+    """Encola la sincronizacion de los dispositivos del PLC.
+
+    Las precondiciones se comprueban **antes** de encolar: si falta el Excel,
+    la conexion con TIA o el PLC, se responde con el mensaje y no se lanza
+    ningun trabajo.
+    """
+    datos = request.get_json(silent=True) or {}
+    plc = str(datos.get("plc") or "").strip()
+    if not plc:
+        return jsonify({"error": "Elige un PLC antes de sincronizar."}), 400
+
+    almacen = _almacen()
+    if not almacen.estado()["cargado"]:
+        return jsonify({"error": "No hay Excel cargado. Sube el Excel maestro primero."}), 400
+    if almacen.config is None:
+        return jsonify(
+            {"error": "El config del area no es valido: revisa el config.json en uso."}
+        ), 400
+
+    if not servicio().conectado:
+        return jsonify(
+            {"error": "TIA Portal no esta conectado. Conectate antes de sincronizar."}
+        ), 400
+
+    return lanzar(
+        sincronizar,
         plc=plc,
         almacen=almacen,
         config=almacen.config,

@@ -281,6 +281,105 @@ def test_el_trabajo_avisa_de_los_dominios_sin_tabla(
     assert "DISP_ED" in _detalle_de(eventos, "avisos")
 
 
+class _ServicioConectado:
+    """Un hilo de TIA que dice que esta conectado y anota el trabajo."""
+
+    def __init__(self) -> None:
+        self.funcion: Any = None
+        self.params: dict[str, Any] = {}
+
+    @property
+    def conectado(self) -> bool:
+        return True
+
+    def lanzar(self, funcion: Any, **params: Any) -> str:
+        self.funcion = funcion
+        self.params = params
+        return "job-de-prueba"
+
+
+# ── sincronizar los dispositivos ────────────────────────────────────────────
+
+
+def test_sincronizar_sin_plc_responde_400(cliente: Any) -> None:
+    respuesta = cliente.post(
+        "/api/v1/areas/alimentacion/dispositivos/sincronizar",
+        json={},
+        base_url=BASE,
+        headers={"Origin": BASE},
+    )
+
+    assert respuesta.status_code == 400
+    assert "PLC" in respuesta.get_json()["error"]
+
+
+def test_sincronizar_sin_excel_responde_400(cliente: Any) -> None:
+    respuesta = cliente.post(
+        "/api/v1/areas/alimentacion/dispositivos/sincronizar",
+        json={"plc": "ZC_PLC_STD"},
+        base_url=BASE,
+        headers={"Origin": BASE},
+    )
+
+    assert respuesta.status_code == 400
+    assert "Excel" in respuesta.get_json()["error"]
+
+
+def test_sincronizar_sin_conexion_con_tia_responde_400(
+    cliente: Any,
+    almacen: AlmacenExcel,
+    excel_maestro: Path,
+) -> None:
+    almacen.volcar(excel_maestro)
+
+    respuesta = cliente.post(
+        "/api/v1/areas/alimentacion/dispositivos/sincronizar",
+        json={"plc": "ZC_PLC_STD"},
+        base_url=BASE,
+        headers={"Origin": BASE},
+    )
+
+    assert respuesta.status_code == 400
+    assert "TIA" in respuesta.get_json()["error"]
+
+
+def test_sincronizar_responde_202_y_encola_el_trabajo(
+    cliente: Any,
+    almacen: AlmacenExcel,
+    excel_maestro: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    almacen.volcar(excel_maestro)
+    modulo = importlib.import_module("zc_suite.areas.alimentacion.rutas")
+    nucleo = importlib.import_module("zc_suite.nucleo.web.app")
+    servicio = _ServicioConectado()
+    monkeypatch.setattr(modulo, "servicio", lambda: servicio)
+    monkeypatch.setattr(nucleo, "servicio", lambda: servicio)
+
+    respuesta = cliente.post(
+        "/api/v1/areas/alimentacion/dispositivos/sincronizar",
+        json={"plc": "ZC_PLC_STD"},
+        base_url=BASE,
+        headers={"Origin": BASE},
+    )
+
+    assert respuesta.status_code == 202
+    assert respuesta.get_json()["job_id"] == "job-de-prueba"
+    assert servicio.params["plc"] == "ZC_PLC_STD"
+    assert servicio.params["almacen"] is almacen
+    assert servicio.params["config"] is almacen.config
+
+
+def test_sincronizar_sin_origin_se_rechaza(cliente: Any) -> None:
+    respuesta = cliente.post(
+        "/api/v1/areas/alimentacion/dispositivos/sincronizar",
+        json={"plc": "ZC_PLC_STD"},
+        base_url=BASE,
+    )
+
+    assert respuesta.status_code == 403
+
+
 def test_el_tamano_maximo_por_defecto_es_de_20_mb() -> None:
     assert TAMANO_MAXIMO == 20 * 1024 * 1024
 
