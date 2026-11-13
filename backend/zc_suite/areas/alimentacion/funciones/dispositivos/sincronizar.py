@@ -461,13 +461,36 @@ def _compilar(job: Job, plc: str, config: ConfigArea) -> dict[str, Any]:
         logger.warning(aviso)
         return {"ok": False, "error": str(exc), "detalle": "compile=WARN"}
     if resultado["n_compilados_error"] or resultado["n_errores"]:
+        partes = []
+        if resultado["con_errores"]:
+            detalles = []
+            for compilado in resultado["compilados"]:
+                if not compilado["tiene_errores"]:
+                    continue
+                mensajes = compilado.get("mensajes") or []
+                if mensajes:
+                    detalles.append(f"{compilado['nombre']} ({_mensaje_corto(mensajes[0])})")
+                else:
+                    detalles.append(compilado["nombre"])
+            partes.append(
+                f"{len(resultado['con_errores'])} bloque(s) con errores: "
+                + ", ".join(detalles)
+            )
+        if resultado["errores"]:
+            partes.append(
+                f"{len(resultado['errores'])} no se pudieron compilar: "
+                + ", ".join(e["nombre"] for e in resultado["errores"])
+            )
+        if resultado["no_encontrados"]:
+            partes.append(
+                f"{len(resultado['no_encontrados'])} no encontrado(s): "
+                + ", ".join(resultado["no_encontrados"])
+            )
         error = (
-            f"TIA reporta errores de compilacion: "
-            f"{resultado['n_compilados_error']} bloque(s) con errores, "
-            f"{resultado['n_errores']} excepcion(es), "
-            f"{resultado['n_no_encontrados']} no encontrado(s). "
-            "Revisa el proyecto en TIA Portal: los DBs pueden haber quedado "
-            "con un tamano inconsistente tras el cambio de N_MAX."
+            "TIA reporta errores de compilacion: "
+            + "; ".join(partes)
+            + ". Revisa esos bloques en TIA Portal: pueden haber quedado con "
+            "un tamano inconsistente tras el cambio de N_MAX."
         )
         logger.warning("Compilacion con errores (los cambios ya estan aplicados): %s", error)
         return {"ok": False, "error": error, "detalle": "compile=WARN"}
@@ -479,6 +502,20 @@ def _compilar(job: Job, plc: str, config: ConfigArea) -> dict[str, Any]:
             f"{resultado['n_sin_cambios']} sin cambios)"
         ),
     }
+
+
+def _mensaje_corto(mensaje: str) -> str:
+    """El mensaje de TIA sin la ruta del bloque.
+
+    ``"ZC_PLC_STD > Program blocks > DB5 (DB5) > Interface > Data type Boo
+    is unknown."`` queda en ``"Interface > Data type Boo is unknown."``.
+    """
+    partes = [parte.strip() for parte in mensaje.split(" > ")]
+    for indice, parte in enumerate(partes):
+        if parte.endswith(")") and "(" in parte:
+            resto = partes[indice + 1:]
+            return " > ".join(resto) if resto else mensaje
+    return mensaje
 
 
 def _aplicar_comentarios(

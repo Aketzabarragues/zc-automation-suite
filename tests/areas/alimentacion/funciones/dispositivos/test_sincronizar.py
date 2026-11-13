@@ -174,8 +174,14 @@ def test_los_errores_de_compilacion_no_tumban_el_sync(
     entorno_sync: Any,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """La compilacion se avisa, pero lo que ya esta aplicado se queda."""
+    """La compilacion se avisa, pero lo que ya esta aplicado se queda.
+
+    Un bloque que sigue inconsistente tras compilar tiene errores, y el aviso
+    lo nombra.
+    """
+    nombres = []
     for bloque in entorno_sync.plc.get_program_blocks():
+        nombres.append(bloque.get_name())
         monkeypatch.setattr(bloque, "is_consistent", lambda: False)
         monkeypatch.setattr(bloque, "compile", lambda: True)
 
@@ -185,6 +191,54 @@ def test_los_errores_de_compilacion_no_tumban_el_sync(
     compilacion = evento["resultado"]["compilacion"]
     assert compilacion["ok"] is False
     assert "errores de compilacion" in compilacion["error"]
+    assert "con errores" in compilacion["error"]
+    assert any(nombre in compilacion["error"] for nombre in nombres)
+
+
+def test_el_aviso_trae_el_mensaje_de_tia(
+    entorno_sync: Any,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """El aviso dice que bloque falla y por que, sin la ruta del bloque."""
+    from tests.tia_ops.test_compilar import ResultadoFalso
+
+    bloques = entorno_sync.plc.get_program_blocks()
+    for bloque in bloques:
+        nombre = bloque.get_name()
+        monkeypatch.setattr(bloque, "is_consistent", lambda: False)
+        monkeypatch.setattr(
+            bloque, "compile", lambda nombre=nombre: ResultadoFalso(nombre, tiene_errores=True)
+        )
+
+    evento = entorno_sync.sincronizar()
+
+    error = evento["resultado"]["compilacion"]["error"]
+    nombre = bloques[0].get_name()
+    assert f"{nombre} (Interface > Data type Boo is unknown.)" in error
+
+
+def test_compile_que_devuelve_true_y_deja_el_bloque_bien_no_es_un_error(
+    entorno_sync: Any,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Caso real de TIA V21: compile() devuelve un valor verdadero y el bloque
+    queda consistente. main lo avisaba como "10 bloques con errores"."""
+    for bloque in entorno_sync.plc.get_program_blocks():
+        estado = {"consistente": False}
+
+        def compilar(estado: dict[str, bool] = estado) -> bool:
+            estado["consistente"] = True
+            return True
+
+        monkeypatch.setattr(bloque, "is_consistent", lambda estado=estado: estado["consistente"])
+        monkeypatch.setattr(bloque, "compile", compilar)
+
+    evento = entorno_sync.sincronizar()
+
+    assert evento["estado"] == "ok", evento.get("error")
+    compilacion = evento["resultado"]["compilacion"]
+    assert compilacion["ok"] is True, compilacion.get("error")
+    assert compilacion["detalle"].startswith("compile=OK")
 
 
 def test_los_comentarios_no_se_ejecutan_en_tia_v18(entorno_sync_v18: Any) -> None:

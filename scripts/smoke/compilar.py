@@ -88,7 +88,11 @@ def _trabajo_compilar(
     job.empezar("Smoke de compilacion", [("compilar", "Compilar el PLC")])
     with job.paso("compilar") as paso:
         resultado = compilar_plc(job.tia.portal, plc)
-        paso["detail"] = "con errores" if resultado["tiene_errores"] else "sin errores"
+        paso["detail"] = (
+            f"con errores: {'; '.join(resultado['errores'])}"
+            if resultado["tiene_errores"]
+            else "sin errores"
+        )
     return resultado
 
 
