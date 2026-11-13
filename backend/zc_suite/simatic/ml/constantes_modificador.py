@@ -57,6 +57,10 @@ class ModificadorConstantesUsuario:
         self._tree: Any = ET.parse(str(self._path))
         self._root: ET.Element = cast(ET.Element, self._tree.getroot())
         self._modified: bool = False
+        # La plantilla se guarda al cargar: si despues se borran todas las
+        # constantes de la tabla, sigue habiendo una con la que clonar las
+        # nuevas. Sin esto, un alta sobre una tabla vacia se pierde.
+        self._plantilla: ET.Element | None = self._constante_de_plantilla()
 
     def guardar(self, output_path: str | Path) -> None:
         """Escribe el arbol XML modificado en ``output_path``.
@@ -197,7 +201,7 @@ class ModificadorConstantesUsuario:
         )
         if not stem_match:
             return 0
-        template = self._constante_de_plantilla()
+        template = self._plantilla
         if template is None:
             _logger.warning(
                 f"ModificadorConstantesUsuario: no template PlcUserConstant "
