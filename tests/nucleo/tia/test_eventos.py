@@ -464,3 +464,24 @@ def test_el_bus_acepta_los_cuatro_tipos() -> None:
     for tipo in ("progress", "job", "log", "tia"):
         bus.publicar(tipo, {})
     assert bus.suscriptores == 0
+
+
+def test_el_handler_no_publica_los_debug() -> None:
+    """La consola de la SPA es para el operario: los DEBUG van solo al fichero."""
+    bus = BusEventos()
+    suscriptor = bus.suscribir()
+    logger_prueba = logging.getLogger("zc_suite.test_nivel_consola")
+    logger_prueba.propagate = False
+    logger_prueba.setLevel(logging.DEBUG)
+    handler = conectar_logging(bus, logger_prueba)
+    try:
+        logger_prueba.debug("detalle tecnico")
+        logger_prueba.info("paso del trabajo")
+        logger_prueba.warning("aviso")
+    finally:
+        desconectar_logging(logger_prueba, handler)
+
+    mensajes = []
+    while (evento := suscriptor.siguiente(timeout=0.2)) is not None:
+        mensajes.append(evento["mensaje"])
+    assert mensajes == ["paso del trabajo", "aviso"]

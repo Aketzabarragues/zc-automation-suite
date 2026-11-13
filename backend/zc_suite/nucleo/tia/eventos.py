@@ -294,10 +294,14 @@ class HandlerEventos(logging.Handler):
       avisa cuando una cola se llena y avisar volveria a llenar la cola.
     - Un guard de reentrada por hilo: si la publicacion provoke un log, ese
       log no vuelve a publicar.
+
+    Solo publica de INFO para arriba: la consola de la SPA es para el
+    operario. Los DEBUG van al fichero de log y nada mas (como main, cuya
+    consola web ignoraba INFO y DEBUG: ``log_web_bridge.LogBufferHandler``).
     """
 
-    def __init__(self, bus: BusEventos) -> None:
-        super().__init__()
+    def __init__(self, bus: BusEventos, nivel: int = logging.INFO) -> None:
+        super().__init__(level=nivel)
         self.bus = bus
         self._local = threading.local()
 
