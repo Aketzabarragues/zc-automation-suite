@@ -22,6 +22,9 @@ const CLAVE_PREVISION = "prevision_dispositivos";
 /** Ruta del endpoint de la prevision. */
 export const RUTA_PREVIEW = "/api/v1/areas/alimentacion/dispositivos/preview";
 
+/** Ruta del endpoint que aplica los cambios en TIA Portal. */
+export const RUTA_SINCRONIZAR = "/api/v1/areas/alimentacion/dispositivos/sincronizar";
+
 /** Ruta del catalogo de la app. */
 export const RUTA_CATALOGO = "/api/v1/catalog";
 
@@ -45,6 +48,10 @@ export const useDispositivosStore = defineStore("dispositivos", {
     hidratado: false,
     /** `true` mientras se genera la prevision. */
     generando: false,
+    /** `true` mientras se sincroniza el PLC con el Excel. */
+    aplicando: false,
+    /** El estado de cada transaccion del ultimo sync. */
+    transacciones: [],
     /** Ultimo error de la vista. */
     error: null,
   }),
@@ -109,6 +116,22 @@ export const useDispositivosStore = defineStore("dispositivos", {
         return { actualizar: 0, sin_cambios: 0, total: 0 };
       }
       return prevision.nmax.summary || { actualizar: 0, sin_cambios: 0, total: 0 };
+    },
+
+    /**
+     * Cuantos cambios van a aplicarse: los dispositivos que se agregan, se
+     * renombran o se eliminan, mas los N_MAX que hay que actualizar.
+     */
+    numeroDeCambios() {
+      if (!this.hayPreview) return 0;
+      const resumen = this.resumen;
+      const nmax = this.resumenNMax;
+      return (
+        (resumen.agregados || 0) +
+        (resumen.renombrados || 0) +
+        (resumen.eliminados || 0) +
+        (nmax.actualizar || 0)
+      );
     },
 
     /** Cuantas filas del diff hay de cada tipo. */
@@ -189,10 +212,55 @@ export const useDispositivosStore = defineStore("dispositivos", {
       }
     },
 
-    /** Limpia la prevision y el error. */
+    /**
+     * Aplica en TIA Portal los cambios de la prevision.
+     *
+     * El trabajo devuelve la prevision recalculada y el estado de cada
+     * transaccion: lo que se confirmo, lo que se revirtio y lo que no llego
+     * a ejecutarse.
+     *
+     * @param {string} plc el PLC elegido.
+     * @returns {Promise<boolean>} si el sync se completo.
+     */
+    async aplicar(plc) {
+      if (!plc) {
+        this.error = "Elige un PLC antes de aplicar los cambios.";
+        return false;
+      }
+      this.error = null;
+      this.aplicando = true;
+      try {
+        const datos = await pedir(RUTA_SINCRONIZAR, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ plc }),
+        });
+        const job = await useTrabajosStore().esperar(datos.job_id);
+        if (job.estado === "ok") {
+          const resultado = job.resultado || {};
+          // Si el backend no pudo recalcular la prevision, esta viene vacia:
+          // la vista se queda sin ella.
+          this.preview = resultado.prevision || null;
+          this.previewPlc = plc;
+          this.transacciones = resultado.transacciones || [];
+          this.hidratado = true;
+          return true;
+        }
+        this.error = job.error || "No se pudo sincronizar.";
+        return false;
+      } catch (error) {
+        this.error = error.message;
+        return false;
+      } finally {
+        this.aplicando = false;
+      }
+    },
+
+    /** Limpia la prevision, las transacciones y el error. */
     limpiar() {
       this.preview = null;
       this.previewPlc = "";
+      this.transacciones = [];
       this.error = null;
     },
   },

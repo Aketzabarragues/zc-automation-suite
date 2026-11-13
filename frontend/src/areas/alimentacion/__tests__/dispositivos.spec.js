@@ -7,6 +7,10 @@ import { useExcelStore } from "../stores/excel.js";
 import { usePlcStore } from "../../../nucleo/stores/plc.js";
 import { useSesionStore } from "../../../nucleo/stores/sesion.js";
 import { useTiaStore } from "../../../nucleo/stores/tia.js";
+import { useTrabajosStore } from "../../../nucleo/stores/trabajos.js";
+
+/** El Excel maestro que tiene el backend. */
+const EXCEL_CARGADO = { cargado: true, archivo: "Maestro.xlsm" };
 
 /** El catalogo del area, como lo sirve el backend. */
 const CATALOGO = {
@@ -80,9 +84,54 @@ const PREVISION = {
 };
 
 /**
+ * La prevision que devuelve el backend tras el sync: los cambios ya estan
+ * aplicados y solo quedan los dispositivos sin cambios.
+ */
+const PREVISION_POST = {
+  agregados: [],
+  eliminados: [],
+  renombrados: [],
+  todos: [
+    {
+      table: "2000_Disp_ED",
+      type: "ed",
+      uid: "1",
+      numero: 1,
+      actual: "V_ED_001",
+      nuevo: "V_ED_001",
+      status: "sin_cambios",
+    },
+    {
+      table: "2000_Disp_ED",
+      type: "ed",
+      uid: "2",
+      numero: 2,
+      actual: "ED_002",
+      nuevo: "ED_002",
+      status: "sin_cambios",
+    },
+  ],
+  nmax: {
+    current: { N_MAX_DISP_ED: 20 },
+    desired: { N_MAX_DISP_ED: 20 },
+    todos: [{ name: "N_MAX_DISP_ED", actual: 20, nuevo: 20, status: "sin_cambios" }],
+    summary: { actualizar: 0, sin_cambios: 1, total: 1 },
+    nmax_error: null,
+  },
+  summary: { agregados: 0, eliminados: 0, renombrados: 0, sin_cambios: 2, total: 2 },
+};
+
+/** Las transacciones que devuelve el trabajo de sincronizacion. */
+const TRANSACCIONES = [
+  { nombre: "N_MAX y renombres", estado: "confirmada", detalle: "1 N_MAX y 1 renombres" },
+  { nombre: "Dispositivos", estado: "confirmada", detalle: "1 tablas" },
+  { nombre: "Comentarios", estado: "no ejecutada", detalle: "TIA Portal anterior a V21" },
+];
+
+/**
  * Monta la vista con un pinia limpio.
  *
- * @returns {object} `{wrapper, dispositivos, excel, plc, tia}`.
+ * @returns {object} `{wrapper, dispositivos, excel, plc, tia, trabajos}`.
  */
 function montar() {
   const pinia = createPinia();
@@ -94,6 +143,7 @@ function montar() {
     excel: useExcelStore(),
     plc: usePlcStore(),
     tia: useTiaStore(),
+    trabajos: useTrabajosStore(),
   };
 }
 
@@ -122,11 +172,29 @@ function numeros(wrapper) {
   );
 }
 
+/**
+ * Abre el dialogo de confirmacion y lo confirma.
+ *
+ * @param {object} wrapper la vista montada.
+ */
+async function confirmarAplicacion(wrapper) {
+  await wrapper.find('[data-testid="dispositivos-aplicar"]').trigger("click");
+  await wrapper.find('[data-testid="dispositivos-confirmar-si"]').trigger("click");
+  await flushPromises();
+}
+
 describe("Dispositivos", () => {
   beforeEach(() => {
     global.fetch = vi.fn((ruta) => {
-      if (String(ruta).includes("/api/v1/catalog")) {
+      const url = String(ruta);
+      if (url.includes("/api/v1/catalog")) {
         return Promise.resolve({ ok: true, json: async () => CATALOGO });
+      }
+      if (url.includes("/api/v1/areas/alimentacion/excel")) {
+        return Promise.resolve({ ok: true, json: async () => EXCEL_CARGADO });
+      }
+      if (url.includes("/dispositivos/sincronizar")) {
+        return Promise.resolve({ ok: true, json: async () => ({ job_id: "j1" }) });
       }
       return Promise.resolve({ ok: true, json: async () => ({}) });
     });
@@ -235,13 +303,178 @@ describe("Dispositivos", () => {
     expect(tarjetas.text()).toContain("20");
   });
 
-  it("el boton de aplicar dice que esta pendiente y no hace nada", async () => {
-    const { wrapper, dispositivos } = montarConPrevision();
+  it("el boton de aplicar esta deshabilitado sin prevision", async () => {
+    const { wrapper } = montar();
     await flushPromises();
 
     const boton = wrapper.find('[data-testid="dispositivos-aplicar"]');
-    expect(boton.text()).toContain("Pendiente (fase 4.3)");
+    expect(boton.text()).toContain("Aplicar Cambios en TIA Portal");
     expect(boton.attributes("disabled")).toBeDefined();
+    expect(wrapper.find('[data-testid="dispositivos-transacciones"]').exists()).toBe(false);
+  });
+
+  it("el boton de aplicar enseña cuantos cambios van a aplicarse", async () => {
+    const { wrapper } = montarConPrevision();
+    await flushPromises();
+
+    const boton = wrapper.find('[data-testid="dispositivos-aplicar"]');
+    expect(boton.text()).toContain("Aplicar Cambios en TIA Portal");
+    expect(boton.text()).toContain("(4 cambios)");
+    expect(boton.attributes("disabled")).toBeUndefined();
+  });
+
+  it("el boton de aplicar se habilita con Excel, TIA y PLC", async () => {
+    const { wrapper, excel, tia, plc } = montarConPrevision();
+    await flushPromises();
+
+    expect(
+      wrapper.find('[data-testid="dispositivos-aplicar"]').attributes("disabled"),
+    ).toBeUndefined();
+
+    excel.cargado = false;
+    await flushPromises();
+    expect(
+      wrapper.find('[data-testid="dispositivos-aplicar"]').attributes("disabled"),
+    ).toBeDefined();
+
+    excel.cargado = true;
+    tia.conectado = false;
+    await flushPromises();
+    expect(
+      wrapper.find('[data-testid="dispositivos-aplicar"]').attributes("disabled"),
+    ).toBeDefined();
+
+    tia.conectado = true;
+    plc.seleccionado = "";
+    await flushPromises();
+    expect(
+      wrapper.find('[data-testid="dispositivos-aplicar"]').attributes("disabled"),
+    ).toBeDefined();
+  });
+
+  it("mientras se aplica, los botones de generar y de aplicar estan deshabilitados", async () => {
+    const { wrapper, dispositivos } = montarConPrevision();
+    await flushPromises();
+
+    dispositivos.aplicando = true;
+    await flushPromises();
+
+    expect(
+      wrapper.find('[data-testid="dispositivos-aplicar"]').attributes("disabled"),
+    ).toBeDefined();
+    expect(
+      wrapper.find('[data-testid="dispositivos-generar"]').attributes("disabled"),
+    ).toBeDefined();
+  });
+
+  it("el dialogo de confirmacion se abre al pulsar y se cierra al cancelar", async () => {
+    const { wrapper } = montarConPrevision();
+    await flushPromises();
+
+    expect(wrapper.find('[data-testid="dispositivos-confirmar-dialogo"]').exists()).toBe(false);
+
+    await wrapper.find('[data-testid="dispositivos-aplicar"]').trigger("click");
+
+    const dialogo = wrapper.find('[data-testid="dispositivos-confirmar-dialogo"]');
+    expect(dialogo.exists()).toBe(true);
+    expect(dialogo.attributes("role")).toBe("dialog");
+    expect(dialogo.attributes("aria-modal")).toBe("true");
+    expect(dialogo.text()).toContain("¿Aplicar 4 cambios en TIA Portal?");
+    expect(dialogo.text()).toContain("Devices:");
+    expect(dialogo.text()).toContain("Agregar: 1");
+    expect(dialogo.text()).toContain("Renombrar: 1");
+    expect(dialogo.text()).toContain("Eliminar: 1");
+    expect(dialogo.text()).toContain("N_MAX (dimensiones):");
+    expect(dialogo.text()).toContain("Actualizar: 1");
+
+    await wrapper.find('[data-testid="dispositivos-confirmar-no"]').trigger("click");
+
+    expect(wrapper.find('[data-testid="dispositivos-confirmar-dialogo"]').exists()).toBe(false);
+  });
+
+  it("el dialogo de confirmacion se cierra con Escape", async () => {
+    const { wrapper } = montarConPrevision();
+    await flushPromises();
+
+    await wrapper.find('[data-testid="dispositivos-aplicar"]').trigger("click");
+    expect(wrapper.find('[data-testid="dispositivos-confirmar-dialogo"]').exists()).toBe(true);
+
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    await flushPromises();
+
+    expect(wrapper.find('[data-testid="dispositivos-confirmar-dialogo"]').exists()).toBe(false);
+  });
+
+  it("al confirmar se encola la sincronizacion y queda la prevision posterior", async () => {
+    const { wrapper, trabajos } = montarConPrevision();
+    await flushPromises();
+
+    await confirmarAplicacion(wrapper);
+
+    const post = global.fetch.mock.calls.find(
+      ([ruta, opciones]) =>
+        opciones && opciones.method === "POST" && String(ruta).includes("sincronizar"),
+    );
+    expect(post).toBeTruthy();
+    expect(String(post[0])).toBe("/api/v1/areas/alimentacion/dispositivos/sincronizar");
+    expect(JSON.parse(post[1].body)).toEqual({ plc: "ZC_PLC_STD" });
+    expect(wrapper.find('[data-testid="dispositivos-confirmar-dialogo"]').exists()).toBe(false);
+
+    // El trabajo termina: la vista se queda con la prevision posterior.
+    trabajos.aplicar({
+      type: "job",
+      job: "j1",
+      estado: "ok",
+      resultado: { prevision: PREVISION_POST, transacciones: TRANSACCIONES },
+      error: null,
+    });
+    await flushPromises();
+
+    expect(wrapper.find('[data-testid="dispositivos-resumen"]').text()).toContain("0 a agregar");
+    expect(wrapper.find('[data-testid="dispositivos-resumen"]').text()).toContain("2 sin cambios");
+  });
+
+  it("el estado de cada transaccion se ve al terminar la sincronizacion", async () => {
+    const { wrapper, trabajos } = montarConPrevision();
+    await flushPromises();
+
+    await confirmarAplicacion(wrapper);
+
+    trabajos.aplicar({
+      type: "job",
+      job: "j1",
+      estado: "ok",
+      resultado: { prevision: PREVISION_POST, transacciones: TRANSACCIONES },
+      error: null,
+    });
+    await flushPromises();
+
+    const bloque = wrapper.find('[data-testid="dispositivos-transacciones"]');
+    expect(bloque.exists()).toBe(true);
+    expect(bloque.text()).toContain("N_MAX y renombres: confirmada");
+    expect(bloque.text()).toContain("Dispositivos: confirmada");
+    expect(bloque.text()).toContain("Comentarios: no ejecutada");
+  });
+
+  it("el error de la sincronizacion se ve en la vista", async () => {
+    const { wrapper, trabajos } = montarConPrevision();
+    await flushPromises();
+
+    await confirmarAplicacion(wrapper);
+
+    trabajos.aplicar({
+      type: "job",
+      job: "j1",
+      estado: "error",
+      resultado: null,
+      error: "La transaccion de dispositivos se revirtio",
+    });
+    await flushPromises();
+
+    expect(wrapper.find('[data-testid="dispositivos-error"]').text()).toContain(
+      "La transaccion de dispositivos se revirtio",
+    );
+    expect(wrapper.find('[data-testid="dispositivos-transacciones"]').exists()).toBe(false);
   });
 
   it("subir el Excel y entrar en Dispositivos no pisa el Excel con la foto de la sesion", async () => {
