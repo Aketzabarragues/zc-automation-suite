@@ -83,7 +83,8 @@ def generar_prevision(
 
     Returns:
         El shape que consume la SPA: ``precondiciones_ok``, ``ops``,
-        ``constants``, ``arrays``, ``nmax``, ``summary`` y ``warnings``.
+        ``constants``, ``entities_block``, ``arrays``, ``nmax``, ``summary``
+        y ``warnings``.
     """
     if con_pasos:
         job.empezar(
@@ -225,6 +226,7 @@ def componer_respuesta(
         "table_present": not diff_constantes.xml_ausente,
         "arrays": {diff_comentarios.array: _filas_de_slots(diff_comentarios)},
         "ops": list(diff_constantes.operaciones),
+        "entities_block": {"desired": dict(diff_constantes.deseado)},
         "constants": {
             "agregados": [
                 {
