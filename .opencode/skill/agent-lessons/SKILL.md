@@ -1,6 +1,6 @@
 ---
 name: agent-lessons
-description: Lecciones operativas criticas del agente para zc-automation-suite — TIA Openness target_folder_path, silenciado del log nativo de Siemens con set_logging, encoding BOM al restaurar git desde PowerShell, smoke en vivo > tests verdes, auditar imports al mover codigo, encoding y saltos de linea de los ficheros TIA exportados, fixtures byte a byte. Carga esta skill ante bugs de import, de TIA, o refactors grandes.
+description: Lecciones operativas criticas del agente para zc-automation-suite — TIA Openness target_folder_path, compile() devuelve un ExecutionResult y no un booleano, silenciado del log nativo de Siemens con set_logging, encoding BOM al restaurar git desde PowerShell, smoke en vivo > tests verdes, auditar imports al mover codigo, encoding y saltos de linea de los ficheros TIA exportados, fixtures byte a byte. Carga esta skill ante bugs de import, de TIA, o refactors grandes.
 ---
 
 # Lecciones operativas del agente (mavis → zc-automation-suite)
@@ -66,6 +66,35 @@ Reglas que salen de ahi:
 
 Aplica a `backend/zc_suite/nucleo/tia/servicio.py` (`pid_del_portal`,
 `_bucle`, `_verificar_conexion`, `abrir_portal`).
+
+## `compile()` devuelve un `ExecutionResult`, no un booleano
+
+Comprobado contra TIA (V18 y V21). El manual de Openness no lo documenta:
+§2.29.4 no dice nada y §2.2.11 afirma "True si hay errores", que es la
+semantica antigua.
+
+- `block.compile()` y `plc.compile_software()` devuelven un `ExecutionResult`
+  del SDK. **Un objeto es siempre verdadero**: hacer `bool(resultado)` cuenta
+  como "con errores" todo lo que compila. `main` tenia ese bug y en V21 el sync
+  avisaba de "10 bloques con errores" con los 10 DBs compilados y sin errores.
+- El `ExecutionResult` trae `get_result_state()` (0 sin errores, 20 con
+  errores), `get_errors()`, `get_warnings()`, `get_information()` y
+  `get_all_messages()`. Los mensajes son textos de TIA, por ejemplo
+  `"ZC_PLC_STD > Program blocks > DB_NO_OK (DB5) > Interface > Data type Boo
+  is unknown."`. La ultima linea es el resumen
+  `"Compiling finished (errors: 1; warnings: 0)"`.
+
+Como se decide si hay errores:
+
+- Si el resultado trae `get_errors()`, hay errores si devuelve alguno.
+- En un bloque, ademas, si sigue sin ser consistente tras compilar
+  (`is_consistent()`, si documentado). Es el respaldo si el SDK cambia.
+- Si TIA devolviera un booleano (SDK antiguo), en el PLC se toma como
+  "True = errores" (§2.2.11); en un bloque se ignora y manda `is_consistent()`.
+
+**Nunca `bool()` sobre el resultado de compilar.** Aplica a
+`backend/zc_suite/tia_ops/compilar.py` y a cualquier codigo nuevo que
+compile.
 
 ## `pythonnet` no hace falta
 
