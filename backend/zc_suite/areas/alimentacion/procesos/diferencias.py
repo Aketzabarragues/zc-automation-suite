@@ -33,16 +33,15 @@ mismos criterios:
 """
 from __future__ import annotations
 
-import logging
-from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from zc_suite.areas.alimentacion.dispositivos.diferencias import (
+    DiffNMax,
+    disp_calcular_diff_n_max,
+)
 from zc_suite.areas.alimentacion.procesos.mapa import MapaProceso
-from zc_suite.simatic.ml import ParserConstantesUsuario
 from zc_suite.simatic.sd import comentarios_actuales, indices_de_array
-
-logger = logging.getLogger(__name__)
 
 #: Los arrays de un proceso, por array: ``(nombre, slot_map, db, actual,
 #: tipo, satelites)``. El orden es el de ``main``.
@@ -222,42 +221,22 @@ def proc_resumen(arrays: dict[str, Any]) -> dict[str, int]:
 # ── el diff del N_MAX ────────────────────────────────────────────────────────
 
 
-@dataclass(frozen=True)
-class DiffNMax:
-    """El diff de los N_MAX de un proceso entre lo deseado (Excel) y lo que
-    hay (TIA).
+def _nmax_deseado(
+    nmax_names: dict[str, str],
+    nmax_deseado: dict[str, int],
+) -> dict[str, int]:
+    """Los N_MAX deseados en nombres TIA: ``{nombre_TIA: valor}``.
 
-    Attributes:
-        tabla: nombre de la tabla del proceso (``"100_CPR"``).
-        actual: los valores de TIA (``{}`` si falta el XML),
-            ``{nombre_TIA: valor}``.
-        deseado: los valores del Excel, ``{nombre_TIA: valor}``.
-        todos: lista de ``{kind, name, actual, nuevo, status}`` por N_MAX.
-        resumen: ``{actualizar, sin_cambios, total}``.
-        xml_ausente: ``True`` si el XML no existia.
+    Los N_MAX de un proceso son constantes de la tabla del proceso: el
+    nombre canonico es ``<uid>_N_MAX_<SUFIXO>`` (los ``values`` de
+    ``nmax_names``) y el valor es la columna del proceso del Excel
+    (``nmax_deseado``).
     """
-
-    tabla: str
-    actual: dict[str, int]
-    deseado: dict[str, int]
-    todos: list[dict[str, Any]] = field(default_factory=list)
-    resumen: dict[str, int] = field(default_factory=dict)
-    xml_ausente: bool = False
-
-
-def _leer_n_max_del_xml(ruta_xml: Path) -> tuple[dict[str, int], str | None]:
-    """Lee un XML plano con los N_MAX y devuelve ``(valores, error)``.
-
-    Devuelve ``({}, mensaje)`` si el XML falta o no se puede parsear.
-    """
-    if not ruta_xml.is_file():
-        return {}, f"El XML de los N_MAX no esta en la exportacion de TIA: {ruta_xml}"
-    try:
-        valores = ParserConstantesUsuario.leer_constantes(ruta_xml)
-        return dict(valores), None
-    except Exception as exc:
-        logger.error("[N_MAX proc] No se pudo parsear %s: %s", ruta_xml, exc)
-        return {}, f"no se pudo parsear: {exc}"
+    return {
+        nmax_names[k]: int(nmax_deseado[k])
+        for k in nmax_names
+        if k in nmax_deseado
+    }
 
 
 def proc_calcular_diff_n_max(
@@ -268,9 +247,12 @@ def proc_calcular_diff_n_max(
 ) -> DiffNMax:
     """El diff de los N_MAX de un proceso, entre el Excel y el XML de TIA.
 
-    Los N_MAX son constantes de la tabla del proceso. El nombre canonico es
-    ``<uid>_N_MAX_<SUFIXO>`` (los ``values`` de ``nmax_names``) y el valor
-    deseado es la columna del proceso del Excel (``nmax_deseado``).
+    Reutiliza ``disp_calcular_diff_n_max`` para leer el XML y comparar
+    (mismo lector y mismo resumen que dispositivos y entidades). Sobre el
+    resultado se anade el ``kind`` a cada fila de ``todos`` (main lo lleva)
+    y se filtra ``actual`` por los NOMBRES TIA del proceso: la tabla del
+    proceso solo contiene sus propias constantes, pero el XML exportado
+    puede traer otras.
 
     Args:
         tabla: nombre de la tabla del proceso (``"100_CPR"``).
@@ -281,69 +263,24 @@ def proc_calcular_diff_n_max(
     Returns:
         El ``DiffNMax`` con ``actual``, ``deseado``, ``todos`` y ``resumen``.
     """
-    actual_crudo, error = _leer_n_max_del_xml(ruta_xml)
-    if error is not None:
-        deseado = {
-            nmax_names[k]: int(nmax_deseado[k])
-            for k in nmax_names
-            if k in nmax_deseado
-        }
-        return DiffNMax(
-            tabla=tabla,
-            actual={},
-            deseado=deseado,
-            todos=[],
-            resumen={
-                "actualizar": 0,
-                "sin_cambios": len(deseado),
-                "total": len(deseado),
-            },
-            xml_ausente=True,
-        )
-
-    # Filtrar los N_MAX del XML por los NOMBRES TIA del config (los values de
-    # ``nmax_names``), no por los sufijos: la tabla del proceso solo contiene
-    # sus propias constantes.
+    deseado = _nmax_deseado(nmax_names, nmax_deseado)
+    diff = disp_calcular_diff_n_max(tabla, deseado, ruta_xml)
     nombres_tia = set(nmax_names.values())
     actual = {
-        nombre: int(valor)
-        for nombre, valor in actual_crudo.items()
+        nombre: valor
+        for nombre, valor in diff.actual.items()
         if nombre in nombres_tia
     }
-    deseado = {
-        nmax_names[k]: int(nmax_deseado[k])
-        for k in nmax_names
-        if k in nmax_deseado
-    }
-
-    todos: list[dict[str, Any]] = []
-    for kind, name in nmax_names.items():
-        cur_val = actual.get(name)
-        des_val = deseado.get(name, 0)
-        status = (
-            "sin_cambios"
-            if cur_val is not None and int(cur_val) == int(des_val)
-            else "actualizar"
-        )
-        todos.append(
-            {
-                "kind": kind,
-                "name": name,
-                "actual": cur_val,
-                "nuevo": des_val,
-                "status": status,
-            }
-        )
-
+    kind_por_nombre = {nombre: sufijo for sufijo, nombre in nmax_names.items()}
+    todos = [
+        {"kind": kind_por_nombre.get(fila["name"]), **fila}
+        for fila in diff.todos
+    ]
     return DiffNMax(
-        tabla=tabla,
+        tabla=diff.tabla,
         actual=actual,
-        deseado=deseado,
+        deseado=diff.deseado,
         todos=todos,
-        resumen={
-            "actualizar": sum(1 for fila in todos if fila["status"] == "actualizar"),
-            "sin_cambios": sum(1 for fila in todos if fila["status"] == "sin_cambios"),
-            "total": len(todos),
-        },
-        xml_ausente=False,
+        resumen=diff.resumen,
+        xml_ausente=diff.xml_ausente,
     )
