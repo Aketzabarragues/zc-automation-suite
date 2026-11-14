@@ -13,12 +13,12 @@ mismos criterios:
 
 - El apply de un array es el **mapa completo** del Excel (slot 0 incluido,
   con su ``"NO USAR"``) mas los slots de TIA que el Excel no tiene: esos se
-  borran. Borrar es poner el comentario a ``""`` (``confirmar_comentarios``
-  elimina el MLC); un slot cuyo comentario actual ya esta vacio no se toca.
-- La vista (la preview) usa la convencion ``"."`` para "sin comentario"; el
-  apply usa ``""``: si se aplicara ``"."`` literal, los slots borrados
-  quedarian con un comentario visible.
-- Un slot map vacio (solo el slot 0) no se aplica: no hay nada que meter.
+  borran. Borrar es poner el comentario a ``"."`` (el ``EMPTY_TEXT`` de TIA:
+  "sin comentario"), igual que el merge de ``main``. Un slot cuyo comentario
+  actual ya esta vacio no se toca.
+- El apply solo se salta un mapa que este **vacio del todo**. Un slot map
+  que solo tiene el slot 0 no se salta: si TIA tiene slots con comentario,
+  se borran con ``"."``.
 - Los satelites de un array (``PReal_Vis``, ``Aux.PReal_ValorAnterior``...)
   reciben el **mismo** mapa que su array principal.
 - Un DB que no esta en la exportacion no se aplica: se avisa y se omite.
@@ -30,6 +30,7 @@ from pathlib import Path
 from typing import Any
 
 from zc_suite.areas.alimentacion.dispositivos.diferencias import DiffNMax
+from zc_suite.areas.alimentacion.procesos.mapa import COMENTARIO_VACIO
 from zc_suite.simatic.sd import ResultadoArray, confirmar_comentarios_array
 
 logger = logging.getLogger(__name__)
@@ -89,8 +90,9 @@ def proc_mapa_apply(
     """El mapa que se le pasa a ``confirmar_comentarios_array``.
 
     Es el mapa completo del Excel (slot 0 incluido) mas los slots de TIA
-    que el Excel no tiene: esos se borran (``""``). Un slot cuyo comentario
-    actual ya esta vacio no se toca: borrarlo no cambiaria nada.
+    que el Excel no tiene: esos se borran (``"."``, el ``EMPTY_TEXT`` de
+    TIA "sin comentario"), igual que el merge de ``main``. Un slot cuyo
+    comentario actual ya esta vacio no se toca: borrarlo no cambiaria nada.
 
     Args:
         slot_map: el mapa del Excel (``{slot: comentario}``, con el slot 0).
@@ -98,17 +100,14 @@ def proc_mapa_apply(
             (``{slot: texto}`` o ``None`` si el DB no se pudo leer).
 
     Returns:
-        ``{slot: comentario}`` listo para aplicar. Vacio si ``slot_map``
-        solo tiene el slot 0.
+        ``{slot: comentario}`` listo para aplicar.
     """
-    if len(slot_map) <= 1:
-        return {}
     mapa = {slot: str(comentario) for slot, comentario in slot_map.items()}
     for slot in sorted(actuales):
         if slot in mapa:
             continue
         if actuales[slot]:
-            mapa[slot] = ""
+            mapa[slot] = COMENTARIO_VACIO
     return mapa
 
 

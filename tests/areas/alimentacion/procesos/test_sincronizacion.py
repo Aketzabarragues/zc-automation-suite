@@ -7,6 +7,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import yaml
+
 from zc_suite.areas.alimentacion.dispositivos.diferencias import DiffNMax
 from zc_suite.areas.alimentacion.procesos.sincronizacion import (
     ARRAYS_PROCESO,
@@ -59,7 +61,7 @@ def test_mapa_apply_es_el_excel_mas_los_slots_que_sobran() -> None:
         0: "NO USAR",
         1: "P1",
         2: "P2",
-        3: "",
+        3: ".",
     }
 
 
@@ -81,13 +83,20 @@ def test_mapa_apply_degradado_sin_db_leido_aplica_el_excel_completo() -> None:
     assert proc_mapa_apply(slot_map, {}) == {0: "NO USAR", 1: "P1", 2: "."}
 
 
-def test_mapa_apply_vacio_si_solo_hay_slot_cero() -> None:
-    assert proc_mapa_apply({0: "NO USAR"}, {1: "sobra"}) == {}
+def test_mapa_apply_solo_slot_cero_borra_los_slots_de_tia_con_punto() -> None:
+    # El Excel no tiene filas del array (solo el slot 0), pero TIA tiene
+    # slots con comentario: se borran con "." (el merge de main no tiene
+    # la guarda de "slot map de un solo slot").
+    assert proc_mapa_apply({0: "NO USAR"}, {1: "sobra", 2: "otra"}) == {
+        0: "NO USAR",
+        1: ".",
+        2: ".",
+    }
 
 
-def test_mapa_apply_vacio_si_no_hay_slots_del_excel() -> None:
-    # Sin filas del Excel no se aplica nada, aunque TIA tenga slots.
-    assert proc_mapa_apply({0: "NO USAR"}, {1: "sobra", 2: ""}) == {}
+def test_mapa_apply_sin_actuales_con_solo_slot_cero() -> None:
+    # Sin slots leidos de TIA no hay nada que borrar: queda el slot 0.
+    assert proc_mapa_apply({0: "NO USAR"}, {}) == {0: "NO USAR"}
 
 
 # ── los arrays por DB ───────────────────────────────────────────────────────
@@ -152,7 +161,7 @@ def test_confirmar_db_escribe_el_excel_y_borra_los_sobrantes(tmp_path: Path) -> 
         '    { S7_MLC := "MLC_alm2" }\n'
         "        ALM[2] := ();\n"
         "END_DATA_BLOCK\n",
-        encoding="utf-8",
+        encoding="utf-8-sig",
     )
     res.write_text(
         "MultiLingualTexts:\n"
@@ -163,7 +172,7 @@ def test_confirmar_db_escribe_el_excel_y_borra_los_sobrantes(tmp_path: Path) -> 
         "  - id: MLC_alm2\n"
         "    es-ES: Sobra\n"
         "\n",
-        encoding="utf-8",
+        encoding="utf-8-sig",
     )
     modificados = proc_confirmar_db(
         tmp_path,
@@ -172,15 +181,68 @@ def test_confirmar_db_escribe_el_excel_y_borra_los_sobrantes(tmp_path: Path) -> 
         {"ALM": {0: "NO USAR", 1: "Alarme 1", 2: "Sobra"}},
     )
     assert modificados == 1
-    dcl_text = dcl.read_text(encoding="utf-8")
-    res_text = res.read_text(encoding="utf-8")
-    # El slot 1 se renombra, el slot 2 se borra, el slot 0 queda como el Excel.
+    dcl_text = dcl.read_text(encoding="utf-8-sig")
+    res_text = res.read_text(encoding="utf-8-sig")
+    # El slot 1 se renombra, el slot 2 se borra (texto reseteado a "."),
+    # el slot 0 queda como el Excel.
     assert "Alarme 1 nueva" in res_text
     assert "Sobra" not in res_text
-    assert "MLC_alm2" not in dcl_text
+    assert "MLC_alm2" in dcl_text
 
 
-def test_confirmar_db_solo_slot_cero_no_escribe(tmp_path: Path) -> None:
+def test_confirmar_db_solo_slot_cero_borra_los_sobrantes_con_punto(tmp_path: Path) -> None:
+    # El Excel no tiene filas del array (solo el slot 0) pero TIA tiene
+    # slots con comentario: se resetean a "." (el merge de main no tiene la
+    # guarda de "slot map de un solo slot").
+    db = "DB53100_CPR_ALM"
+    dcl = tmp_path / f"{db}.s7dcl"
+    res = tmp_path / f"{db}.s7res"
+    dcl.write_text(
+        "END_DATA_BLOCK_MARKER\n"
+        "DATA_BLOCK DB53100_CPR_ALM\n"
+        '    { S7_MLC := "MLC_alm0" }\n'
+        "        ALM[0] := ();\n"
+        '    { S7_MLC := "MLC_alm1" }\n'
+        "        ALM[1] := ();\n"
+        '    { S7_MLC := "MLC_alm2" }\n'
+        "        ALM[2] := ();\n"
+        "END_DATA_BLOCK\n",
+        encoding="utf-8-sig",
+    )
+    res.write_text(
+        "MultiLingualTexts:\n"
+        "  - id: MLC_alm0\n"
+        "    es-ES: NO USAR\n"
+        "  - id: MLC_alm1\n"
+        "    es-ES: Alarme 1\n"
+        "  - id: MLC_alm2\n"
+        "    es-ES: Sobra\n"
+        "\n",
+        encoding="utf-8-sig",
+    )
+    modificados = proc_confirmar_db(
+        tmp_path, db, {"ALM": {0: "NO USAR"}}, {"ALM": {0: "NO USAR", 1: "Alarme 1", 2: "Sobra"}}
+    )
+    assert modificados == 1
+    # Los MLCs se preservan (no se eliminan): el texto se resetea a ".".
+    dcl_text = dcl.read_text(encoding="utf-8-sig")
+    res_text = res.read_text(encoding="utf-8-sig")
+    assert "MLC_alm1" in dcl_text
+    assert "MLC_alm2" in dcl_text
+    assert "Alarme 1" not in res_text
+    assert "Sobra" not in res_text
+    textos = {
+        t["id"]: t["es-ES"]
+        for t in yaml.safe_load(res_text)["MultiLingualTexts"]
+    }
+    assert textos["MLC_alm1"] == "."
+    assert textos["MLC_alm2"] == "."
+
+
+def test_confirmar_db_sin_cambios_no_cuenta_arrays_modificados(tmp_path: Path) -> None:
+    # El slot 0 con el mismo comentario que TIA: no hay cambio. El res se
+    # reescribe (yaml.dump lo reformatea) pero el dcl queda byte-identico y
+    # el numero de arrays modificados es 0.
     db = "DB53100_CPR_ALM"
     dcl = tmp_path / f"{db}.s7dcl"
     res = tmp_path / f"{db}.s7res"
@@ -190,23 +252,26 @@ def test_confirmar_db_solo_slot_cero_no_escribe(tmp_path: Path) -> None:
         '    { S7_MLC := "MLC_alm0" }\n'
         "        ALM[0] := ();\n"
         "END_DATA_BLOCK\n",
-        encoding="utf-8",
+        encoding="utf-8-sig",
     )
     res.write_text(
         "MultiLingualTexts:\n"
         "  - id: MLC_alm0\n"
         "    es-ES: NO USAR\n"
         "\n",
-        encoding="utf-8",
+        encoding="utf-8-sig",
     )
-    dcl_original = dcl.read_text(encoding="utf-8")
-    res_original = res.read_text(encoding="utf-8")
+    dcl_original = dcl.read_text(encoding="utf-8-sig")
     modificados = proc_confirmar_db(
         tmp_path, db, {"ALM": {0: "NO USAR"}}, {"ALM": {0: "NO USAR"}}
     )
     assert modificados == 0
-    assert dcl.read_text(encoding="utf-8") == dcl_original
-    assert res.read_text(encoding="utf-8") == res_original
+    assert dcl.read_text(encoding="utf-8-sig") == dcl_original
+    textos = {
+        t["id"]: t["es-ES"]
+        for t in yaml.safe_load(res.read_text(encoding="utf-8-sig"))["MultiLingualTexts"]
+    }
+    assert textos == {"MLC_alm0": "NO USAR"}
 
 
 def test_confirmar_db_ausente_en_la_exportacion(tmp_path: Path) -> None:

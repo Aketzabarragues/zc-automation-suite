@@ -147,6 +147,43 @@ def test_caso_b_preserva_otros_metadatos_del_bloque(tmp_path: Path) -> None:
     assert "PReal[1] := ();" in dcl_out
 
 
+def test_el_punto_es_texto_normal_en_slot_nuevo(tmp_path: Path) -> None:
+    """``"."`` no es "eliminar": en un indice nuevo inyecta MLC con ``"."``."""
+    dcl_p, res_p = _write_pair(tmp_path, _BASE_DCL, _BASE_RES)
+
+    result = confirmar_comentarios_array(
+        dcl_p, res_p, "PReal", {1: "."}, array_type="UDT",
+    )
+    assert 1 in result.injected
+    res_out = yaml.safe_load(
+        (tmp_path / "modificado_DB.s7res").read_text(encoding="utf-8-sig")
+    )
+    nuevo_id = result.injected[1]
+    texto = next(t for t in res_out["MultiLingualTexts"] if t["id"] == nuevo_id)
+    assert texto["es-ES"] == "."
+
+
+def test_el_punto_es_texto_normal_en_slot_con_mlc(tmp_path: Path) -> None:
+    """``"."`` actualiza el MLC existente a ``"."`` (no lo elimina)."""
+    dcl = _BASE_DCL.replace(
+        "END_DATA_BLOCK",
+        '        { S7_MLC := "MLC_old"; }\n        PReal[1] := ();\nEND_DATA_BLOCK',
+    )
+    res = _BASE_RES + '  - id: MLC_old\n    es-ES: old_text\n'
+    dcl_p, res_p = _write_pair(tmp_path, dcl, res)
+
+    result = confirmar_comentarios_array(
+        dcl_p, res_p, "PReal", {1: "."}, array_type="UDT",
+    )
+    assert result.removed == []
+    assert 1 in result.updated
+    res_out = yaml.safe_load(
+        (tmp_path / "modificado_DB.s7res").read_text(encoding="utf-8-sig")
+    )
+    texto = next(t for t in res_out["MultiLingualTexts"] if t["id"] == "MLC_old")
+    assert texto["es-ES"] == "."
+
+
 # ── CASO C: existe con MLC, actualizar texto ───────────────────────────────
 
 
