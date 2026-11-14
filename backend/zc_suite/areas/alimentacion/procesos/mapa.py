@@ -11,17 +11,18 @@ los mismos criterios:
 
 - ``DB_PARAM`` es ``DB<num_db>_<codigo>_PARAM`` y ``DB_ALM`` es
   ``DB<num_db>_<codigo>_ALM``. El ``num_db`` sale de la **primera** fila que
-  pasa el filtro: ``ParametrosReales`` con ese ``codigo`` para el DB de
-  parametros y ``Alarmas`` con ese ``proceso == nombre`` para el DB de
-  alarmas.
+  pasa el filtro (comparacion exacta, sin ``strip``): ``ParametrosReales``
+  con ese ``codigo`` para el DB de parametros y ``Alarmas`` con ese
+  ``proceso == nombre`` para el DB de alarmas. El DB_PARAM **solo** mira a
+  ``ParametrosReales`` (como ``main``), aunque PInt comparta ese DB.
 - Sin filas que pasen el filtro, ``num_db = uid`` del proceso (convencion
   legacy) y un aviso.
 - La tabla de variables del proceso es ``<uid>_<codigo>``.
-- Los slots empiezan en ``1``: las filas con ``numero <= 0`` se descartan y
-  las demas se numeran en el orden del Excel. El slot ``0`` es el
-  placeholder ``"NO USAR"`` y no se muestra.
+- Cada slot map empieza en ``0`` con el placeholder ``"NO USAR"``: las
+  filas con ``numero <= 0`` se descartan y las demas se numeran ``1..N`` en
+  el orden del Excel.
 - El ``comentario_db`` vacio se mapea a ``"."`` (convencion TIA "sin
-  comentario").
+  comentario") y se avisa por el logger.
 - Los N_MAX son constantes de la tabla del proceso: el nombre es
   ``<uid>_N_MAX_<SUFIXO>`` (los sufijos salen del config) y el valor es la
   **columna del proceso** del Excel (``preal``, ``pint``, ``alarmas``,
@@ -93,7 +94,7 @@ class MapaProceso:
 
 
 def _num_db_de(
-    listas: list[list[dict[str, Any]]],
+    filas: list[dict[str, Any]],
     campo: str,
     valor: str,
     proc_uid: int,
@@ -102,16 +103,12 @@ def _num_db_de(
 ) -> int:
     """El ``num_db`` de la primera fila que pasa el filtro.
 
-    El filtro recorre **todas** las listas del array: PReal y PInt comparten
-    el DB_PARAM, y el fallback se avisa una sola vez aunque ambas esten
-    vacias. Sin filas que pasen el filtro, ``num_db = uid`` del proceso
+    El filtro es una comparacion exacta (sin ``strip``), como ``main``.
+    Sin filas que pasen el filtro, ``num_db = uid`` del proceso
     (convencion legacy) y un aviso.
     """
     filtradas = [
-        fila
-        for filas in listas
-        for fila in filas
-        if str(fila.get(campo, "") or "").strip() == valor
+        fila for fila in filas if str(fila.get(campo, "") or "") == valor
     ]
     if filtradas:
         return int(filtradas[0].get("num_db", 0) or 0)
@@ -127,17 +124,20 @@ def _num_db_de(
 def _nombres(
     proceso: dict[str, Any],
     preal_filas: list[dict[str, Any]],
-    pint_filas: list[dict[str, Any]],
     alarmas: list[dict[str, Any]],
     proc_uid: int,
     warnings: list[str],
 ) -> tuple[str, str, str]:
-    """Los nombres canonicos TIA: DB_PARAM, DB_ALM y la tabla."""
+    """Los nombres canonicos TIA: DB_PARAM, DB_ALM y la tabla.
+
+    El ``num_db`` del DB_PARAM sale **solo** de ``ParametrosReales`` (como
+    ``main``), aunque PInt comparta ese mismo DB.
+    """
     codigo = str(proceso.get("codigo", "") or "")
     nombre = str(proceso.get("nombre", "") or "")
 
     num_db_param = _num_db_de(
-        [preal_filas, pint_filas],
+        preal_filas,
         campo="codigo",
         valor=codigo,
         proc_uid=proc_uid,
@@ -145,7 +145,7 @@ def _nombres(
         warnings=warnings,
     )
     num_db_alm = _num_db_de(
-        [alarmas],
+        alarmas,
         campo="proceso",
         valor=nombre,
         proc_uid=proc_uid,
@@ -167,24 +167,28 @@ def _mapa_de_slots(
     campo: str,
     valor: str,
 ) -> dict[int, str]:
-    """El mapa ``{slot: comentario}`` de un array, 1-based.
+    """El mapa ``{0: "NO USAR", 1..N: comentario}`` de un array.
 
+    El slot ``0`` es el placeholder ``"NO USAR"`` (estandar ``disp_*``).
     Las filas con ``numero <= 0`` se descartan (la macro del operario
-    genera la fila "NO USAR" con ``Numero=0``) y las demas se numeran en el
-    orden del Excel. El ``comentario_db`` vacio se mapea a ``"."``.
+    genera la fila "NO USAR" con ``Numero=0``) y las demas se numeran
+    ``1..N`` en el orden del Excel. El ``comentario_db`` vacio se mapea a
+    ``"."`` con aviso al logger.
     """
     filtradas = [
-        fila
-        for fila in filas
-        if str(fila.get(campo, "") or "").strip() == valor
+        fila for fila in filas if str(fila.get(campo, "") or "") == valor
     ]
     filtradas = [
         fila for fila in filtradas if int(fila.get("numero", 0) or 0) > 0
     ]
-    mapa: dict[int, str] = {}
+    mapa: dict[int, str] = {0: COMENTARIO_SLOT_CERO}
     for i, fila in enumerate(filtradas):
         comentario = str(fila.get("comentario_db", "") or "")
         if not comentario.strip():
+            logger.warning(
+                "Parametro sin comentario_db (Excel vacio); "
+                f"se mapea a '.' (indice {i + 1})."
+            )
             comentario = COMENTARIO_VACIO
         mapa[i + 1] = comentario
     return mapa
@@ -261,17 +265,18 @@ def _presencia(
 def proc_nombres(
     proceso: dict[str, Any],
     preal_filas: list[dict[str, Any]],
-    pint_filas: list[dict[str, Any]],
     alarmas: list[dict[str, Any]],
     proc_uid: int,
     warnings: list[str] | None = None,
 ) -> tuple[str, str, str]:
     """Los nombres canonicos TIA del proceso: DB_PARAM, DB_ALM y la tabla.
 
+    El ``num_db`` del DB_PARAM sale solo de ``ParametrosReales`` (como
+    ``main``), aunque PInt comparta ese mismo DB.
+
     Args:
         proceso: la fila del proceso del Excel (``codigo``, ``nombre``...).
         preal_filas: las filas de ``ParametrosReales`` del Excel.
-        pint_filas: las filas de ``ParametrosEnteros`` del Excel.
         alarmas: las filas de ``Alarmas`` del Excel.
         proc_uid: el ``uid`` del proceso.
         warnings: la lista de avisos que se anade el fallback de ``num_db``.
@@ -280,7 +285,7 @@ def proc_nombres(
         La tupla ``(db_param, db_alm, tabla)``.
     """
     avisos = warnings if warnings is not None else []
-    return _nombres(proceso, preal_filas, pint_filas, alarmas, proc_uid, avisos)
+    return _nombres(proceso, preal_filas, alarmas, proc_uid, avisos)
 
 
 def proc_mapa_de_slots(
@@ -360,10 +365,9 @@ def proc_construir_mapa(
 
     warnings: list[str] = []
     db_param, db_alm, tabla = _nombres(
-        proceso, preal_filas, pint_filas, alm_filas, proc_uid, warnings
+        proceso, preal_filas, alm_filas, proc_uid, warnings
     )
     slots = proc_mapa_de_slots(preal_filas, pint_filas, alm_filas, codigo, nombre)
-    nmax, nmax_names = _nmax_de(proceso, proc_uid, sufijos)
     table_present, db_missing, missing_blocks = _presencia(
         db_param, db_alm, tabla, bloques, tablas
     )
@@ -374,13 +378,13 @@ def proc_construir_mapa(
             db_param_name=db_param,
             db_alm_name=db_alm,
             table_name=tabla,
-            nmax=nmax,
-            nmax_names=nmax_names,
             table_present=False,
             db_missing=list(db_missing),
             missing_blocks=missing_blocks,
             warnings=warnings,
         )
+
+    nmax, nmax_names = _nmax_de(proceso, proc_uid, sufijos)
 
     return MapaProceso(
         preal=slots["preal"],

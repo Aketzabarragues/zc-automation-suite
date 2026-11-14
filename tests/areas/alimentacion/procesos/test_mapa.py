@@ -5,7 +5,12 @@ aqui no hay ni portal de TIA ni transacciones.
 """
 from __future__ import annotations
 
+import logging
+
+import pytest
+
 from zc_suite.areas.alimentacion.procesos.mapa import (
+    COMENTARIO_SLOT_CERO,
     COMENTARIO_VACIO,
     MapaProceso,
     proc_construir_mapa,
@@ -85,7 +90,7 @@ def test_el_num_db_sale_de_la_primera_fila_del_excel() -> None:
     """El ``num_db`` del DB_PARAM sale de la primera fila de PReal con ese
     codigo y el del DB_ALM, de la primera fila de Alarmas con ese nombre."""
     db_param, db_alm, tabla = proc_nombres(
-        _proceso(), _preal(), _pint(), _alm(), 100
+        _proceso(), _preal(), _alm(), 100
     )
 
     assert db_param == "DB53100_CPR_PARAM"
@@ -97,7 +102,7 @@ def test_el_num_db_por_defecto_es_el_uid_con_warning() -> None:
     """Sin filas en el Excel, ``num_db = uid`` (convencion legacy) y un aviso."""
     warnings: list[str] = []
     db_param, db_alm, tabla = proc_nombres(
-        _proceso(), [], [], [], 100, warnings
+        _proceso(), [], [], 100, warnings
     )
 
     assert db_param == "DB100_CPR_PARAM"
@@ -114,17 +119,31 @@ def test_el_num_db_por_defecto_es_el_uid_con_warning() -> None:
     )
 
 
-def test_el_num_db_de_param_mira_tambien_a_pint() -> None:
-    """PReal y PInt comparten el DB_PARAM: una fila en cualquiera de las dos
-    listas evita el fallback, aunque la otra este vacia."""
+def test_el_num_db_de_param_no_mira_a_pint() -> None:
+    """El ``num_db`` del DB_PARAM **solo** mira a ``ParametrosReales`` (como
+    ``main``): con PReal vacio sale el fallback, aunque PInt tenga filas."""
     warnings: list[str] = []
     db_param, _, _ = proc_nombres(
-        _proceso(), [], _pint(), [], 100, warnings
+        _proceso(), [], _alm(), 100, warnings
     )
 
-    assert db_param == "DB53100_CPR_PARAM"
+    assert db_param == "DB100_CPR_PARAM"
     assert warnings == [
-        "Proceso uid=100 (ALM): no hay filas en el Excel; "
+        "Proceso uid=100 (PReal/PInt): no hay filas en el Excel; "
+        "se usa num_db=100 como fallback (convencion legacy)."
+    ]
+
+
+def test_el_filtro_de_codigo_es_exacto_sin_strip() -> None:
+    """El filtro de ``codigo`` es una comparacion exacta (sin ``strip``), como
+    ``main``: una fila con espacios no pasa el filtro y sale el fallback."""
+    warnings: list[str] = []
+    preal = [{"codigo": "CPR ", "numero": 1, "num_db": 53100}]
+    db_param, _, _ = proc_nombres(_proceso(), preal, _alm(), 100, warnings)
+
+    assert db_param == "DB100_CPR_PARAM"
+    assert warnings == [
+        "Proceso uid=100 (PReal/PInt): no hay filas en el Excel; "
         "se usa num_db=100 como fallback (convencion legacy)."
     ]
 
@@ -136,7 +155,7 @@ def test_alm_filtra_por_nombre_y_no_por_codigo() -> None:
         {"proceso": "CPR", "numero": 1, "num_db": 55100},
         {"proceso": "CPR", "numero": 2, "num_db": 55999},
     ]
-    _, db_alm, _ = proc_nombres(proceso, [], [], alarmas, 100)
+    _, db_alm, _ = proc_nombres(proceso, [], alarmas, 100)
 
     assert db_alm == "DB55100_CPR_ALM"
 
@@ -144,8 +163,21 @@ def test_alm_filtra_por_nombre_y_no_por_codigo() -> None:
 # ── los mapas de slots ───────────────────────────────────────────────────────
 
 
+def test_el_slot_cero_es_el_placeholder_no_usar() -> None:
+    """Cada slot map empieza en ``0`` con el placeholder ``"NO USAR"``, como
+    ``main``."""
+    mapa = proc_mapa_de_slots([], [], [], "CPR", "CPR")
+
+    assert mapa == {
+        "preal": {0: COMENTARIO_SLOT_CERO},
+        "pint": {0: COMENTARIO_SLOT_CERO},
+        "alm": {0: COMENTARIO_SLOT_CERO},
+    }
+
+
 def test_los_slots_se_numeran_en_el_orden_del_excel() -> None:
-    """Las filas se numeran 1..N por ORDEN en el Excel, no por ``numero``."""
+    """Las filas se numeran 1..N por ORDEN en el Excel, no por ``numero``,
+    detras del placeholder del slot 0."""
     preal = [
         {"codigo": "CPR", "numero": 7, "comentario_db": "siete"},
         {"codigo": "CPR", "numero": 3, "comentario_db": "tres"},
@@ -153,7 +185,7 @@ def test_los_slots_se_numeran_en_el_orden_del_excel() -> None:
     ]
     mapa = proc_mapa_de_slots(preal, [], [], "CPR", "CPR")
 
-    assert mapa["preal"] == {1: "siete", 2: "tres", 3: "uno"}
+    assert mapa["preal"] == {0: "NO USAR", 1: "siete", 2: "tres", 3: "uno"}
 
 
 def test_se_descartan_los_filas_con_numero_menor_o_igual_a_cero() -> None:
@@ -166,7 +198,7 @@ def test_se_descartan_los_filas_con_numero_menor_o_igual_a_cero() -> None:
     ]
     mapa = proc_mapa_de_slots(preal, [], [], "CPR", "CPR")
 
-    assert mapa["preal"] == {1: "cinco"}
+    assert mapa["preal"] == {0: "NO USAR", 1: "cinco"}
 
 
 def test_el_comentario_vacio_se_mapea_a_punto() -> None:
@@ -177,22 +209,30 @@ def test_el_comentario_vacio_se_mapea_a_punto() -> None:
     ]
     mapa = proc_mapa_de_slots(preal, [], [], "CPR", "CPR")
 
-    assert mapa["preal"] == {1: COMENTARIO_VACIO, 2: COMENTARIO_VACIO}
+    assert mapa["preal"] == {0: "NO USAR", 1: COMENTARIO_VACIO, 2: COMENTARIO_VACIO}
+
+
+def test_el_comentario_vacio_avisa_al_logger(caplog: pytest.LogCaptureFixture) -> None:
+    """El ``comentario_db`` vacio se mapea a ``"."`` y lo avisa el logger, con
+    el texto de ``main``."""
+    preal = [
+        {"codigo": "CPR", "numero": 1, "comentario_db": ""},
+        {"codigo": "CPR", "numero": 2, "comentario_db": "con comentario"},
+    ]
+    with caplog.at_level(logging.WARNING):
+        proc_mapa_de_slots(preal, [], [], "CPR", "CPR")
+
+    assert caplog.records
+    assert [r.message for r in caplog.records] == [
+        "Parametro sin comentario_db (Excel vacio); se mapea a '.' (indice 1)."
+    ]
 
 
 def test_alm_se_filtra_por_el_nombre_del_proceso() -> None:
     """Las filas de ALM se filtran por ``proceso == nombre``."""
     mapa = proc_mapa_de_slots([], [], _alm(), "CPR", "CPR")
 
-    assert mapa["alm"] == {1: "Una alarma", 2: "Otra alarma"}
-
-
-def test_sin_filas_el_mapa_sale_vacio() -> None:
-    """Sin filas del proceso, el slot map queda vacio (el slot 0 no se
-    numera: es el placeholder)."""
-    mapa = proc_mapa_de_slots([], [], [], "CPR", "CPR")
-
-    assert mapa == {"preal": {}, "pint": {}, "alm": {}}
+    assert mapa["alm"] == {0: "NO USAR", 1: "Una alarma", 2: "Otra alarma"}
 
 
 # ── los N_MAX ───────────────────────────────────────────────────────────────
@@ -245,16 +285,16 @@ def test_construir_mapa_con_todo_presente() -> None:
     assert mapa.db_missing == []
     assert mapa.missing_blocks == []
     assert mapa.warnings == []
-    assert mapa.preal == {1: "Un real", 2: "Otro real", 3: "."}
-    assert mapa.pint == {1: "Un entero", 2: "Otro entero"}
-    assert mapa.alm == {1: "Una alarma", 2: "Otra alarma"}
+    assert mapa.preal == {0: "NO USAR", 1: "Un real", 2: "Otro real", 3: "."}
+    assert mapa.pint == {0: "NO USAR", 1: "Un entero", 2: "Otro entero"}
+    assert mapa.alm == {0: "NO USAR", 1: "Una alarma", 2: "Otra alarma"}
     assert mapa.nmax == {"preal": 3, "pint": 2, "alm": 16, "alm_hmi": 2}
     assert proc_precondiciones_ok(mapa) is True
 
 
 def test_construir_mapa_sin_tabla() -> None:
-    """Sin tabla en el PLC: ``table_present`` falso, slot maps vacios y
-    precondiciones no ok."""
+    """Sin tabla en el PLC: ``table_present`` falso, slot maps, N_MAX y
+    nombres de N_MAX vacios, y precondiciones no ok (como ``main``)."""
     mapa = proc_construir_mapa(
         _proceso(), _preal(), _pint(), _alm(), SUFIJOS, _bloques(), []
     )
@@ -263,6 +303,8 @@ def test_construir_mapa_sin_tabla() -> None:
     assert mapa.preal == {}
     assert mapa.pint == {}
     assert mapa.alm == {}
+    assert mapa.nmax == {}
+    assert mapa.nmax_names == {}
     assert mapa.missing_blocks == ["Tabla de variables: 100_CPR"]
     assert proc_precondiciones_ok(mapa) is False
 
@@ -332,5 +374,5 @@ def test_el_nombre_del_proceso_no_confunde_codigo_y_nombre() -> None:
     )
 
     assert mapa.db_alm_name == "DB55100_CPR_ALM"
-    assert mapa.alm == {1: "A1"}
+    assert mapa.alm == {0: "NO USAR", 1: "A1"}
     assert mapa.table_name == "100_CPR"
