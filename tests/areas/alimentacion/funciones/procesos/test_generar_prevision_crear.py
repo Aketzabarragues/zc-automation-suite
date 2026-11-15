@@ -6,6 +6,7 @@ No escribe nada en TIA: el preview solo lee y calcula.
 from __future__ import annotations
 
 import json
+import os
 import time
 from pathlib import Path
 from typing import Any
@@ -77,7 +78,7 @@ def _plantilla(
 def _crear(
     entorno: Any,
     sesion: Sesion,
-    plantillas: Path,
+    plantillas: Path | None,
     dir_plantilla: str,
 ) -> dict[str, Any]:
     """Lanza la prevision de crear y devuelve su evento de fin."""
@@ -319,6 +320,47 @@ def test_falta_la_plantilla(entorno_crear: Any, tmp_path: Path) -> None:
 
     assert evento["estado"] == "error"
     assert "No se encontro la plantilla" in evento["error"]
+
+
+def test_sin_plantillas_dir_se_resuelve_contra_la_carpeta_de_datos(
+    entorno_crear: Any,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Sin plantillas_dir, la plantilla se busca en
+    ``raiz_datos() / config.plantillas_procesos``."""
+    _plantilla(tmp_path)
+    monkeypatch.setattr(modulo_crear, "raiz_datos", lambda: tmp_path)
+    sesion = _sesion_con_escaneo([{"nombre": "DB1_SYS"}])
+
+    evento = _crear(entorno_crear, sesion, None, PLANTILLA)
+
+    assert evento["estado"] == "ok", evento.get("error")
+    resultado = evento["resultado"]
+    assert resultado["precondiciones_ok"] is True
+    assert (tmp_path / "procesos_crear" / "Plantilla" / "manifest.json").is_file()
+
+
+def test_symlink_fuera_de_la_carpeta_de_plantillas(
+    entorno_crear: Any,
+    tmp_path: Path,
+) -> None:
+    """Un symlink que sale de la carpeta de plantillas se rechaza."""
+    if not hasattr(os, "symlink"):
+        pytest.skip("el sistema no soporta symlinks")
+    dir_plantilla = _plantilla(tmp_path)
+    dir_fuera = tmp_path / "fuera"
+    dir_fuera.mkdir()
+    symlink = dir_plantilla.parent / "ENLACE"
+    os.symlink(dir_fuera, symlink)
+    sesion = _sesion_con_escaneo([{"nombre": "DB1_SYS"}])
+
+    evento = _crear(entorno_crear, sesion, dir_plantilla.parent, "ENLACE")
+
+    assert evento["estado"] == "error"
+    assert "fuera de la carpeta de plantillas" in evento["error"]
+    # No se copio nada al workdir.
+    assert not (tmp_path / "procesos_crear" / "Plantilla").exists()
 
 
 def test_no_toca_el_portal(entorno_crear: Any, tmp_path: Path) -> None:

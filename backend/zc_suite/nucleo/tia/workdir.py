@@ -54,14 +54,22 @@ CONTEXTO_EDITOR = "editor_bloques"
 RAIZ = Path(__file__).resolve().parents[4]
 
 
+def raiz_datos() -> Path:
+    """La carpeta de datos de la app: la raiz de las rutas relativas del config.
+
+    Empaquetado: la carpeta del ejecutable. Desarrollo: el repo.
+    """
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent
+    return RAIZ
+
+
 def raiz_build_cache() -> Path:
     """Carpeta raiz del build cache.
 
     Empaquetado: junto al ejecutable. Desarrollo: en el repo.
     """
-    if getattr(sys, "frozen", False):
-        return Path(sys.executable).resolve().parent / NOMBRE_BUILD_CACHE
-    return RAIZ / NOMBRE_BUILD_CACHE
+    return raiz_datos() / NOMBRE_BUILD_CACHE
 
 
 @dataclass(frozen=True)

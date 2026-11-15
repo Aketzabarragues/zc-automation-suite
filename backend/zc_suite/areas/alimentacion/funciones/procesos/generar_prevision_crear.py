@@ -50,7 +50,7 @@ from zc_suite.areas.alimentacion.procesos.plantillas import (
 from zc_suite.errores import OperacionError
 from zc_suite.nucleo.sesion import Sesion
 from zc_suite.nucleo.tia.job import Job
-from zc_suite.nucleo.tia.workdir import workdir
+from zc_suite.nucleo.tia.workdir import raiz_datos, workdir
 
 logger = logging.getLogger(__name__)
 
@@ -84,13 +84,14 @@ def _carpeta_plantillas(
     """La carpeta con las plantillas.
 
     Si el llamador pasa ``plantillas_dir`` (los tests y el router), se usa.
-    Si no, se usa la ruta relativa ``config.plantillas_procesos`` del config
-    (la app no tiene hoy un resolver publico de la carpeta de datos; el paso
-    del router la resuelve contra los datos de la app).
+    Si no, ``config.plantillas_procesos`` resuelto contra la carpeta de datos
+    de la app (``raiz_datos``): en el modo empaquetado, la carpeta del
+    ``.exe``; en desarrollo, el repo. Si la ruta del config ya es absoluta,
+    ``Path`` la respeta como esta.
     """
     if plantillas_dir is not None:
         return plantillas_dir
-    return Path(config.plantillas_procesos)
+    return raiz_datos() / config.plantillas_procesos
 
 
 def _minimos_de_proceso(proceso: dict[str, Any]) -> dict[str, int]:
@@ -267,6 +268,13 @@ def generar_prevision_crear(
                 f"No se encontro la carpeta de plantillas: {plantillas_dir}."
             )
         dir_plantilla = plantillas_dir / dir_plantilla_nombre
+        # La ruta final (con symlinks resueltos) tiene que quedar dentro de
+        # la carpeta de plantillas: un symlink no puede salir de ella.
+        if dir_plantilla.resolve().parent != plantillas_dir.resolve():
+            raise OperacionError(
+                "La carpeta de la plantilla queda fuera de la carpeta de "
+                f"plantillas: {dir_plantilla}. No se permite."
+            )
         if not dir_plantilla.is_dir():
             raise OperacionError(
                 f"No se encontro la plantilla: {dir_plantilla}. "

@@ -13,6 +13,7 @@ from zc_suite.nucleo.tia.workdir import (
     Workdir,
     WorkdirPreview,
     raiz_build_cache,
+    raiz_datos,
     workdir,
     workdir_editor_bloques,
 )
@@ -37,6 +38,22 @@ def test_en_empaquetado_la_raiz_va_junto_al_exe(
     monkeypatch.setattr(sys, "executable", str(exe_dir / "zc_automation_suite.exe"))
 
     assert raiz_build_cache() == exe_dir / ".build_cache"
+
+
+def test_raiz_datos_en_desarrollo_es_el_repo() -> None:
+    assert raiz_datos() == RAIZ
+
+
+def test_raiz_datos_en_empaquetado_es_la_carpeta_del_exe(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    exe_dir = tmp_path / "instalacion"
+    exe_dir.mkdir()
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setattr(sys, "executable", str(exe_dir / "zc_automation_suite.exe"))
+
+    assert raiz_datos() == exe_dir
 
 
 def test_en_empaquetado_el_workdir_va_junto_al_exe(
