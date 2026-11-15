@@ -190,7 +190,7 @@ def preview_procesos() -> tuple[Response, int]:
     error = _precondiciones("generar la prevision")
     if error is not None:
         return jsonify({"error": error}), 400
-    error = _precondicion_proc_uid()
+    error = _precondicion_proc_uid("generar la prevision")
     if error is not None:
         return jsonify({"error": error}), 400
 
@@ -216,7 +216,7 @@ def sincronizar_procesos() -> tuple[Response, int]:
     error = _precondiciones("sincronizar")
     if error is not None:
         return jsonify({"error": error}), 400
-    error = _precondicion_proc_uid()
+    error = _precondicion_proc_uid("sincronizar")
     if error is not None:
         return jsonify({"error": error}), 400
 
@@ -237,16 +237,29 @@ def _plc() -> str:
     return str(datos.get("plc") or "").strip()
 
 
-def _proc_uid() -> int:
-    """El ``proc_uid`` que pide la peticion."""
+def _proc_uid() -> int | None:
+    """El ``proc_uid`` que pide la peticion, o ``None`` si no es valido.
+
+    Valido es un ``int`` (sin contar el ``bool``, que en Python es un ``int``)
+    mayor que cero, o un ``str`` de solo digitos. Cualquier otra cosa
+    (``"abc"``, ``[1]``, ``true``, ``0``, ``-5``, ``null``...) no es un
+    proceso: la ruta responde con 400.
+    """
     datos = request.get_json(silent=True) or {}
-    return int(datos.get("proc_uid") or 0)
+    valor = datos.get("proc_uid")
+    if isinstance(valor, bool) or not isinstance(valor, int):
+        if isinstance(valor, str) and valor.isdigit():
+            return int(valor)
+        return None
+    if valor <= 0:
+        return None
+    return valor
 
 
-def _precondicion_proc_uid() -> str | None:
+def _precondicion_proc_uid(accion: str) -> str | None:
     """El motivo por el que falta el proceso, o ``None`` si va."""
-    if not _proc_uid():
-        return "Indica el proceso que quieres sincronizar."
+    if _proc_uid() is None:
+        return f"Indica el proceso que quieres {accion}."
     return None
 
 

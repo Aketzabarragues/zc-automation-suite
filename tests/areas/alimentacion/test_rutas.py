@@ -629,11 +629,15 @@ def test_la_prevision_y_el_sync_de_un_proceso_sin_plc_responden_400(
     assert "PLC" in respuesta.get_json()["error"]
 
 
-def test_la_prevision_y_el_sync_de_un_proceso_sin_proc_uid_responden_400(
+@pytest.mark.parametrize("proc_uid", ["abc", [1], True, 0, -5, None])
+@pytest.mark.parametrize("ruta", ["procesos/preview", "procesos/sincronizar"])
+def test_la_prevision_y_el_sync_de_un_proceso_con_proc_uid_invalido_responden_400(
     cliente: Any,
     almacen: AlmacenExcel,
     excel_maestro: Path,
     monkeypatch: pytest.MonkeyPatch,
+    ruta: str,
+    proc_uid: Any,
 ) -> None:
     almacen.volcar(excel_maestro)
     modulo = importlib.import_module("zc_suite.areas.alimentacion.rutas")
@@ -641,11 +645,11 @@ def test_la_prevision_y_el_sync_de_un_proceso_sin_proc_uid_responden_400(
     servicio = _ServicioConectado()
     monkeypatch.setattr(modulo, "servicio", lambda: servicio)
     monkeypatch.setattr(nucleo, "servicio", lambda: servicio)
-    for ruta in ("procesos/preview", "procesos/sincronizar"):
-        respuesta = _encolar(cliente, ruta, {"plc": "ZC_PLC_STD"})
 
-        assert respuesta.status_code == 400, ruta
-        assert "proceso" in respuesta.get_json()["error"].lower(), ruta
+    respuesta = _encolar(cliente, ruta, {"plc": "ZC_PLC_STD", "proc_uid": proc_uid})
+
+    assert respuesta.status_code == 400, ruta
+    assert "proceso" in respuesta.get_json()["error"].lower(), ruta
 
 
 def test_sincronizar_un_proceso_sin_excel_responde_400(cliente: Any) -> None:
