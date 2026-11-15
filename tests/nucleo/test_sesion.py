@@ -66,6 +66,55 @@ def test_guardar_un_escaneo_lo_deja_disponible() -> None:
     assert escaneo.tipos == [{"nombre": "UDT_ZC"}]
 
 
+def test_actualizar_tablas_lo_que_deja_el_escaneo_al_dia() -> None:
+    """Un trabajo que crea tablas en TIA refresca las tablas del escaneo."""
+    sesion = _sesion()
+    sesion.guardar_escaneo(
+        "ZC_PLC_STD",
+        [{"nombre": "DB2000_ED"}],
+        [{"nombre": "2000_Disp_ED"}],
+        [{"nombre": "UDT_ZC"}],
+    )
+
+    sesion.actualizar_tablas(
+        "ZC_PLC_STD",
+        [
+            {"nombre": "2000_Disp_ED"},
+            {"nombre": "100_CPR"},
+        ],
+    )
+
+    escaneo = sesion.escaneo("ZC_PLC_STD")
+    assert escaneo is not None
+    assert [t["nombre"] for t in escaneo.tablas] == ["2000_Disp_ED", "100_CPR"]
+    # Lo demas del escaneo no se toca.
+    assert escaneo.bloques == [{"nombre": "DB2000_ED"}]
+    assert escaneo.tipos == [{"nombre": "UDT_ZC"}]
+
+
+def test_actualizar_tablas_no_crea_escaneo_si_no_existe() -> None:
+    """Sin escaneo previo no se inventa uno: solo tablas no vale."""
+    sesion = _sesion()
+
+    sesion.actualizar_tablas("ZC_PLC_STD", [{"nombre": "100_CPR"}])
+
+    assert sesion.escaneo("ZC_PLC_STD") is None
+
+
+def test_actualizar_tablas_refresca_el_momento() -> None:
+    """El refresco deja el escaneo fresco (el TTL vuelve a contar)."""
+    sesion = _sesion()
+    sesion.guardar_escaneo("ZC_PLC_STD", [], [], [])
+    escaneo = sesion.escaneo("ZC_PLC_STD")
+    assert escaneo is not None
+    escaneo.momento = datetime.now() - timedelta(seconds=TTL_ESCANEO + 1)
+    assert sesion.escaneo_fresco("ZC_PLC_STD") is None
+
+    sesion.actualizar_tablas("ZC_PLC_STD", [{"nombre": "100_CPR"}])
+
+    assert sesion.escaneo_fresco("ZC_PLC_STD") is not None
+
+
 def test_un_escaneo_fresco_sirve() -> None:
     """Un escaneo de hace nada sigue valiendo."""
     sesion = _sesion()

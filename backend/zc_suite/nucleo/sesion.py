@@ -195,6 +195,27 @@ class Sesion:
             escaneo.bloques = list(bloques)
             escaneo.momento = datetime.now()
 
+    def actualizar_tablas(self, plc: str, tablas: list[dict[str, Any]]) -> None:
+        """Actualiza las tablas de tags de un escaneo ya hecho.
+
+        Lo usan los trabajos que crean tablas de tags en TIA: el escaneo del
+        PLC tiene que reflejar las tablas nuevas. Los bloques y los tipos de
+        usuario no cambian, asi que se conservan.
+
+        Si el PLC no tiene escaneo, no se crea uno: un escaneo con solo
+        tablas no vale.
+
+        Args:
+            plc: el PLC.
+            tablas: las tablas de tags recien escaneadas.
+        """
+        with self._lock:
+            escaneo = self._escaneos.get(plc)
+            if escaneo is None:
+                return
+            escaneo.tablas = list(tablas)
+            escaneo.momento = datetime.now()
+
     def escaneo_fresco(self, plc: str, ttl: int = TTL_ESCANEO) -> Escaneo | None:
         """El escaneo de un PLC, si sigue valiendo.
 

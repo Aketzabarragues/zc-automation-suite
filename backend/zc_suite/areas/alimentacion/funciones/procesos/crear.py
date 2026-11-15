@@ -79,6 +79,7 @@ from zc_suite.simatic.sd.cabecera import soporta_simaticsd
 from zc_suite.tia_ops.bloques import escanear_bloques
 from zc_suite.tia_ops.compilar import compilar_bloques
 from zc_suite.tia_ops.importar import importar_bloques, importar_tablas
+from zc_suite.tia_ops.tablas import escanear_tablas_tags
 
 logger = logging.getLogger(__name__)
 
@@ -302,17 +303,39 @@ def crear(
             "del proceso nuevo"
         )
 
-    compilacion = _compilar(job, plc, archivos_generados)
     with job.paso("compilar") as paso:
+        compilacion = _compilar(job, plc, archivos_generados)
         paso["detail"] = compilacion["detalle"]
 
+    escaneo_actualizado = False
     with job.paso("escaneo") as paso:
-        if sesion is not None:
-            bloques = escanear_bloques(job.tia.portal, plc)
-            sesion.actualizar_bloques(plc, bloques)
-            paso["detail"] = f"{len(bloques)} bloques en el escaneo"
-        else:
+        if sesion is None:
             paso["detail"] = "sin sesion: el escaneo no se actualiza"
+        else:
+            # El import ya esta confirmado en TIA: un fallo aqui solo deja el
+            # escaneo viejo, no tumba el trabajo.
+            try:
+                bloques = escanear_bloques(job.tia.portal, plc)
+                tablas = escanear_tablas_tags(job.tia.portal, plc)
+                sesion.actualizar_bloques(plc, bloques)
+                sesion.actualizar_tablas(plc, tablas)
+                escaneo_actualizado = True
+                paso["detail"] = (
+                    f"{len(bloques)} bloques y {len(tablas)} tablas en el "
+                    "escaneo"
+                )
+            except Exception as exc:  # no tumba el apply: ver el comentario
+                logger.warning(
+                    "El proceso se creo pero no se pudo refrescar el "
+                    "escaneo: %s. Vuelve a escanear el PLC.",
+                    exc,
+                )
+                job.log(
+                    f"El proceso se creo pero no se pudo refrescar el "
+                    f"escaneo: {exc}. Vuelve a escanear el PLC.",
+                    nivel="warning",
+                )
+                paso["detail"] = "no se pudo refrescar"
 
     process_label = f"{proc_uid}_{codigo_nuevo}"
     logger.info(
@@ -329,6 +352,7 @@ def crear(
         "colisiones": [],
         "transacciones": list(transacciones.values()),
         "compilacion": compilacion,
+        "escaneo_actualizado": escaneo_actualizado,
         "success": True,
     }
 

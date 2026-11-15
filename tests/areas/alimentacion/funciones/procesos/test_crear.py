@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from zc_suite.nucleo.sesion import Sesion
+from zc_suite.nucleo.tia.job import HECHO
 
 from .conftest import (
     NOMBRE_PLC,
@@ -350,6 +351,90 @@ def test_el_escaneo_de_sesion_se_actualiza(entorno_apply: Any) -> None:
     nombres = {b["nombre"] for b in escaneo.bloques}
     assert "DB100_CPR_INTERFAZ" in nombres
     assert "FC101_CPR_ORDENES" in nombres
+
+
+def test_el_escaneo_de_sesion_incluye_la_tabla_nueva(
+    entorno_apply: Any,
+) -> None:
+    """El apply importa la tabla ``<uid>_<codigo>`` del proceso; el refresco
+    del escaneo la deja en la sesion (bloques nuevos incluidos).
+
+    Sin esto, la prevision de la 4.5 diria "la tabla no existe".
+    """
+    from .conftest import BloqueCompilableFalso, TablaCrearFalso
+
+    nuevos = [
+        BloqueCompilableFalso("DB100_CPR_INTERFAZ"),
+        BloqueCompilableFalso("FC101_CPR_ORDENES"),
+    ]
+    entorno_apply.plc._bloques = (  # type: ignore[assignment]
+        list(entorno_apply.plc._bloques) + nuevos
+    )
+    entorno_apply.plc.tablas = (  # type: ignore[assignment]
+        [TablaCrearFalso("100_CPR")]
+    )
+
+    sesion = entorno_apply.sesion
+    evento = entorno_apply.crear(proc_uid=PROC_UID, sesion=sesion)
+
+    assert evento["estado"] == "ok", evento.get("error")
+    assert evento["resultado"]["escaneo_actualizado"] is True
+    escaneo = sesion.escaneo(NOMBRE_PLC)
+    assert escaneo is not None
+    tablas = {t["nombre"] for t in escaneo.tablas}
+    assert "100_CPR" in tablas
+    bloques = {b["nombre"] for b in escaneo.bloques}
+    assert "DB100_CPR_INTERFAZ" in bloques
+    assert "FC101_CPR_ORDENES" in bloques
+
+
+def test_compilar_dentro_de_su_paso(entorno_apply: Any) -> None:
+    """La compilacion corre DENTRO del paso "compilar": el paso tiene estado
+    y detalle (como el paso "manifest" de la prevision, no un paso vacio)."""
+    evento = entorno_apply.crear(proc_uid=PROC_UID)
+
+    assert evento["estado"] == "ok", evento.get("error")
+    etapa = _etapa(entorno_apply, "compilar")
+    assert etapa["status"] == HECHO
+    assert "compile=" in etapa["detail"]
+    # La compilacion ocurrio (el paso no es un decorado): el doble la vio.
+    nombres = sorted(
+        Path(f).stem
+        for f in evento["resultado"]["archivos_generados"]
+        if f.endswith(".s7dcl")
+    )
+    assert "DB100_CPR_INTERFAZ" in nombres
+    assert "FC101_CPR_ORDENES" in nombres
+
+
+def test_el_refresco_del_escaneo_no_tumba_el_aplicar(
+    entorno_apply: Any,
+) -> None:
+    """Si ``escanear_bloques`` falla, el trabajo termina en ok: el import ya
+    esta confirmado en TIA y el refresco no puede revocarlo. El escaneo queda
+    sin refrescar y el resultado lo dice (``escaneo_actualizado`` False)."""
+    entorno_apply.plc.fallo_escaneo_bloques = "fallo simulado del escaneo"
+
+    evento = entorno_apply.crear(proc_uid=PROC_UID)
+
+    assert evento["estado"] == "ok", evento.get("error")
+    resultado = evento["resultado"]
+    assert resultado["success"] is True
+    assert resultado["escaneo_actualizado"] is False
+    # La transaccion de import sigue confirmada.
+    tx = _transaccion_importar(resultado)
+    assert tx["estado"] == "confirmada"
+    # El paso "escaneo" termino bien, con el detalle del aviso.
+    etapa = _etapa(entorno_apply, "escaneo")
+    assert etapa["status"] == HECHO
+    assert etapa["detail"] == "no se pudo refrescar"
+    # El aviso se logueo.
+    logs = [c for t, c in entorno_apply.eventos if t == "log"]
+    assert any(
+        c["nivel"] == "warning"
+        and "no se pudo refrescar el escaneo" in c["mensaje"]
+        for c in logs
+    )
 
 
 def test_dir_plantilla_nombre_con_traversal(entorno_apply: Any) -> None:

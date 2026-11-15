@@ -894,6 +894,17 @@ class BloqueCompilableFalso:
         return False
 
 
+class TablaCrearFalso:
+    """Una tabla de tags del PLC, lo minimo que ``escanear_tablas_tags``
+    necesita."""
+
+    def __init__(self, nombre: str) -> None:
+        self._nombre = nombre
+
+    def get_name(self) -> str:
+        return self._nombre
+
+
 class PlcCrearFalso:
     """El PLC del apply: tablas, bloques y las importaciones."""
 
@@ -910,6 +921,12 @@ class PlcCrearFalso:
         self._fallo_import_bloques = fallo_import_bloques
         self.importaciones_tablas: list[dict[str, Any]] = []
         self.importaciones_bloques: list[dict[str, Any]] = []
+        #: Las tablas de tags del PLC (``escanear_tablas_tags``).
+        self.tablas: list[TablaCrearFalso] = []
+        #: Falla ``escanear_bloques`` en el paso "escaneo" del apply (el
+        #: import ya esta confirmado; el test comprueba que el refresco no
+        #: tumba el trabajo).
+        self.fallo_escaneo_bloques: str | None = None
         #: Puerta para bloquear un import y soltarlo desde el test: simula un
         #: TIA lento para que la cancelacion caiga mientras el import esta en
         #: curso (la cancelacion se respeta entre pasos, no dentro de un
@@ -927,9 +944,11 @@ class PlcCrearFalso:
         return NOMBRE_PLC
 
     def get_plc_tag_tables(self) -> list[Any]:
-        return []
+        return self.tablas
 
     def get_program_blocks(self) -> list[Any]:
+        if self.fallo_escaneo_bloques is not None:
+            raise RuntimeError(self.fallo_escaneo_bloques)
         return self._bloques
 
     def import_plc_tags(
