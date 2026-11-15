@@ -18,6 +18,7 @@ from zc_suite.areas.alimentacion.dispositivos import CLAVE_PREVISION as CLAVE_PR
 from zc_suite.areas.alimentacion.entidades import CLAVE_PREVISION as CLAVE_PREVISION_ENTIDADES
 from zc_suite.areas.alimentacion.excel import almacen as modulo_almacen
 from zc_suite.areas.alimentacion.excel.almacen import AlmacenExcel
+from zc_suite.areas.alimentacion.procesos import CLAVE_PREVISION as CLAVE_PREVISION_PROCESOS
 from zc_suite.errores import OperacionError
 from zc_suite.nucleo.sesion import Sesion
 from zc_suite.nucleo.tia.job import Job
@@ -73,6 +74,7 @@ def cargar(
     if sesion is not None:
         sesion.borrar_dato_area(AREA, CLAVE_PREVISION_DISPOSITIVOS)
         sesion.borrar_dato_area(AREA, CLAVE_PREVISION_ENTIDADES)
+        sesion.borrar_dato_area(AREA, CLAVE_PREVISION_PROCESOS)
 
     avisos = modulo_almacen.avisos(almacen)
     with job.paso("avisos") as paso:

@@ -1,0 +1,29 @@
+﻿{
+    S7_Author := "HCR";
+    S7_BlockComment := "MLC_cpr_p";
+    S7_BlockNumber := "53100";
+    S7_BlockTitle := "MLC_cpr_pt";
+    S7_Family := "ZeusControl";
+    S7_Optimized := "TRUE";
+    S7_StandardRetain := "FALSE";
+    S7_Version := "1.0"
+}
+DATA_BLOCK DB53100_CPR_PARAM
+    VAR RETAIN
+        "PReal" : Array[0..3] of _.UDT_ZC_PREAL;
+        "PInt" : Array[0..2] of _.UDT_ZC_PINT;
+    END_VAR
+
+        { S7_MLC := "MLC_pr0" }
+        PReal[0] := ();
+        { S7_MLC := "MLC_pr1" }
+        PReal[1] := ();
+        { S7_MLC := "MLC_pr2" }
+        PReal[2] := ();
+        { S7_MLC := "MLC_pr3" }
+        PReal[3] := ();
+        { S7_MLC := "MLC_pi0" }
+        PInt[0] := ();
+        { S7_MLC := "MLC_pi1" }
+        PInt[1] := ();
+END_DATA_BLOCK

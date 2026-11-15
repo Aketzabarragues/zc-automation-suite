@@ -6,8 +6,9 @@
  * Excel). Aplicarla en TIA es un trabajo: la vista encola el sync, espera a
  * que termine y se queda con la prevision posterior.
  */
-import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 import { DISP_STATUS, useDispositivosStore } from "../stores/dispositivos.js";
+import DialogoConfirmacion from "../../../nucleo/componentes/DialogoConfirmacion.vue";
 import { useExcelStore } from "../stores/excel.js";
 import { usePlcStore } from "../../../nucleo/stores/plc.js";
 import { useTiaStore } from "../../../nucleo/stores/tia.js";
@@ -108,14 +109,6 @@ async function confirmar() {
   await dispositivos.aplicar(plc.seleccionado);
 }
 
-/** Cierra el dialogo con Escape. */
-function onTecla(evento) {
-  if (!dialogoAbierto.value) return;
-  if (evento.key === "Escape" || evento.key === "Esc" || evento.keyCode === 27) {
-    cerrarDialogo();
-  }
-}
-
 /** La clase del estado de una transaccion. */
 function claseDeTransaccion(estado) {
   if (estado === "confirmada") return "text-green-600";
@@ -142,11 +135,6 @@ onMounted(() => {
   excel.hidratar();
   dispositivos.hidratar();
   dispositivos.cargarCatalogo();
-  window.addEventListener("keydown", onTecla);
-});
-
-onBeforeUnmount(() => {
-  window.removeEventListener("keydown", onTecla);
 });
 </script>
 
@@ -344,44 +332,12 @@ onBeforeUnmount(() => {
     </section>
 
     <!-- ── el dialogo de confirmacion ────────────────────────────────── -->
-    <div
-      v-if="dialogoAbierto"
-      class="fixed inset-0 z-50 flex items-center justify-center bg-shell-deep/50 p-4"
-      data-testid="dispositivos-confirmar-fondo"
-      @click.self="cerrarDialogo"
-    >
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-label="Confirmar cambios en TIA Portal"
-        data-testid="dispositivos-confirmar-dialogo"
-        class="w-full max-w-md bg-surface-raised border border-line rounded-lg shadow-lg p-5"
-      >
-        <div
-          class="font-mono text-xs text-ink bg-surface-sunken border border-line rounded p-3 mb-4 whitespace-pre-wrap"
-          data-testid="dispositivos-confirmar-texto"
-        >
-          {{ textoConfirmacion }}
-        </div>
-        <div class="flex justify-end gap-2">
-          <button
-            type="button"
-            data-testid="dispositivos-confirmar-no"
-            class="px-3 py-1.5 text-xs font-semibold text-ink bg-surface-sunken hover:bg-line rounded-md border border-line transition-colors duration-200"
-            @click="cerrarDialogo"
-          >
-            Cancelar
-          </button>
-          <button
-            type="button"
-            data-testid="dispositivos-confirmar-si"
-            class="px-3 py-1.5 text-xs font-semibold text-ink-inverse bg-accent hover:bg-accent-hover rounded-md border border-line transition-colors duration-200"
-            @click="confirmar"
-          >
-            Sí, aplicar
-          </button>
-        </div>
-      </div>
-    </div>
+    <DialogoConfirmacion
+      :abierto="dialogoAbierto"
+      :texto="textoConfirmacion"
+      prefijo="dispositivos"
+      @confirmar="confirmar"
+      @cancelar="cerrarDialogo"
+    />
   </section>
 </template>

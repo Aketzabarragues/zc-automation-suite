@@ -1,0 +1,13 @@
+﻿MultiLingualTexts:
+  - id: MLC_cpr_a
+    es-ES: DB de alarmas de CPR
+  - id: MLC_cpr_at
+    es-ES: DB55100_CPR_ALM
+  - id: MLC_al0
+    es-ES: NO USAR
+  - id: MLC_al1
+    es-ES: ALARMA UNO
+  - id: MLC_al2
+    es-ES: ALARMA DOS
+  - id: MLC_al3
+    es-ES: ALARMA TRES

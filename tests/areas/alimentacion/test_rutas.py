@@ -556,3 +556,159 @@ def test_subir_otro_excel_borra_la_prevision_de_entidades(
 
     assert evento["estado"] == "ok"
     assert CLAVE_PREVISION not in sesion.datos_area("alimentacion")
+
+
+# ── los procesos ────────────────────────────────────────────────────────────
+
+
+def _encolar(cliente: Any, ruta: str, body: dict[str, Any]) -> Any:
+    return cliente.post(
+        f"/api/v1/areas/alimentacion/{ruta}",
+        json=body,
+        base_url=BASE,
+        headers={"Origin": BASE},
+    )
+
+
+def test_la_prevision_de_un_proceso_responde_202_y_encola_el_trabajo(
+    cliente: Any,
+    almacen: AlmacenExcel,
+    excel_maestro: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    almacen.volcar(excel_maestro)
+    modulo = importlib.import_module("zc_suite.areas.alimentacion.rutas")
+    nucleo = importlib.import_module("zc_suite.nucleo.web.app")
+    servicio = _ServicioConectado()
+    monkeypatch.setattr(modulo, "servicio", lambda: servicio)
+    monkeypatch.setattr(nucleo, "servicio", lambda: servicio)
+
+    respuesta = _encolar(
+        cliente, "procesos/preview", {"plc": "ZC_PLC_STD", "proc_uid": 100}
+    )
+
+    assert respuesta.status_code == 202
+    assert respuesta.get_json()["job_id"] == "job-de-prueba"
+    assert servicio.params["proc_uid"] == 100
+    assert servicio.params["plc"] == "ZC_PLC_STD"
+    assert servicio.params["almacen"] is almacen
+    assert servicio.params["config"] is almacen.config
+
+
+def test_sincronizar_un_proceso_responde_202_y_encola_el_trabajo(
+    cliente: Any,
+    almacen: AlmacenExcel,
+    excel_maestro: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    almacen.volcar(excel_maestro)
+    modulo = importlib.import_module("zc_suite.areas.alimentacion.rutas")
+    nucleo = importlib.import_module("zc_suite.nucleo.web.app")
+    servicio = _ServicioConectado()
+    monkeypatch.setattr(modulo, "servicio", lambda: servicio)
+    monkeypatch.setattr(nucleo, "servicio", lambda: servicio)
+
+    respuesta = _encolar(
+        cliente, "procesos/sincronizar", {"plc": "ZC_PLC_STD", "proc_uid": 100}
+    )
+
+    assert respuesta.status_code == 202
+    assert respuesta.get_json()["job_id"] == "job-de-prueba"
+    assert servicio.params["proc_uid"] == 100
+    assert servicio.params["plc"] == "ZC_PLC_STD"
+
+
+@pytest.mark.parametrize("ruta", ["procesos/preview", "procesos/sincronizar"])
+def test_la_prevision_y_el_sync_de_un_proceso_sin_plc_responden_400(
+    cliente: Any,
+    ruta: str,
+) -> None:
+    respuesta = _encolar(cliente, ruta, {"proc_uid": 100})
+
+    assert respuesta.status_code == 400
+    assert "PLC" in respuesta.get_json()["error"]
+
+
+@pytest.mark.parametrize("proc_uid", ["abc", [1], True, 0, -5, None])
+@pytest.mark.parametrize("ruta", ["procesos/preview", "procesos/sincronizar"])
+def test_la_prevision_y_el_sync_de_un_proceso_con_proc_uid_invalido_responden_400(
+    cliente: Any,
+    almacen: AlmacenExcel,
+    excel_maestro: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    ruta: str,
+    proc_uid: Any,
+) -> None:
+    almacen.volcar(excel_maestro)
+    modulo = importlib.import_module("zc_suite.areas.alimentacion.rutas")
+    nucleo = importlib.import_module("zc_suite.nucleo.web.app")
+    servicio = _ServicioConectado()
+    monkeypatch.setattr(modulo, "servicio", lambda: servicio)
+    monkeypatch.setattr(nucleo, "servicio", lambda: servicio)
+
+    respuesta = _encolar(cliente, ruta, {"plc": "ZC_PLC_STD", "proc_uid": proc_uid})
+
+    assert respuesta.status_code == 400, ruta
+    assert "proceso" in respuesta.get_json()["error"].lower(), ruta
+
+
+def test_sincronizar_un_proceso_sin_excel_responde_400(cliente: Any) -> None:
+    respuesta = _encolar(
+        cliente, "procesos/sincronizar", {"plc": "ZC_PLC_STD", "proc_uid": 100}
+    )
+
+    assert respuesta.status_code == 400
+    assert "Excel" in respuesta.get_json()["error"]
+
+
+def test_sincronizar_un_proceso_sin_conexion_con_tia_responde_400(
+    cliente: Any,
+    almacen: AlmacenExcel,
+    excel_maestro: Path,
+) -> None:
+    almacen.volcar(excel_maestro)
+
+    respuesta = _encolar(
+        cliente, "procesos/sincronizar", {"plc": "ZC_PLC_STD", "proc_uid": 100}
+    )
+
+    assert respuesta.status_code == 400
+    assert "TIA" in respuesta.get_json()["error"]
+
+
+def test_las_rutas_de_procesos_sin_origin_se_rechazan(cliente: Any) -> None:
+    for ruta in ("procesos/preview", "procesos/sincronizar"):
+        respuesta = cliente.post(
+            f"/api/v1/areas/alimentacion/{ruta}",
+            json={"plc": "ZC_PLC_STD", "proc_uid": 100},
+            base_url=BASE,
+        )
+
+        assert respuesta.status_code == 403, ruta
+
+
+def test_subir_otro_excel_borra_la_prevision_de_un_proceso(
+    app: Any,
+    cliente: Any,
+    eventos: list[tuple[str, dict[str, Any]]],
+    excel_maestro: Path,
+) -> None:
+    """La prevision del proceso era del Excel anterior: deja de valer."""
+    from zc_suite.areas.alimentacion.procesos import CLAVE_PREVISION
+    from zc_suite.nucleo.sesion import CLAVE_SESION, Sesion
+
+    sesion = Sesion()
+    sesion.guardar_dato_area("alimentacion", CLAVE_PREVISION, {"plc": "ZC_PLC_STD"})
+    app.config[CLAVE_SESION] = sesion
+
+    with excel_maestro.open("rb") as fichero:
+        respuesta = cliente.post(
+            "/api/v1/areas/alimentacion/excel",
+            data={"fichero": (fichero, "Maestro_ZC_PLC_STD.xlsx")},
+            base_url=BASE,
+            headers={"Origin": BASE},
+        )
+    evento = _esperar_job(eventos, respuesta.get_json()["job_id"])
+
+    assert evento["estado"] == "ok"
+    assert CLAVE_PREVISION not in sesion.datos_area("alimentacion")

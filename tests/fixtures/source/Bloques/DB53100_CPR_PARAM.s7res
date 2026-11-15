@@ -1,0 +1,17 @@
+﻿MultiLingualTexts:
+  - id: MLC_cpr_p
+    es-ES: DB de parametros de CPR
+  - id: MLC_cpr_pt
+    es-ES: DB53100_CPR_PARAM
+  - id: MLC_pr0
+    es-ES: NO USAR
+  - id: MLC_pr1
+    es-ES: PARAMETRO UNO
+  - id: MLC_pr2
+    es-ES: PARAMETRO DOS
+  - id: MLC_pr3
+    es-ES: PARAMETRO TRES
+  - id: MLC_pi0
+    es-ES: NO USAR
+  - id: MLC_pi1
+    es-ES: PARAMETRO ENTERO UNO
