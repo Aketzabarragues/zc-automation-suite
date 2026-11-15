@@ -45,7 +45,11 @@ from typing import Any
 from zc_suite.areas.alimentacion.config import ConfigArea
 from zc_suite.areas.alimentacion.excel.almacen import AlmacenExcel
 from zc_suite.areas.alimentacion.funciones.procesos.generar_prevision import (
+    escaneo_de,
+    fila_de_proceso,
+    filas_de,
     generar_prevision,
+    leer_par_sd,
 )
 from zc_suite.areas.alimentacion.procesos.diferencias import (
     proc_calcular_arrays,
@@ -64,7 +68,7 @@ from zc_suite.areas.alimentacion.procesos.sincronizacion import (
     proc_operaciones_n_max,
 )
 from zc_suite.errores import OperacionError
-from zc_suite.nucleo.sesion import Escaneo, Sesion
+from zc_suite.nucleo.sesion import Sesion
 from zc_suite.nucleo.tia.errores import CanceladoError
 from zc_suite.nucleo.tia.job import Job
 from zc_suite.nucleo.tia.transaccion import transaccion
@@ -132,24 +136,24 @@ def sincronizar(
             ("preparar", "Preparar operaciones"),
             ("tx_n_max", "Aplicar N_MAX"),
             ("consolidacion", "Esperar consolidación TIA"),
+            ("compilar", "Compilar bloques"),
             ("reexportar", "Re-exportar tabla y DBs"),
             ("copiar", "Copiar bloques a modified"),
             ("editar", "Editar comentarios offline"),
-            ("compilar", "Compilar bloques"),
             ("tx_comentarios", "Aplicar comentarios"),
             ("prevision", "Recalcular la prevision"),
         ],
     )
 
     datos = almacen.estado()["procesos"]
-    proceso = _fila_de_proceso(_filas_de(datos, "Procesos"), proc_uid)
+    proceso = fila_de_proceso(filas_de(datos, "Procesos"), proc_uid)
     if proceso is None:
         raise OperacionError(
             f"No hay un proceso con uid={proc_uid} en el Excel: el dominio "
             "'Procesos' no lo tiene."
         )
 
-    escaneo = _escaneo_de(sesion, plc)
+    escaneo = escaneo_de(sesion, plc)
     if escaneo is None:
         raise OperacionError(
             "No hay un escaneo fresco del PLC: escanea el PLC antes de "
@@ -161,9 +165,9 @@ def sincronizar(
 
     # ── 1. Construir el mapa de slots ────────────────────────────────────
     with job.paso("mapa") as paso:
-        preal_filas = _filas_de(datos, "ParametrosReales")
-        pint_filas = _filas_de(datos, "ParametrosEnteros")
-        alarmas = _filas_de(datos, "Alarmas")
+        preal_filas = filas_de(datos, "ParametrosReales")
+        pint_filas = filas_de(datos, "ParametrosEnteros")
+        alarmas = filas_de(datos, "Alarmas")
         mapa = proc_construir_mapa(
             proceso,
             preal_filas,
@@ -238,8 +242,8 @@ def sincronizar(
             )
         ops_n_max = proc_operaciones_n_max(mapa.table_name, diff_n_max)
 
-        dcl_param, res_param = _leer_par_sd(destino_bloques, mapa.db_param_name)
-        dcl_alm, res_alm = _leer_par_sd(destino_bloques, mapa.db_alm_name)
+        dcl_param, res_param = leer_par_sd(destino_bloques, mapa.db_param_name)
+        dcl_alm, res_alm = leer_par_sd(destino_bloques, mapa.db_alm_name)
         arrays = proc_calcular_arrays(
             mapa,
             dcl_param,
@@ -289,7 +293,24 @@ def sincronizar(
         time.sleep(PAUSA_CONSOLIDACION_S)
         paso["detail"] = f"TIA consolida ({PAUSA_CONSOLIDACION_S:g} s)"
 
-    # ── 6. Re-exportar tabla y DBs (solo si hubo N_MAX) ─────────────────
+    # ── 6. Compilar los bloques (siempre que hubo N_MAX) ────────────────
+    # Como main: se compila antes de re-exportar, porque TIA no exporta
+    # bloques inconsistentes. No depende de si los comentarios cambian.
+    compilacion = {"ok": True, "error": None, "detalle": "compile=no-op"}
+    with job.paso("compilar") as paso:
+        if ops_n_max:
+            compilacion = _compilar(
+                job,
+                plc,
+                [
+                    db
+                    for db in (mapa.db_param_name, mapa.db_alm_name)
+                    if db not in mapa.db_missing
+                ],
+            )
+        paso["detail"] = compilacion["detalle"]
+
+    # ── 7. Re-exportar tabla y DBs (solo si hubo N_MAX) ─────────────────
     with job.paso("reexportar") as paso:
         if ops_n_max:
             exportar_tablas(
@@ -309,18 +330,28 @@ def sincronizar(
             )
             # Los comentarios actuales se re-leen de la re-export: el N_MAX
             # pudo redimensionar los arrays.
-            dcl_param, res_param = _leer_par_sd(destino_bloques, mapa.db_param_name)
-            dcl_alm, res_alm = _leer_par_sd(destino_bloques, mapa.db_alm_name)
+            dcl_param, res_param = leer_par_sd(destino_bloques, mapa.db_param_name)
+            dcl_alm, res_alm = leer_par_sd(destino_bloques, mapa.db_alm_name)
+            # Los arrays se recalculan con lo releido: el N_MAX pudo
+            # redimensionar los DBs y el resumen de 'comentarios' debe
+            # reflejar el estado post-N_MAX.
+            arrays = proc_calcular_arrays(
+                mapa,
+                dcl_param,
+                res_param,
+                dcl_alm,
+                res_alm,
+            )
         paso["detail"] = (
             "tabla y DBs releidos" if ops_n_max else "no hacia falta releer"
         )
 
-    # ── 7. Copiar los bloques a modified ─────────────────────────────────
+    # ── 8. Copiar los bloques a modified ─────────────────────────────────
     with job.paso("copiar") as paso:
         _copiar_bloques(destino_bloques, carpeta.bloques_modified)
         paso["detail"] = "bloques copiados a modified"
 
-    # ── 8. Editar los comentarios offline ────────────────────────────────
+    # ── 9. Editar los comentarios offline ────────────────────────────────
     con_cambios = False
     with job.paso("editar") as paso:
         if not soporta_simaticsd(job.tia.version_tia):
@@ -351,21 +382,6 @@ def sincronizar(
             paso["detail"] = (
                 f"{modificados} DBs con cambios" if con_cambios else "sin cambios"
             )
-
-    # ── 9. Compilar los bloques ──────────────────────────────────────────
-    compilacion = {"ok": True, "error": None, "detalle": "compile=no-op"}
-    with job.paso("compilar") as paso:
-        if ops_n_max and con_cambios:
-            compilacion = _compilar(
-                job,
-                plc,
-                [
-                    db
-                    for db in (mapa.db_param_name, mapa.db_alm_name)
-                    if db not in mapa.db_missing
-                ],
-            )
-        paso["detail"] = compilacion["detalle"]
 
     # ── 10. Tx B: los comentarios (offline, solo V21+) ──────────────────
     with job.paso("tx_comentarios") as paso:
@@ -435,35 +451,6 @@ def sincronizar(
 # ── los helpers privados del FB ─────────────────────────────────────────────
 
 
-def _filas_de(
-    datos: dict[str, Any],
-    clave: str,
-) -> list[dict[str, Any]]:
-    """Las filas de un subdominio del Excel de software. Vacio si falta."""
-    return list((datos.get(clave) or {}).get("filas", []))
-
-
-def _fila_de_proceso(
-    filas: list[dict[str, Any]],
-    proc_uid: int,
-) -> dict[str, Any] | None:
-    """La fila del proceso por su ``uid``. ``None`` si no esta."""
-    for fila in filas:
-        if int(fila.get("uid", 0) or 0) == proc_uid:
-            return fila
-    return None
-
-
-def _escaneo_de(
-    sesion: Sesion | None,
-    plc: str,
-) -> Escaneo | None:
-    """El escaneo fresco del PLC, o ``None`` si no hay o ha caducado."""
-    if sesion is None:
-        return None
-    return sesion.escaneo_fresco(plc)
-
-
 def _copiar_bloques(origen: Path, destino: Path) -> None:
     """Copia el arbol del export de bloques a la carpeta ``modified``.
 
@@ -485,43 +472,6 @@ def _localizar_xml(base: Path, tabla: str) -> Path:
     for encontrado in sorted(base.rglob(f"{tabla}.xml")):
         return encontrado
     return base / f"{tabla}.xml"
-
-
-def _leer_par_sd(carpeta: Path, db: str) -> tuple[str, str]:
-    """Lee el par SimaticSD de un bloque exportado.
-
-    La exportacion puede dejar el bloque en la raiz o en una subcarpeta: se
-    buscan las dos.
-
-    Returns:
-        La tupla ``(texto_del_s7dcl, texto_del_s7res)``. Vacia si no estan.
-    """
-    dcl = _localizar(carpeta, f"{db}.s7dcl")
-    res = _localizar(carpeta, f"{db}.s7res")
-    if dcl is None or res is None:
-        return "", ""
-    try:
-        return (
-            dcl.read_text(encoding="utf-8-sig"),
-            res.read_text(encoding="utf-8-sig"),
-        )
-    except OSError as exc:
-        logger.warning(
-            "[proc sync] No se pudo leer el par SimaticSD de '%s': %s", db, exc
-        )
-        return "", ""
-
-
-def _localizar(carpeta: Path, nombre: str) -> Path | None:
-    """Localiza un fichero del export, en la raiz o en una subcarpeta."""
-    if not carpeta.is_dir():
-        return None
-    directo = carpeta / nombre
-    if directo.is_file():
-        return directo
-    for encontrado in sorted(carpeta.rglob(nombre)):
-        return encontrado
-    return None
 
 
 def _arrays_actuales(

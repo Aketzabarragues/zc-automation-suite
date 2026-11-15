@@ -412,6 +412,7 @@ class TablaSyncFalsa:
         constantes: tuple[tuple[str, int], ...],
         xml: Callable[[str, tuple[tuple[str, int], ...]], str],
         jerarquia: str = "",
+        orden: list[str] | None = None,
     ) -> None:
         self._nombre = nombre
         self._constantes = constantes
@@ -453,9 +454,16 @@ class TablaSyncFalsa:
 class BloqueSyncFalso:
     """Un bloque de datos que se exporta en SimaticSD y se puede compilar."""
 
-    def __init__(self, nombre: str, jerarquia: str = "") -> None:
+    def __init__(
+        self,
+        nombre: str,
+        jerarquia: str = "",
+        orden: list[str] | None = None,
+    ) -> None:
         self._nombre = nombre
         self._jerarquia = jerarquia
+        #: La lista compartida de orden de llamadas (export/compile).
+        self._orden = orden
         #: Cuantas veces se ha compilado el bloque.
         self.n_compilaciones = 0
 
@@ -468,6 +476,8 @@ class BloqueSyncFalso:
         export_format: str = "SimaticSD",
         keep_folder_structure: bool = False,
     ) -> None:
+        if self._orden is not None:
+            self._orden.append(f"export:{self._nombre}")
         carpeta = Path(target_directory_path)
         if keep_folder_structure and self._jerarquia:
             carpeta = carpeta / self._jerarquia
@@ -484,6 +494,8 @@ class BloqueSyncFalso:
 
     def compile(self) -> bool:
         self.n_compilaciones += 1
+        if self._orden is not None:
+            self._orden.append(f"compile:{self._nombre}")
         return False
 
 
@@ -721,9 +733,14 @@ def _entorno(
     # La espera de consolidacion de TIA no aporta nada en un test.
     monkeypatch.setattr(modulo_sync, "PAUSA_CONSOLIDACION_S", 0.0)
 
+    orden: list[str] = []
     tablas = [TablaSyncFalsa(TABLA_PROCESO, CONSTANTES_TIA, xml_tabla)]
-    bloques = [BloqueSyncFalso(DB_PARAM), BloqueSyncFalso(DB_ALM)]
+    bloques = [
+        BloqueSyncFalso(DB_PARAM, orden=orden),
+        BloqueSyncFalso(DB_ALM, orden=orden),
+    ]
     plc = PlcSyncFalso(tablas, bloques)
+    plc.orden = orden
     proyecto = ProyectoSyncFalso(plc)
 
     eventos: list[tuple[str, dict[str, Any]]] = []

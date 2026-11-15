@@ -138,6 +138,61 @@ def test_el_db_se_compila_entre_transacciones(
     assert evento["resultado"]["compilacion"]["ok"] is True
 
 
+def test_con_n_max_y_sin_cambios_de_comentarios_compila_antes_de_reexportar(
+    entorno_sync: Any,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Con N_MAX pero sin cambios de comentarios, los DBs se compilan igual
+    (TIA no exporta bloques inconsistentes) y la compilacion va antes del
+    segundo export, como en ``main``.
+    """
+    for bloque in entorno_sync.plc.get_program_blocks():
+        estado = {"ok": False}
+        nombre_bloque = bloque.get_name()
+
+        def _is_consistent(estado=estado) -> bool:
+            return estado["ok"]
+
+        def _compile(estado=estado, bloque=bloque, nombre=nombre_bloque) -> bool:
+            estado["ok"] = True
+            bloque.n_compilaciones += 1
+            if bloque._orden is not None:
+                bloque._orden.append(f"compile:{nombre}")
+            return True
+
+        monkeypatch.setattr(bloque, "is_consistent", _is_consistent)
+        monkeypatch.setattr(bloque, "compile", _compile)
+
+    # Sin cambios de comentarios: la edicion offline no modifica nada.
+    import zc_suite.areas.alimentacion.funciones.procesos.sincronizar as mod
+
+    monkeypatch.setattr(mod, "proc_confirmar_db", lambda *a, **k: 0)
+
+    evento = entorno_sync.sincronizar(PROC_UID)
+    assert evento["estado"] == "ok", evento.get("error")
+
+    # Sin cambios de comentarios: ni import ni transaccion de comentarios.
+    assert entorno_sync.plc.importaciones_bloques == []
+    comentarios = _transaccion_por_nombre(evento["resultado"], "Comentarios")
+    assert comentarios["estado"] == NO_EJECUTADA
+
+    # Pero los DBs se han compilado igual: el N_MAX redimensiono los arrays.
+    compilados = _db_compilados(entorno_sync)
+    assert compilados[DB_PARAM] == 1
+    assert compilados[DB_ALM] == 1
+
+    # La compilacion ocurre ANTES del segundo export (el de la reexportacion):
+    # la primera export es la inicial, la segunda la re-export; la compilacion
+    # entra entre las dos (la tercera es la de la prevision post-sync).
+    orden = entorno_sync.plc.orden
+    for nombre in (DB_PARAM, DB_ALM):
+        exporta = [i for i, e in enumerate(orden) if e == f"export:{nombre}"]
+        compila = [i for i, e in enumerate(orden) if e == f"compile:{nombre}"]
+        assert len(exporta) >= 2, orden
+        assert compila, orden
+        assert exporta[0] < compila[0] < exporta[1], orden
+
+
 def test_sin_cambios_no_hay_transaccion_de_comentarios(
     entorno_sync: Any,
     monkeypatch: pytest.MonkeyPatch,

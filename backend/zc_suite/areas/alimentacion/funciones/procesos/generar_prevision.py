@@ -8,8 +8,9 @@ pasos y el mismo shape de resultado. No abre transacciones, no compila y no
 importa nada en TIA: solo exporta la tabla de variables del proceso y sus dos
 DBs, y los compara con el Excel.
 
-Los ayudantes de este modulo (``workdir_procesos``, ``componer_respuesta``)
-son privados del FB: solo los usa el.
+Las ayudas de este modulo que usan mas de un FB del area son publicas
+(``filas_de``, ``fila_de_proceso``, ``escaneo_de``, ``leer_par_sd`` y
+``localizar_fichero``): el sync las importa de aqui, no se las copia.
 """
 from __future__ import annotations
 
@@ -59,7 +60,7 @@ def _paso(job: Job, nombre: str, con_pasos: bool) -> Any:
     return job.paso(nombre) if con_pasos else nullcontext({})
 
 
-def _filas_de(
+def filas_de(
     datos: dict[str, Any],
     clave: str,
 ) -> list[dict[str, Any]]:
@@ -67,7 +68,7 @@ def _filas_de(
     return list((datos.get(clave) or {}).get("filas", []))
 
 
-def _fila_de_proceso(filas: list[dict[str, Any]], proc_uid: int) -> dict[str, Any] | None:
+def fila_de_proceso(filas: list[dict[str, Any]], proc_uid: int) -> dict[str, Any] | None:
     """La fila del proceso por su ``uid``. ``None`` si no esta."""
     for fila in filas:
         if int(fila.get("uid", 0) or 0) == proc_uid:
@@ -75,7 +76,7 @@ def _fila_de_proceso(filas: list[dict[str, Any]], proc_uid: int) -> dict[str, An
     return None
 
 
-def _escaneo_de(
+def escaneo_de(
     sesion: Sesion | None,
     plc: str,
 ) -> Escaneo | None:
@@ -89,7 +90,7 @@ def _escaneo_de(
     return sesion.escaneo_fresco(plc)
 
 
-def _leer_par_sd(carpeta: Path, db: str) -> tuple[str, str]:
+def leer_par_sd(carpeta: Path, db: str) -> tuple[str, str]:
     """Lee el par SimaticSD de un bloque exportado.
 
     La exportacion puede dejar el bloque en la raiz o en una subcarpeta: se
@@ -98,8 +99,8 @@ def _leer_par_sd(carpeta: Path, db: str) -> tuple[str, str]:
     Returns:
         La tupla ``(texto_del_s7dcl, texto_del_s7res)``. Vacia si no estan.
     """
-    dcl = _localizar(carpeta, f"{db}.s7dcl")
-    res = _localizar(carpeta, f"{db}.s7res")
+    dcl = localizar_fichero(carpeta, f"{db}.s7dcl")
+    res = localizar_fichero(carpeta, f"{db}.s7res")
     if dcl is None or res is None:
         return "", ""
     try:
@@ -112,7 +113,7 @@ def _leer_par_sd(carpeta: Path, db: str) -> tuple[str, str]:
         return "", ""
 
 
-def _localizar(carpeta: Path, nombre: str) -> Path | None:
+def localizar_fichero(carpeta: Path, nombre: str) -> Path | None:
     """Localiza un fichero del export, en la raiz o en una subcarpeta."""
     if not carpeta.is_dir():
         return None
@@ -169,18 +170,18 @@ def generar_prevision(
         )
 
     datos = almacen.estado()["procesos"]
-    procesos = _filas_de(datos, "Procesos")
-    preal_filas = _filas_de(datos, "ParametrosReales")
-    pint_filas = _filas_de(datos, "ParametrosEnteros")
-    alarmas = _filas_de(datos, "Alarmas")
-    proceso = _fila_de_proceso(procesos, proc_uid)
+    procesos = filas_de(datos, "Procesos")
+    preal_filas = filas_de(datos, "ParametrosReales")
+    pint_filas = filas_de(datos, "ParametrosEnteros")
+    alarmas = filas_de(datos, "Alarmas")
+    proceso = fila_de_proceso(procesos, proc_uid)
     if proceso is None:
         raise OperacionError(
             f"No hay un proceso con uid={proc_uid} en el Excel: el dominio "
             "'Procesos' no lo tiene."
         )
 
-    escaneo = _escaneo_de(sesion, plc)
+    escaneo = escaneo_de(sesion, plc)
     if escaneo is None:
         # Como main: sin cache de bloques del PLC no se construye mapa ni se
         # exporta; la SPA muestra el hint y el operario re-escanea.
@@ -237,10 +238,10 @@ def generar_prevision(
 
     arrays: dict[str, Any] = {}
     with _paso(job, "comentarios", con_pasos) as paso:
-        texto_dcl_param, texto_res_param = _leer_par_sd(
+        texto_dcl_param, texto_res_param = leer_par_sd(
             destino_bloques, mapa.db_param_name
         )
-        texto_dcl_alm, texto_res_alm = _leer_par_sd(destino_bloques, mapa.db_alm_name)
+        texto_dcl_alm, texto_res_alm = leer_par_sd(destino_bloques, mapa.db_alm_name)
         arrays = proc_calcular_arrays(
             mapa,
             texto_dcl_param,
