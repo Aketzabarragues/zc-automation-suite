@@ -35,9 +35,14 @@ from zc_suite.simatic.sd import ResultadoArray, confirmar_comentarios_array
 
 logger = logging.getLogger(__name__)
 
-#: Los arrays de un proceso, en el orden de ``main``: nombre, tipo
+#: La extension de los ficheros SimaticSD del DB.
+EXTENSION_DCL = ".s7dcl"
+EXTENSION_RES = ".s7res"
+
+#: La unica definicion de los arrays de un proceso: nombre, tipo de array
 #: (``"UDT"`` o ``"Simple"``) y el array al que pertenece (los satelites
-#: reciben el mapa de su principal).
+#: reciben el mapa de su principal). El orden es el de ``main``. De aqui se
+#: derivan los satelites y los tipos: es la unica fuente.
 ARRAYS_PROCESO: tuple[tuple[str, str, str], ...] = (
     ("PReal", "UDT", "PReal"),
     ("PReal_Vis", "Simple", "PReal"),
@@ -47,9 +52,28 @@ ARRAYS_PROCESO: tuple[tuple[str, str, str], ...] = (
     ("Aux.PInt_ValorAnterior", "Simple", "PInt"),
 )
 
-#: La extension de los ficheros SimaticSD del DB.
-EXTENSION_DCL = ".s7dcl"
-EXTENSION_RES = ".s7res"
+#: Los arrays satelites de cada array principal (``main:
+#: PROC_SATELLITES_BY_ARRAY``), derivados de ``ARRAYS_PROCESO``. El ``ALM``
+#: no tiene satelites.
+SATELITES_POR_ARRAY: dict[str, tuple[str, ...]] = {
+    principal: tuple(
+        nombre
+        for nombre, _tipo, pertenece in ARRAYS_PROCESO
+        if pertenece == principal and nombre != principal
+    )
+    for principal in ("PReal", "PInt", "ALM")
+}
+
+
+def proc_tipo_array(array: str) -> str:
+    """El tipo de un array (``"UDT"`` o ``"Simple"``), de ``ARRAYS_PROCESO``.
+
+    El ``ALM`` (y cualquier array sin entrada) es ``"Simple"``.
+    """
+    for nombre, tipo, _pertenece in ARRAYS_PROCESO:
+        if nombre == array:
+            return tipo
+    return "Simple"
 
 
 # ── localizar los SimaticSD del export ──────────────────────────────────────
@@ -201,13 +225,12 @@ def proc_confirmar_db(
 
 def _confirmar(dcl: Path, res: Path, array: str, mapa: dict[int, str]) -> ResultadoArray:
     """La llamada a ``confirmar_comentarios_array``, con el tipo del array."""
-    tipo = next((t for n, t, _ in ARRAYS_PROCESO if n == array), "Simple")
     return confirmar_comentarios_array(
         dcl,
         res,
         array,
         mapa,
-        array_type=tipo,
+        array_type=proc_tipo_array(array),
         write_to_original=True,
     )
 

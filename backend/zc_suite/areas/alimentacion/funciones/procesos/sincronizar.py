@@ -53,10 +53,10 @@ from zc_suite.areas.alimentacion.funciones.procesos.generar_prevision import (
     leer_par_sd,
 )
 from zc_suite.areas.alimentacion.procesos.diferencias import (
-    SATELITES_POR_ARRAY,
     proc_calcular_arrays,
     proc_calcular_diff_n_max,
     proc_resumen,
+    proc_slots_actuales,
 )
 from zc_suite.areas.alimentacion.procesos.mapa import (
     MapaProceso,
@@ -65,12 +65,15 @@ from zc_suite.areas.alimentacion.procesos.mapa import (
     proc_precondiciones_ok,
 )
 from zc_suite.areas.alimentacion.procesos.sincronizacion import (
+    ARRAYS_PROCESO,
     EXTENSION_DCL,
     EXTENSION_RES,
+    SATELITES_POR_ARRAY,
     proc_arrays_para_apply,
     proc_confirmar_db,
     proc_localizar_db,
     proc_operaciones_n_max,
+    proc_tipo_array,
 )
 from zc_suite.errores import OperacionError
 from zc_suite.nucleo.sesion import Sesion
@@ -78,7 +81,6 @@ from zc_suite.nucleo.tia.errores import CanceladoError
 from zc_suite.nucleo.tia.job import Job
 from zc_suite.nucleo.tia.transaccion import transaccion
 from zc_suite.nucleo.tia.workdir import workdir
-from zc_suite.simatic.sd import comentarios_actuales, indices_de_array
 from zc_suite.simatic.sd.cabecera import soporta_simaticsd
 from zc_suite.tia_ops.compilar import compilar_bloques
 from zc_suite.tia_ops.constantes import cambiar_valor
@@ -607,43 +609,37 @@ def _arrays_actuales(
     El DB_PARAM lleva los seis arrays (PReal y PInt con sus satelites) y el
     DB_ALM el ``ALM``. Un DB que no se pudo leer no aparece.
     """
-
-    def _lectura(
-        dcl: str,
-        res: str,
-        array: str,
-        slot_map: dict[int, str],
-        tipo: str,
-    ) -> dict[int, str | None] | None:
-        if not dcl or not res:
-            return None
-        slots = set(slot_map) | indices_de_array(dcl, array, tipo)
-        return comentarios_actuales(
-            res_text=res,
-            array_name=array,
-            indices=sorted(slots),
-            dcl_text=dcl,
-            array_type=tipo,
-        )
-
+    # Los principales y su DB: los seis arrays de ``ARRAYS_PROCESO`` (sin
+    # los satelites, que se aplican con el mapa de su principal) mas el
+    # ``ALM``, que no esta en ``ARRAYS_PROCESO``.
+    principales = [
+        (nombre, tipo, mapa.db_param_name)
+        for nombre, tipo, principal in ARRAYS_PROCESO
+        if nombre == principal
+    ]
+    principales.append(("ALM", proc_tipo_array("ALM"), mapa.db_alm_name))
+    textos = {
+        mapa.db_param_name: (dcl_param, res_param),
+        mapa.db_alm_name: (dcl_alm, res_alm),
+    }
+    slot_maps = {
+        "PReal": mapa.preal,
+        "PInt": mapa.pint,
+        "ALM": mapa.alm,
+    }
     resultado: dict[str, dict[str, dict[int, str | None]]] = {}
-    if mapa.db_param_name not in mapa.db_missing:
-        param: dict[str, dict[int, str | None]] = {}
-        preal = _lectura(dcl_param, res_param, "PReal", mapa.preal, "UDT")
-        if preal is not None:
-            param["PReal"] = preal
-            param["PReal_Vis"] = preal
-            param["Aux.PReal_ValorAnterior"] = preal
-        pint = _lectura(dcl_param, res_param, "PInt", mapa.pint, "UDT")
-        if pint is not None:
-            param["PInt"] = pint
-            param["PInt_Vis"] = pint
-            param["Aux.PInt_ValorAnterior"] = pint
-        resultado[mapa.db_param_name] = param
-    if mapa.db_alm_name not in mapa.db_missing:
-        alm = _lectura(dcl_alm, res_alm, "ALM", mapa.alm, "Simple")
-        if alm is not None:
-            resultado[mapa.db_alm_name] = {"ALM": alm}
+    for nombre, tipo, db in principales:
+        if db in mapa.db_missing:
+            continue
+        dcl, res = textos[db]
+        actual = proc_slots_actuales(
+            dcl, res, nombre, slot_maps[nombre], tipo
+        )
+        if actual is None:
+            continue
+        resultado.setdefault(db, {})[nombre] = actual
+        for satelite in SATELITES_POR_ARRAY.get(nombre, ()):
+            resultado.setdefault(db, {})[satelite] = actual
     return resultado
 
 

@@ -13,11 +13,11 @@ from zc_suite.areas.alimentacion.procesos.mapa import (
     COMENTARIO_SLOT_CERO,
     COMENTARIO_VACIO,
     MapaProceso,
+    _nmax_de,
+    _nombres,
     proc_construir_mapa,
     proc_falta_db,
     proc_mapa_de_slots,
-    proc_nmax,
-    proc_nombres,
     proc_precondiciones_ok,
 )
 
@@ -89,8 +89,8 @@ def _tablas() -> list[dict]:
 def test_el_num_db_sale_de_la_primera_fila_del_excel() -> None:
     """El ``num_db`` del DB_PARAM sale de la primera fila de PReal con ese
     codigo y el del DB_ALM, de la primera fila de Alarmas con ese nombre."""
-    db_param, db_alm, tabla = proc_nombres(
-        _proceso(), _preal(), _alm(), 100
+    db_param, db_alm, tabla = _nombres(
+        _proceso(), _preal(), _alm(), 100, []
     )
 
     assert db_param == "DB53100_CPR_PARAM"
@@ -101,7 +101,7 @@ def test_el_num_db_sale_de_la_primera_fila_del_excel() -> None:
 def test_el_num_db_por_defecto_es_el_uid_con_warning() -> None:
     """Sin filas en el Excel, ``num_db = uid`` (convencion legacy) y un aviso."""
     warnings: list[str] = []
-    db_param, db_alm, tabla = proc_nombres(
+    db_param, db_alm, tabla = _nombres(
         _proceso(), [], [], 100, warnings
     )
 
@@ -123,7 +123,7 @@ def test_el_num_db_de_param_no_mira_a_pint() -> None:
     """El ``num_db`` del DB_PARAM **solo** mira a ``ParametrosReales`` (como
     ``main``): con PReal vacio sale el fallback, aunque PInt tenga filas."""
     warnings: list[str] = []
-    db_param, _, _ = proc_nombres(
+    db_param, _, _ = _nombres(
         _proceso(), [], _alm(), 100, warnings
     )
 
@@ -139,7 +139,7 @@ def test_el_filtro_de_codigo_es_exacto_sin_strip() -> None:
     ``main``: una fila con espacios no pasa el filtro y sale el fallback."""
     warnings: list[str] = []
     preal = [{"codigo": "CPR ", "numero": 1, "num_db": 53100}]
-    db_param, _, _ = proc_nombres(_proceso(), preal, _alm(), 100, warnings)
+    db_param, _, _ = _nombres(_proceso(), preal, _alm(), 100, warnings)
 
     assert db_param == "DB100_CPR_PARAM"
     assert warnings == [
@@ -155,7 +155,7 @@ def test_alm_filtra_por_nombre_y_no_por_codigo() -> None:
         {"proceso": "CPR", "numero": 1, "num_db": 55100},
         {"proceso": "CPR", "numero": 2, "num_db": 55999},
     ]
-    _, db_alm, _ = proc_nombres(proceso, [], alarmas, 100)
+    _, db_alm, _ = _nombres(proceso, [], alarmas, 100, [])
 
     assert db_alm == "DB55100_CPR_ALM"
 
@@ -241,7 +241,7 @@ def test_alm_se_filtra_por_el_nombre_del_proceso() -> None:
 def test_el_n_max_saca_el_valor_de_la_columna_del_proceso() -> None:
     """El valor de cada N_MAX es la columna del proceso del Excel (no el
     numero de filas) y el nombre es ``<uid>_N_MAX_<SUFIXO>``."""
-    valores, nombres = proc_nmax(_proceso(), 100, SUFIJOS)
+    valores, nombres = _nmax_de(_proceso(), 100, SUFIJOS)
 
     assert valores == {"preal": 3, "pint": 2, "alm": 16, "alm_hmi": 2}
     assert nombres == {
@@ -254,7 +254,7 @@ def test_el_n_max_saca_el_valor_de_la_columna_del_proceso() -> None:
 
 def test_el_n_max_solo_con_los_sufijos_del_config() -> None:
     """Un config sin un sufijo no aporta ese N_MAX."""
-    valores, nombres = proc_nmax(_proceso(), 100, {"preal": "PREAL"})
+    valores, nombres = _nmax_de(_proceso(), 100, {"preal": "PREAL"})
 
     assert valores == {"preal": 3}
     assert nombres == {"preal": "100_N_MAX_PREAL"}
@@ -262,7 +262,7 @@ def test_el_n_max_solo_con_los_sufijos_del_config() -> None:
 
 def test_el_n_max_sin_sufijos_sale_vacio() -> None:
     """Sin sufijos en el config, no hay N_MAX."""
-    valores, nombres = proc_nmax(_proceso(), 100, {})
+    valores, nombres = _nmax_de(_proceso(), 100, {})
 
     assert valores == {}
     assert nombres == {}

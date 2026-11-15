@@ -44,11 +44,11 @@ COMENTARIO_VACIO = "."
 
 #: Los sufijos de N_MAX del config y la columna del proceso que los alimenta.
 #: El orden es el de las tarjetas de N_MAX.
-N_MAX_PROCESO: tuple[tuple[str, str, str], ...] = (
-    ("preal", "PREAL", "preal"),
-    ("pint", "PINT", "pint"),
-    ("alm", "ALM", "alarmas"),
-    ("alm_hmi", "ALM_HMI", "alm_hmi"),
+N_MAX_PROCESO: tuple[tuple[str, str], ...] = (
+    ("preal", "preal"),
+    ("pint", "pint"),
+    ("alm", "alarmas"),
+    ("alm_hmi", "alm_hmi"),
 )
 
 
@@ -210,7 +210,7 @@ def _nmax_de(
     """
     valores: dict[str, int] = {}
     nombres: dict[str, str] = {}
-    for sufijo, _columna_default, columna in N_MAX_PROCESO:
+    for sufijo, columna in N_MAX_PROCESO:
         sufijo_config = sufijos.get(sufijo)
         if sufijo_config is None:
             continue
@@ -262,32 +262,6 @@ def _presencia(
 # ── la API publica ───────────────────────────────────────────────────────────
 
 
-def proc_nombres(
-    proceso: dict[str, Any],
-    preal_filas: list[dict[str, Any]],
-    alarmas: list[dict[str, Any]],
-    proc_uid: int,
-    warnings: list[str] | None = None,
-) -> tuple[str, str, str]:
-    """Los nombres canonicos TIA del proceso: DB_PARAM, DB_ALM y la tabla.
-
-    El ``num_db`` del DB_PARAM sale solo de ``ParametrosReales`` (como
-    ``main``), aunque PInt comparta ese mismo DB.
-
-    Args:
-        proceso: la fila del proceso del Excel (``codigo``, ``nombre``...).
-        preal_filas: las filas de ``ParametrosReales`` del Excel.
-        alarmas: las filas de ``Alarmas`` del Excel.
-        proc_uid: el ``uid`` del proceso.
-        warnings: la lista de avisos que se anade el fallback de ``num_db``.
-
-    Returns:
-        La tupla ``(db_param, db_alm, tabla)``.
-    """
-    avisos = warnings if warnings is not None else []
-    return _nombres(proceso, preal_filas, alarmas, proc_uid, avisos)
-
-
 def proc_mapa_de_slots(
     preal_filas: list[dict[str, Any]],
     pint_filas: list[dict[str, Any]],
@@ -312,26 +286,6 @@ def proc_mapa_de_slots(
         "pint": _mapa_de_slots(pint_filas, "codigo", codigo),
         "alm": _mapa_de_slots(alm_filas, "proceso", nombre),
     }
-
-
-def proc_nmax(
-    proceso: dict[str, Any],
-    proc_uid: int,
-    sufijos: dict[str, str],
-) -> tuple[dict[str, int], dict[str, str]]:
-    """Los N_MAX del proceso: valores del Excel y nombres TIA.
-
-    Args:
-        proceso: la fila del proceso del Excel (``preal``, ``pint``,
-            ``alarmas``, ``alm_hmi``...).
-        proc_uid: el ``uid`` del proceso.
-        sufijos: los sufijos de N_MAX del config
-            (``procesos.sufijos_nmax``).
-
-    Returns:
-        La tupla ``(valores, nombres)``.
-    """
-    return _nmax_de(proceso, proc_uid, sufijos)
 
 
 def proc_construir_mapa(

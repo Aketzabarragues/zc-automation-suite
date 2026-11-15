@@ -41,25 +41,16 @@ from zc_suite.areas.alimentacion.dispositivos.diferencias import (
     disp_calcular_diff_n_max,
 )
 from zc_suite.areas.alimentacion.procesos.mapa import MapaProceso
+from zc_suite.areas.alimentacion.procesos.sincronizacion import (
+    SATELITES_POR_ARRAY,
+    proc_tipo_array,
+)
 from zc_suite.simatic.sd import comentarios_actuales, indices_de_array
-
-#: Los arrays de un proceso, por array: ``(nombre, slot_map, db, actual,
-#: tipo, satelites)``. El orden es el de ``main``.
-_TIPO_UDT = "UDT"
-_TIPO_SIMPLE = "Simple"
-
-#: Los arrays satelites de cada array principal (``main: PROC_SATELLITES_BY_ARRAY``).
-SATELITES_POR_ARRAY: dict[str, tuple[str, ...]] = {
-    "PReal": ("PReal_Vis", "Aux.PReal_ValorAnterior"),
-    "PInt": ("PInt_Vis", "Aux.PInt_ValorAnterior"),
-    "ALM": (),
-}
-
 
 # ── el estado actual de los arrays ──────────────────────────────────────────
 
 
-def _slots_actuales(
+def proc_slots_actuales(
     dcl_text: str,
     res_text: str,
     array: str,
@@ -190,12 +181,12 @@ def proc_calcular_arrays(
     """
     arrays: dict[str, Any] = {}
     configuracion = (
-        ("PReal", mapa.preal, mapa.db_param_name, dcl_param, res_param, _TIPO_UDT),
-        ("PInt", mapa.pint, mapa.db_param_name, dcl_param, res_param, _TIPO_UDT),
-        ("ALM", mapa.alm, mapa.db_alm_name, dcl_alm, res_alm, _TIPO_SIMPLE),
+        ("PReal", mapa.preal, mapa.db_param_name, dcl_param, res_param),
+        ("PInt", mapa.pint, mapa.db_param_name, dcl_param, res_param),
+        ("ALM", mapa.alm, mapa.db_alm_name, dcl_alm, res_alm),
     )
-    for array, slot_map, db_name, dcl, res, array_type in configuracion:
-        actual = _slots_actuales(dcl, res, array, slot_map, array_type)
+    for array, slot_map, db_name, dcl, res in configuracion:
+        actual = proc_slots_actuales(dcl, res, array, slot_map, proc_tipo_array(array))
         slot_map_serializado: dict[str, dict[str, Any]] = {}
         for slot, desired in slot_map.items():
             if slot == 0:
