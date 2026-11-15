@@ -1,0 +1,732 @@
+"""zc_suite.areas.alimentacion.funciones.procesos.sincronizar — el sync.
+
+Es un **FB**: recibe el ``job``, declara sus pasos y se ejecuta entero dentro
+del hilo de TIA.
+
+Es el port de ``function_proc_db_sincronizar`` de ``main``. Dos
+transacciones, en su orden, y cada una se comprueba:
+
+1. **N_MAX** (en linea): los valores de los N_MAX de la tabla del proceso,
+   que redimensionan los arrays de los DBs.
+2. **Comentarios** (offline, solo desde TIA V21): la importacion de los dos
+   DBs con los comentarios ya editados en disco.
+
+El resultado dice **cual se confirmo, cual se revirtio y cual no se
+ejecuto**, y lo mismo se ve en el faceplate: cada transaccion lleva su
+estado en el detalle, y las que no se alcanzan se quedan pendientes.
+
+El N_MAX no se exporta para editarlo (a diferencia de las entidades): se
+cambia en linea con ``cambiar_valor`` sobre la tabla del proceso. El
+criterio de las operaciones es el de ``main``: solo las constantes que ya
+existen en TIA y cuyo valor no coincide.
+
+Los DBs se exportan, se copian a ``modified/`` y se editan alli: lo que se
+importa es la copia, no el export.
+
+Correcciones sobre ``main``:
+
+- Cada transaccion **comprueba** su resultado y lo lleva en el resumen: si
+  la de los comentarios falla, el mensaje dice que los N_MAX ya estaban
+  confirmados.
+- La transaccion de comentarios **solo se ejecuta con TIA V21 o superior**:
+  la exportacion en SimaticSD no existe antes.
+- Al terminar se **recalcula la prevision** con la misma funcion que la
+  genera (``generar_prevision``), para que la vista vea el estado final.
+- El proyecto **no** se guarda.
+"""
+from __future__ import annotations
+
+import logging
+import shutil
+import time
+from pathlib import Path
+from typing import Any
+
+from zc_suite.areas.alimentacion.config import ConfigArea
+from zc_suite.areas.alimentacion.excel.almacen import AlmacenExcel
+from zc_suite.areas.alimentacion.funciones.procesos.generar_prevision import (
+    generar_prevision,
+)
+from zc_suite.areas.alimentacion.procesos.diferencias import (
+    proc_calcular_arrays,
+    proc_calcular_diff_n_max,
+    proc_resumen,
+)
+from zc_suite.areas.alimentacion.procesos.mapa import (
+    MapaProceso,
+    proc_construir_mapa,
+    proc_falta_db,
+    proc_precondiciones_ok,
+)
+from zc_suite.areas.alimentacion.procesos.sincronizacion import (
+    proc_arrays_para_apply,
+    proc_confirmar_db,
+    proc_operaciones_n_max,
+)
+from zc_suite.errores import OperacionError
+from zc_suite.nucleo.sesion import Escaneo, Sesion
+from zc_suite.nucleo.tia.errores import CanceladoError
+from zc_suite.nucleo.tia.job import Job
+from zc_suite.nucleo.tia.transaccion import transaccion
+from zc_suite.nucleo.tia.workdir import workdir
+from zc_suite.simatic.sd import comentarios_actuales, indices_de_array
+from zc_suite.simatic.sd.cabecera import soporta_simaticsd
+from zc_suite.tia_ops.compilar import compilar_bloques
+from zc_suite.tia_ops.constantes import cambiar_valor
+from zc_suite.tia_ops.exportar import exportar_bloques, exportar_tablas
+from zc_suite.tia_ops.importar import importar_bloques
+
+logger = logging.getLogger(__name__)
+
+#: El area y el contexto del workdir del sync de procesos.
+AREA = "alimentacion"
+CONTEXTO = "procesos"
+
+#: Segundos que se espera a que TIA consolide tras la transaccion de N_MAX.
+PAUSA_CONSOLIDACION_S = 2.0
+
+#: La transaccion se confirmo: TIA guardo los cambios.
+CONFIRMADA = "confirmada"
+
+#: La transaccion fallo y se revirtio: TIA no guardo nada.
+REVIRTIDA = "revertida"
+
+#: La transaccion no llego a ejecutarse.
+NO_EJECUTADA = "no ejecutada"
+
+
+def sincronizar(
+    job: Job,
+    proc_uid: int,
+    plc: str,
+    almacen: AlmacenExcel,
+    config: ConfigArea,
+    sesion: Sesion | None = None,
+) -> dict[str, Any]:
+    """Aplica en TIA los cambios de un proceso que dice el Excel.
+
+    Args:
+        job: el trabajo en curso.
+        proc_uid: el ``uid`` del proceso a sincronizar.
+        plc: el PLC cuyo proceso se sincroniza.
+        almacen: la cache del Excel maestro.
+        config: el modelo del area.
+        sesion: la sesion del backend. Del escaneo fresco de su PLC salen
+            los nombres de los bloques en TIA, y al terminar se recalcula
+            la prevision y se guarda en ella.
+
+    Returns:
+        El resumen del sync: que se aplico, como quedo cada transaccion y la
+        prevision posterior.
+
+    Raises:
+        OperacionError: si no hay escaneo fresco, si falta la tabla o los
+            dos DBs, o si falla alguna transaccion. El mensaje dice que se
+            confirmo y que no.
+    """
+    job.empezar(
+        "Sincronizar proceso",
+        [
+            ("mapa", "Construir mapa de slots"),
+            ("exportar", "Exportar tabla y DBs"),
+            ("preparar", "Preparar operaciones"),
+            ("tx_n_max", "Aplicar N_MAX"),
+            ("consolidacion", "Esperar consolidación TIA"),
+            ("reexportar", "Re-exportar tabla y DBs"),
+            ("copiar", "Copiar bloques a modified"),
+            ("editar", "Editar comentarios offline"),
+            ("compilar", "Compilar bloques"),
+            ("tx_comentarios", "Aplicar comentarios"),
+            ("prevision", "Recalcular la prevision"),
+        ],
+    )
+
+    datos = almacen.estado()["procesos"]
+    proceso = _fila_de_proceso(_filas_de(datos, "Procesos"), proc_uid)
+    if proceso is None:
+        raise OperacionError(
+            f"No hay un proceso con uid={proc_uid} en el Excel: el dominio "
+            "'Procesos' no lo tiene."
+        )
+
+    escaneo = _escaneo_de(sesion, plc)
+    if escaneo is None:
+        raise OperacionError(
+            "No hay un escaneo fresco del PLC: escanea el PLC antes de "
+            "sincronizar el proceso."
+        )
+
+    transacciones = _transacciones_iniciales()
+    carpeta = workdir()
+
+    # ── 1. Construir el mapa de slots ────────────────────────────────────
+    with job.paso("mapa") as paso:
+        preal_filas = _filas_de(datos, "ParametrosReales")
+        pint_filas = _filas_de(datos, "ParametrosEnteros")
+        alarmas = _filas_de(datos, "Alarmas")
+        mapa = proc_construir_mapa(
+            proceso,
+            preal_filas,
+            pint_filas,
+            alarmas,
+            config.procesos.sufijos_nmax,
+            escaneo.bloques,
+            escaneo.tablas,
+        )
+        for aviso in mapa.warnings:
+            logger.warning(aviso)
+            job.log(aviso, nivel="warning")
+        for db in mapa.db_missing:
+            aviso = proc_falta_db(mapa, db)
+            logger.warning(aviso)
+            job.log(aviso, nivel="warning")
+        if not proc_precondiciones_ok(mapa):
+            # Como main: sin la tabla, o sin los dos DBs, no hay nada que
+            # aplicar.
+            raise OperacionError(
+                "No se puede sincronizar el proceso: "
+                + "; ".join(mapa.missing_blocks)
+            )
+        paso["detail"] = (
+            f"PReal={len(mapa.preal)}, PInt={len(mapa.pint)}, "
+            f"ALM={len(mapa.alm)} slots"
+        )
+
+    # ── 2. Exportar tabla y DBs ──────────────────────────────────────────
+    with job.paso("exportar") as paso:
+        carpeta.limpiar_sincronizar()
+        destino_variables = carpeta.variables_export
+        destino_bloques = carpeta.bloques_export
+        exportar_tablas(
+            job.tia.portal,
+            plc,
+            destino_variables,
+            [mapa.table_name],
+            mantener_estructura=False,
+        )
+        db_a_exportar = [
+            db
+            for db in (mapa.db_param_name, mapa.db_alm_name)
+            if db not in mapa.db_missing
+        ]
+        exportar_bloques(
+            job.tia.portal,
+            plc,
+            destino_bloques,
+            db_a_exportar,
+            mantener_estructura=False,
+            version_tia=job.tia.version_tia,
+        )
+        paso["detail"] = (
+            f"tabla {mapa.table_name} y {len(db_a_exportar)} DBs exportados"
+        )
+
+    # ── 3. Preparar las operaciones ──────────────────────────────────────
+    with job.paso("preparar") as paso:
+        diff_n_max = proc_calcular_diff_n_max(
+            mapa.table_name,
+            mapa.nmax_names,
+            mapa.nmax,
+            _localizar_xml(destino_variables, mapa.table_name),
+        )
+        if diff_n_max.xml_ausente:
+            # Como main: sin el XML de la tabla no se puede comparar el
+            # N_MAX ni aplicar nada.
+            raise OperacionError(
+                f"La tabla '{mapa.table_name}' no existe en TIA (o no se pudo "
+                "exportarla): lanza la prevision antes de sincronizar."
+            )
+        ops_n_max = proc_operaciones_n_max(mapa.table_name, diff_n_max)
+
+        dcl_param, res_param = _leer_par_sd(destino_bloques, mapa.db_param_name)
+        dcl_alm, res_alm = _leer_par_sd(destino_bloques, mapa.db_alm_name)
+        arrays = proc_calcular_arrays(
+            mapa,
+            dcl_param,
+            res_param,
+            dcl_alm,
+            res_alm,
+        )
+        arrays_por_db = proc_arrays_para_apply(
+            {
+                "preal": mapa.preal,
+                "pint": mapa.pint,
+                "alm": mapa.alm,
+            },
+            mapa.db_param_name,
+            mapa.db_alm_name,
+            mapa.db_missing,
+        )
+        paso["detail"] = (
+            f"{len(ops_n_max)} N_MAX, "
+            f"{len(arrays_por_db.get(mapa.db_param_name, {}))} arrays en el "
+            "DB de parametros, "
+            f"{len(arrays_por_db.get(mapa.db_alm_name, {}))} arrays en el "
+            "DB de alarmas"
+        )
+
+    # ── 4. Tx A: los N_MAX (en linea) ────────────────────────────────────
+    with job.paso("tx_n_max") as paso:
+        if not ops_n_max:
+            transacciones["n_max"]["estado"] = NO_EJECUTADA
+            transacciones["n_max"]["detalle"] = "no habia nada que aplicar"
+            paso["detail"] = "sin cambios de N_MAX"
+        else:
+            _transaccion(
+                job,
+                transacciones,
+                "n_max",
+                "Actualizando los N_MAX del proceso",
+                lambda: _aplicar_n_max(job, plc, mapa.table_name, ops_n_max),
+                f"{len(ops_n_max)} N_MAX",
+            )
+            paso["detail"] = (
+                f"{transacciones['n_max']['estado']}: {len(ops_n_max)} N_MAX"
+            )
+
+    # ── 5. Esperar la consolidacion de TIA ───────────────────────────────
+    with job.paso("consolidacion") as paso:
+        time.sleep(PAUSA_CONSOLIDACION_S)
+        paso["detail"] = f"TIA consolida ({PAUSA_CONSOLIDACION_S:g} s)"
+
+    # ── 6. Re-exportar tabla y DBs (solo si hubo N_MAX) ─────────────────
+    with job.paso("reexportar") as paso:
+        if ops_n_max:
+            exportar_tablas(
+                job.tia.portal,
+                plc,
+                destino_variables,
+                [mapa.table_name],
+                mantener_estructura=False,
+            )
+            exportar_bloques(
+                job.tia.portal,
+                plc,
+                destino_bloques,
+                db_a_exportar,
+                mantener_estructura=False,
+                version_tia=job.tia.version_tia,
+            )
+            # Los comentarios actuales se re-leen de la re-export: el N_MAX
+            # pudo redimensionar los arrays.
+            dcl_param, res_param = _leer_par_sd(destino_bloques, mapa.db_param_name)
+            dcl_alm, res_alm = _leer_par_sd(destino_bloques, mapa.db_alm_name)
+        paso["detail"] = (
+            "tabla y DBs releidos" if ops_n_max else "no hacia falta releer"
+        )
+
+    # ── 7. Copiar los bloques a modified ─────────────────────────────────
+    with job.paso("copiar") as paso:
+        _copiar_bloques(destino_bloques, carpeta.bloques_modified)
+        paso["detail"] = "bloques copiados a modified"
+
+    # ── 8. Editar los comentarios offline ────────────────────────────────
+    con_cambios = False
+    with job.paso("editar") as paso:
+        if not soporta_simaticsd(job.tia.version_tia):
+            transacciones["comentarios"]["estado"] = NO_EJECUTADA
+            transacciones["comentarios"]["detalle"] = (
+                "los comentarios por instancia necesitan TIA Portal V21 o superior"
+            )
+            paso["detail"] = "no ejecutada: TIA Portal anterior a V21"
+        else:
+            actuales = _arrays_actuales(
+                mapa, dcl_param, res_param, dcl_alm, res_alm
+            )
+            modificados = 0
+            for db, arrays_db in arrays_por_db.items():
+                _n = proc_confirmar_db(
+                    carpeta.bloques_modified,
+                    db,
+                    arrays_db,
+                    actuales.get(db, {}),
+                )
+                modificados += _n
+            con_cambios = modificados > 0
+            if not con_cambios:
+                transacciones["comentarios"]["estado"] = NO_EJECUTADA
+                transacciones["comentarios"]["detalle"] = (
+                    "los comentarios ya estaban al dia"
+                )
+            paso["detail"] = (
+                f"{modificados} DBs con cambios" if con_cambios else "sin cambios"
+            )
+
+    # ── 9. Compilar los bloques ──────────────────────────────────────────
+    compilacion = {"ok": True, "error": None, "detalle": "compile=no-op"}
+    with job.paso("compilar") as paso:
+        if ops_n_max and con_cambios:
+            compilacion = _compilar(
+                job,
+                plc,
+                [
+                    db
+                    for db in (mapa.db_param_name, mapa.db_alm_name)
+                    if db not in mapa.db_missing
+                ],
+            )
+        paso["detail"] = compilacion["detalle"]
+
+    # ── 10. Tx B: los comentarios (offline, solo V21+) ──────────────────
+    with job.paso("tx_comentarios") as paso:
+        if con_cambios:
+            _transaccion(
+                job,
+                transacciones,
+                "comentarios",
+                "Sincronizando los comentarios del proceso",
+                lambda: importar_bloques(
+                    job.tia.portal,
+                    plc,
+                    carpeta.bloques_modified,
+                    "",
+                ),
+                "DBs del proceso",
+            )
+            paso["detail"] = (
+                f"{transacciones['comentarios']['estado']}: DBs del proceso"
+            )
+        else:
+            paso["detail"] = transacciones["comentarios"]["detalle"]
+
+    # ── 11. Recalcular la prevision ──────────────────────────────────────
+    prevision: dict[str, Any] | None = None
+    with job.paso("prevision") as paso:
+        try:
+            prevision = generar_prevision(
+                job,
+                proc_uid,
+                plc,
+                almacen,
+                config,
+                sesion,
+                con_pasos=False,
+            )
+            paso["detail"] = f"{prevision['summary']['total']} cambios en la vista"
+        except Exception as exc:
+            # Lo anterior ya esta confirmado: el fallo se avisa, pero no
+            # tumba el trabajo.
+            aviso = (
+                f"No se pudo recalcular la prevision tras el sync: {exc}. "
+                "Los cambios ya estan aplicados en TIA."
+            )
+            logger.warning(aviso)
+            job.log(aviso, nivel="warning")
+            paso["detail"] = "no se pudo recalcular la prevision"
+
+    resumen = proc_resumen(arrays)
+    return {
+        "plc": plc,
+        "proc_uid": proc_uid,
+        "operaciones": (
+            len(ops_n_max)
+            + resumen["agregados"]
+            + resumen["renombrados"]
+            + resumen["eliminados"]
+        ),
+        "n_max": {"actualizados": len(ops_n_max)},
+        "comentarios": resumen,
+        "transacciones": list(transacciones.values()),
+        "compilacion": compilacion,
+        "prevision": prevision,
+    }
+
+
+# ── los helpers privados del FB ─────────────────────────────────────────────
+
+
+def _filas_de(
+    datos: dict[str, Any],
+    clave: str,
+) -> list[dict[str, Any]]:
+    """Las filas de un subdominio del Excel de software. Vacio si falta."""
+    return list((datos.get(clave) or {}).get("filas", []))
+
+
+def _fila_de_proceso(
+    filas: list[dict[str, Any]],
+    proc_uid: int,
+) -> dict[str, Any] | None:
+    """La fila del proceso por su ``uid``. ``None`` si no esta."""
+    for fila in filas:
+        if int(fila.get("uid", 0) or 0) == proc_uid:
+            return fila
+    return None
+
+
+def _escaneo_de(
+    sesion: Sesion | None,
+    plc: str,
+) -> Escaneo | None:
+    """El escaneo fresco del PLC, o ``None`` si no hay o ha caducado."""
+    if sesion is None:
+        return None
+    return sesion.escaneo_fresco(plc)
+
+
+def _copiar_bloques(origen: Path, destino: Path) -> None:
+    """Copia el arbol del export de bloques a la carpeta ``modified``.
+
+    Lo que se importa en TIA es la copia, no el export (igual que en
+    ``main``).
+    """
+    if origen.is_dir():
+        shutil.copytree(origen, destino, dirs_exist_ok=True)
+
+
+def _localizar_xml(base: Path, tabla: str) -> Path:
+    """Localiza el XML de una tabla dentro de un export de TIA.
+
+    Tolera los dos layouts: plano o con la jerarquia de carpetas del PLC.
+    """
+    directo = base / f"{tabla}.xml"
+    if directo.is_file():
+        return directo
+    for encontrado in sorted(base.rglob(f"{tabla}.xml")):
+        return encontrado
+    return base / f"{tabla}.xml"
+
+
+def _leer_par_sd(carpeta: Path, db: str) -> tuple[str, str]:
+    """Lee el par SimaticSD de un bloque exportado.
+
+    La exportacion puede dejar el bloque en la raiz o en una subcarpeta: se
+    buscan las dos.
+
+    Returns:
+        La tupla ``(texto_del_s7dcl, texto_del_s7res)``. Vacia si no estan.
+    """
+    dcl = _localizar(carpeta, f"{db}.s7dcl")
+    res = _localizar(carpeta, f"{db}.s7res")
+    if dcl is None or res is None:
+        return "", ""
+    try:
+        return (
+            dcl.read_text(encoding="utf-8-sig"),
+            res.read_text(encoding="utf-8-sig"),
+        )
+    except OSError as exc:
+        logger.warning(
+            "[proc sync] No se pudo leer el par SimaticSD de '%s': %s", db, exc
+        )
+        return "", ""
+
+
+def _localizar(carpeta: Path, nombre: str) -> Path | None:
+    """Localiza un fichero del export, en la raiz o en una subcarpeta."""
+    if not carpeta.is_dir():
+        return None
+    directo = carpeta / nombre
+    if directo.is_file():
+        return directo
+    for encontrado in sorted(carpeta.rglob(nombre)):
+        return encontrado
+    return None
+
+
+def _arrays_actuales(
+    mapa: MapaProceso,
+    dcl_param: str,
+    res_param: str,
+    dcl_alm: str,
+    res_alm: str,
+) -> dict[str, dict[str, dict[int, str | None]]]:
+    """Los comentarios actuales por DB y por array, leidos del export.
+
+    El DB_PARAM lleva los seis arrays (PReal y PInt con sus satelites) y el
+    DB_ALM el ``ALM``. Un DB que no se pudo leer no aparece.
+    """
+
+    def _lectura(
+        dcl: str,
+        res: str,
+        array: str,
+        slot_map: dict[int, str],
+        tipo: str,
+    ) -> dict[int, str | None] | None:
+        if not dcl or not res:
+            return None
+        slots = set(slot_map) | indices_de_array(dcl, array, tipo)
+        return comentarios_actuales(
+            res_text=res,
+            array_name=array,
+            indices=sorted(slots),
+            dcl_text=dcl,
+            array_type=tipo,
+        )
+
+    resultado: dict[str, dict[str, dict[int, str | None]]] = {}
+    if mapa.db_param_name not in mapa.db_missing:
+        param: dict[str, dict[int, str | None]] = {}
+        preal = _lectura(dcl_param, res_param, "PReal", mapa.preal, "UDT")
+        if preal is not None:
+            param["PReal"] = preal
+            param["PReal_Vis"] = preal
+            param["Aux.PReal_ValorAnterior"] = preal
+        pint = _lectura(dcl_param, res_param, "PInt", mapa.pint, "UDT")
+        if pint is not None:
+            param["PInt"] = pint
+            param["PInt_Vis"] = pint
+            param["Aux.PInt_ValorAnterior"] = pint
+        resultado[mapa.db_param_name] = param
+    if mapa.db_alm_name not in mapa.db_missing:
+        alm = _lectura(dcl_alm, res_alm, "ALM", mapa.alm, "Simple")
+        if alm is not None:
+            resultado[mapa.db_alm_name] = {"ALM": alm}
+    return resultado
+
+
+def _transacciones_iniciales() -> dict[str, dict[str, Any]]:
+    """Las transacciones del sync, todas sin ejecutar."""
+    return {
+        "n_max": {
+            "nombre": "N_MAX",
+            "estado": NO_EJECUTADA,
+            "detalle": "",
+        },
+        "comentarios": {
+            "nombre": "Comentarios",
+            "estado": NO_EJECUTADA,
+            "detalle": "",
+        },
+    }
+
+
+def _transaccion(
+    job: Job,
+    transacciones: dict[str, dict[str, Any]],
+    clave: str,
+    texto: str,
+    operacion: Any,
+    resumen: str,
+) -> None:
+    """Ejecuta una transaccion y anota si se confirmo o se revirtio.
+
+    Args:
+        job: el trabajo en curso.
+        transacciones: el estado de las transacciones del sync.
+        clave: la clave de la transaccion dentro de ``transacciones``.
+        texto: el texto de la transaccion en TIA.
+        operacion: lo que se hace dentro de la transaccion.
+        resumen: lo que se cuenta en el detalle del paso.
+
+    Raises:
+        Exception: lo que falle dentro de la transaccion, con el estado de
+            las transacciones anadido al mensaje.
+    """
+    try:
+        with transaccion(job, texto):
+            operacion()
+    except CanceladoError:
+        # La cancelacion del operario no es un fallo: sale tal cual para que
+        # el trabajo termine como cancelado y no como error.
+        transacciones[clave]["estado"] = REVIRTIDA
+        transacciones[clave]["detalle"] = "el trabajo fue cancelado"
+        raise
+    except Exception as exc:
+        transacciones[clave]["estado"] = REVIRTIDA
+        transacciones[clave]["detalle"] = str(exc)
+        raise OperacionError(
+            f"{exc}. {_resumen_de_transacciones(transacciones)}"
+        ) from exc
+    transacciones[clave]["estado"] = CONFIRMADA
+    transacciones[clave]["detalle"] = resumen
+
+
+def _resumen_de_transacciones(transacciones: dict[str, dict[str, Any]]) -> str:
+    """El estado de las transacciones, en una frase."""
+    partes = [
+        f"{datos['nombre']}: {datos['estado']}" for datos in transacciones.values()
+    ]
+    return "Transacciones: " + "; ".join(partes) + "."
+
+
+def _aplicar_n_max(
+    job: Job,
+    plc: str,
+    tabla: str,
+    ops_n_max: list[dict[str, Any]],
+) -> None:
+    """Aplica en linea el valor de los N_MAX del proceso."""
+    for operacion in ops_n_max:
+        cambiar_valor(
+            job.tia.portal,
+            plc,
+            str(operacion["tabla"]),
+            str(operacion["constante"]),
+            int(operacion["valor"]),
+        )
+
+
+def _compilar(job: Job, plc: str, dbs: list[str]) -> dict[str, Any]:
+    """Compila los DBs del proceso, fuera de la transaccion.
+
+    Los errores de compilacion **no** tumban el sync: el commit ya esta
+    aplicado y el operario tiene que ver el error, no perder el trabajo.
+    """
+    try:
+        resultado = compilar_bloques(job.tia.portal, plc, dbs)
+    except Exception as exc:
+        aviso = f"La compilacion fallo (los cambios ya estan aplicados): {exc}"
+        logger.warning(aviso)
+        return {"ok": False, "error": str(exc), "detalle": "compile=WARN"}
+    if resultado["n_compilados_error"] or resultado["n_errores"]:
+        partes = []
+        if resultado["con_errores"]:
+            detalles = []
+            for compilado in resultado["compilados"]:
+                if not compilado["tiene_errores"]:
+                    continue
+                mensajes = compilado.get("mensajes") or []
+                if mensajes:
+                    detalles.append(
+                        f"{compilado['nombre']} ({_mensaje_corto(mensajes[0])})"
+                    )
+                else:
+                    detalles.append(compilado["nombre"])
+            partes.append(
+                f"{len(resultado['con_errores'])} bloque(s) con errores: "
+                + ", ".join(detalles)
+            )
+        if resultado["errores"]:
+            partes.append(
+                f"{len(resultado['errores'])} no se pudieron compilar: "
+                + ", ".join(e["nombre"] for e in resultado["errores"])
+            )
+        if resultado["no_encontrados"]:
+            partes.append(
+                f"{len(resultado['no_encontrados'])} no encontrado(s): "
+                + ", ".join(resultado["no_encontrados"])
+            )
+        error = (
+            "TIA reporta errores de compilacion: "
+            + "; ".join(partes)
+            + ". Revisa ese bloque en TIA Portal: puede haber quedado con "
+            "un tamano inconsistente tras el cambio de N_MAX."
+        )
+        logger.warning(
+            "Compilacion con errores (los cambios ya estan aplicados): %s", error
+        )
+        return {"ok": False, "error": error, "detalle": "compile=WARN"}
+    return {
+        "ok": True,
+        "error": None,
+        "detalle": (
+            f"compile=OK ({resultado['n_compilados_ok']} compilados, "
+            f"{resultado['n_sin_cambios']} sin cambios)"
+        ),
+    }
+
+
+def _mensaje_corto(mensaje: str) -> str:
+    """El mensaje de TIA sin la ruta del bloque.
+
+    ``"ZC_PLC_STD > Program blocks > DB6_ENT (DB6) > Interface > Data type
+    Boo is unknown."`` queda en ``"Interface > Data type Boo is unknown."``.
+    """
+    partes = [parte.strip() for parte in mensaje.split(" > ")]
+    for indice, parte in enumerate(partes):
+        if parte.endswith(")") and "(" in parte:
+            resto = partes[indice + 1 :]
+            return " > ".join(resto) if resto else mensaje
+    return mensaje

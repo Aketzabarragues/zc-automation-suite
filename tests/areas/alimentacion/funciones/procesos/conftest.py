@@ -22,12 +22,20 @@ from zc_suite.areas.alimentacion.excel.almacen import AlmacenExcel
 from zc_suite.areas.alimentacion.funciones.procesos import (
     generar_prevision as modulo_prevision,
 )
+from zc_suite.areas.alimentacion.funciones.procesos import (
+    sincronizar as modulo_sync,
+)
+from zc_suite.nucleo.sesion import Sesion
 from zc_suite.nucleo.tia import servicio as tia
 from zc_suite.nucleo.tia.servicio import ServicioTIA
 from zc_suite.nucleo.tia.workdir import Workdir
 
 #: La carpeta de TIA donde viven la tabla de variables y los DBs del proceso.
 CARPETA_PROCESOS = "0_Procesos"
+
+#: La version de TIA del doble del sync: la de los comentarios (SimaticSD)
+#: necesita V21.
+VERSION_TIA = "Siemens TIA Portal V21.0"
 
 #: La carpeta de los bloques del fixture.
 ORIGEN_BLOQUES = Path(__file__).resolve().parents[4] / "fixtures" / "source" / "Bloques"
@@ -369,3 +377,370 @@ def _esperar_job(
                 return carga
         time.sleep(0.005)
     raise AssertionError(f"El trabajo {job_id} no termino.")
+
+
+class ConstanteFalsa:
+    """Una constante de usuario de TIA, con su nombre y su valor."""
+
+    def __init__(self, nombre: str, valor: int) -> None:
+        self._nombre = nombre
+        self._valor = valor
+
+    def get_property(self, name: str) -> str:
+        if name == "Name":
+            return self._nombre
+        if name == "Value":
+            return str(self._valor)
+        raise KeyError(name)
+
+    def set_property(self, name: str, value: str) -> int:
+        if name == "Name":
+            self._nombre = str(value)
+        elif name == "Value":
+            self._valor = int(value)
+        else:
+            raise KeyError(name)
+        return 0
+
+
+class TablaSyncFalsa:
+    """Una tabla de tags: exporta su XML y deja editar sus constantes."""
+
+    def __init__(
+        self,
+        nombre: str,
+        constantes: tuple[tuple[str, int], ...],
+        xml: Callable[[str, tuple[tuple[str, int], ...]], str],
+        jerarquia: str = "",
+    ) -> None:
+        self._nombre = nombre
+        self._constantes = constantes
+        self._xml = xml
+        self._jerarquia = jerarquia
+        self.constantes: list[ConstanteFalsa] = [
+            ConstanteFalsa(nombre_constante, valor)
+            for nombre_constante, valor in constantes
+        ]
+
+    def get_name(self) -> str:
+        return self._nombre
+
+    def get_user_constants(self) -> list[ConstanteFalsa]:
+        return self.constantes
+
+    def export(
+        self,
+        target_directory_path: str,
+        keep_folder_structure: bool = False,
+    ) -> None:
+        carpeta = Path(target_directory_path)
+        if keep_folder_structure and self._jerarquia:
+            carpeta = carpeta / self._jerarquia
+        carpeta.mkdir(parents=True, exist_ok=True)
+        (carpeta / f"{self._nombre}.xml").write_text(
+            self._xml(self._nombre, self._constantes_actuales()),
+            encoding="utf-8",
+        )
+
+    def _constantes_actuales(self) -> tuple[tuple[str, int], ...]:
+        """Las constantes como estan **ahora**: el export ve lo ya cambiado."""
+        return tuple(
+            (constante.get_property("Name"), int(constante.get_property("Value")))
+            for constante in self.constantes
+        )
+
+
+class BloqueSyncFalso:
+    """Un bloque de datos que se exporta en SimaticSD y se puede compilar."""
+
+    def __init__(self, nombre: str, jerarquia: str = "") -> None:
+        self._nombre = nombre
+        self._jerarquia = jerarquia
+        #: Cuantas veces se ha compilado el bloque.
+        self.n_compilaciones = 0
+
+    def get_name(self) -> str:
+        return self._nombre
+
+    def export(
+        self,
+        target_directory_path: str,
+        export_format: str = "SimaticSD",
+        keep_folder_structure: bool = False,
+    ) -> None:
+        carpeta = Path(target_directory_path)
+        if keep_folder_structure and self._jerarquia:
+            carpeta = carpeta / self._jerarquia
+        carpeta.mkdir(parents=True, exist_ok=True)
+        (carpeta / f"{self._nombre}.s7dcl").write_bytes(
+            (ORIGEN_BLOQUES / f"{self._nombre}.s7dcl").read_bytes()
+        )
+        (carpeta / f"{self._nombre}.s7res").write_bytes(
+            (ORIGEN_BLOQUES / f"{self._nombre}.s7res").read_bytes()
+        )
+
+    def is_consistent(self) -> bool:
+        return True
+
+    def compile(self) -> bool:
+        self.n_compilaciones += 1
+        return False
+
+
+class PlcSyncFalso:
+    """El PLC del sync: tablas de tags, bloques y la importacion."""
+
+    def __init__(
+        self,
+        tablas: list[TablaSyncFalsa],
+        bloques: list[BloqueSyncFalso],
+    ) -> None:
+        self._tablas = tablas
+        self._bloques = bloques
+        #: Las importaciones de bloques que ha hecho el PLC.
+        self.importaciones_bloques: list[dict[str, Any]] = []
+
+    def get_name(self) -> str:
+        return NOMBRE_PLC
+
+    def get_plc_tag_tables(self) -> list[TablaSyncFalsa]:
+        return self._tablas
+
+    def get_program_blocks(self) -> list[BloqueSyncFalso]:
+        return self._bloques
+
+    def import_blocks(
+        self,
+        import_root_directory: str,
+        target_folder_path: str | None = None,
+    ) -> None:
+        """Importa los bloques del directorio, como hace TIA."""
+        self.importaciones_bloques.append(
+            {
+                "directorio": import_root_directory,
+                "carpeta_destino": target_folder_path,
+            }
+        )
+
+
+class ProyectoSyncFalso:
+    """El proyecto abierto, con un solo PLC."""
+
+    def __init__(self, plc: PlcSyncFalso) -> None:
+        self.plc = plc
+        #: Las transacciones que se han abierto y cerrado.
+        self.transacciones: list[dict[str, Any]] = []
+
+    def get_plcs(self) -> list[PlcSyncFalso]:
+        return [self.plc]
+
+    def start_transaction(self, undo_text: str = "", dialog_text: str = "") -> None:
+        self.transacciones.append({"inicio": undo_text})
+
+    def end_transaction(self, rollback: bool = False) -> None:
+        self.transacciones.append({"rollback": rollback})
+
+
+class PortalSyncFalso:
+    """El portal de TIA."""
+
+    def __init__(self, proyecto: ProyectoSyncFalso) -> None:
+        self.proyecto = proyecto
+
+    def get_process_id(self) -> int:
+        return 4242
+
+    def get_project(self) -> ProyectoSyncFalso:
+        return self.proyecto
+
+    def detach(self) -> None:
+        pass
+
+
+class TsSyncFalso:
+    """El modulo del SDK de Siemens, con un portal ya abierto."""
+
+    class Enums:
+        class PortalMode:
+            AnyUserInterface = "cualquier"
+            WithGraphicalUserInterface = "con_gui"
+            WithoutGraphicalUserInterface = "sin_gui"
+
+    def __init__(
+        self,
+        plc: PlcSyncFalso,
+        proyecto: ProyectoSyncFalso,
+        version: str = VERSION_TIA,
+    ) -> None:
+        self._version = version
+        self.portal = PortalSyncFalso(proyecto)
+
+    def get_installed_bundles(self) -> list[Any]:
+        version = self._version
+
+        class _Bundle:
+            def get_title(self) -> str:
+                return version
+
+        return [_Bundle()]
+
+    def attach_portal(self, portal_mode: str | None = None) -> PortalSyncFalso:
+        return self.portal
+
+    def open_portal(self, portal_mode: str | None = None) -> PortalSyncFalso:
+        return self.portal
+
+    def set_logging(self, path: str, console: bool) -> None:
+        pass
+
+
+class EntornoSync:
+    """El almacen con el Excel del fixture, un escaneo y un TIA conectado."""
+
+    def __init__(
+        self,
+        servicio: ServicioTIA,
+        almacen: AlmacenExcel,
+        modelo: ConfigArea,
+        plc: PlcSyncFalso,
+        proyecto: ProyectoSyncFalso,
+        sesion: Sesion,
+        eventos: list[tuple[str, dict[str, Any]]],
+    ) -> None:
+        self.servicio = servicio
+        self.almacen = almacen
+        self.modelo = modelo
+        self.plc = plc
+        self.proyecto = proyecto
+        self.sesion = sesion
+        self.eventos = eventos
+
+    def sincronizar(self, proc_uid: int, sesion: Sesion | None = None) -> dict[str, Any]:
+        """Lanza el sync de un proceso y devuelve su evento de fin."""
+        if sesion is None:
+            sesion = self.sesion
+        job_id = self.servicio.lanzar(
+            modulo_sync.sincronizar,
+            proc_uid=proc_uid,
+            plc=NOMBRE_PLC,
+            almacen=self.almacen,
+            config=self.modelo,
+            sesion=sesion,
+        )
+        return self._esperar(job_id)
+
+    def _esperar(self, job_id: str) -> dict[str, Any]:
+        """Espera al evento de fin del trabajo."""
+        limite = time.monotonic() + 10.0
+        while time.monotonic() < limite:
+            for tipo, carga in list(self.eventos):
+                if tipo == "job" and carga["job"] == job_id:
+                    return carga
+            time.sleep(0.005)
+        raise AssertionError(f"El trabajo {job_id} no termino.")
+
+
+#: Lo que hay en la tabla del proceso en TIA: los N_MAX. El PREAL y el ALM
+#: discrepan con el Excel (2 y 1), para que el sync tenga dos N_MAX que aplicar.
+CONSTANTES_TIA: tuple[tuple[str, int], ...] = (
+    (f"{PROC_UID}_N_MAX_PREAL", 3),
+    (f"{PROC_UID}_N_MAX_PINT", 1),
+    (f"{PROC_UID}_N_MAX_ALM", 2),
+    (f"{PROC_UID}_N_MAX_ALM_HMI", 1),
+)
+
+
+def _escaneo_de(plc: PlcSyncFalso) -> Sesion:
+    """Una sesion con un escaneo fresco del PLC del fixture."""
+    sesion = Sesion()
+    sesion.guardar_escaneo(
+        NOMBRE_PLC,
+        bloques=[{"nombre": b.get_name()} for b in plc.get_program_blocks()],
+        tablas=[{"nombre": t.get_name()} for t in plc.get_plc_tag_tables()],
+        tipos=[],
+    )
+    return sesion
+
+
+@pytest.fixture
+def entorno_sync(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    modelo: ConfigArea,
+    excel_procesos: Path,
+    xml_tabla: Callable[[str, tuple[tuple[str, int], ...]], str],
+) -> Any:
+    """El almacen, un escaneo fresco y un TIA falso con transacciones."""
+    yield from _entorno(
+        tmp_path,
+        monkeypatch,
+        modelo,
+        excel_procesos,
+        xml_tabla,
+        VERSION_TIA,
+    )
+
+
+@pytest.fixture
+def entorno_sync_v18(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    modelo: ConfigArea,
+    excel_procesos: Path,
+    xml_tabla: Callable[[str, tuple[tuple[str, int], ...]], str],
+) -> Any:
+    """Lo mismo, pero con un TIA Portal V18: sin SimaticSD."""
+    yield from _entorno(
+        tmp_path,
+        monkeypatch,
+        modelo,
+        excel_procesos,
+        xml_tabla,
+        "Siemens TIA Portal V18.0",
+    )
+
+
+def _entorno(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    modelo: ConfigArea,
+    excel_procesos: Path,
+    xml_tabla: Callable[[str, tuple[tuple[str, int], ...]], str],
+    version: str,
+) -> Any:
+    """Monta el almacen, el Excel y el TIA falso de la version indicada."""
+    almacen = AlmacenExcel()
+    almacen.config = modelo
+    almacen.volcar(excel_procesos)
+
+    workdir = Workdir(base=tmp_path / "procesos", preview_subcarpetas=("disp", "bloques"))
+    monkeypatch.setattr(modulo_sync, "workdir", lambda *args, **kwargs: workdir)
+    # La prevision post-sync usa su propio workdir: el mismo, para que vea lo
+    # que el sync acaba de dejar en disco.
+    monkeypatch.setattr(modulo_prevision, "workdir_procesos", lambda: workdir)
+    # La espera de consolidacion de TIA no aporta nada en un test.
+    monkeypatch.setattr(modulo_sync, "PAUSA_CONSOLIDACION_S", 0.0)
+
+    tablas = [TablaSyncFalsa(TABLA_PROCESO, CONSTANTES_TIA, xml_tabla)]
+    bloques = [BloqueSyncFalso(DB_PARAM), BloqueSyncFalso(DB_ALM)]
+    plc = PlcSyncFalso(tablas, bloques)
+    proyecto = ProyectoSyncFalso(plc)
+
+    eventos: list[tuple[str, dict[str, Any]]] = []
+    servicio = ServicioTIA(
+        publicador=lambda tipo, carga: eventos.append((tipo, carga)),
+        cargador=lambda: TsSyncFalso(plc, proyecto, version),
+    )
+    conectar = servicio.lanzar(tia.conectar)
+    _esperar_job(eventos, conectar)
+    yield EntornoSync(
+        servicio,
+        almacen,
+        modelo,
+        plc,
+        proyecto,
+        _escaneo_de(plc),
+        eventos,
+    )
+    servicio.parar()
+
