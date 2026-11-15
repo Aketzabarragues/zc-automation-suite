@@ -190,6 +190,12 @@ function filas(wrapper) {
   );
 }
 
+/** Pulsa la tarjeta "comentarios" para activar el modo de la 4.5. */
+async function abrirComentarios(wrapper) {
+  await wrapper.find('[data-testid="procesos-tarjeta-comentarios"]').trigger("click");
+  await flushPromises();
+}
+
 describe("Procesos", () => {
   beforeEach(() => {
     global.fetch = vi.fn((ruta) => {
@@ -236,17 +242,24 @@ describe("Procesos", () => {
     expect(textos.some((t) => t.includes("PUM"))).toBe(true);
   });
 
-  it("sin proceso elegido el boton de generar esta deshabilitado", async () => {
+  it("sin proceso elegido la tarjeta no se habilita y la seccion no se monta", async () => {
     const { wrapper, procesos } = montarConTodo();
     procesos.procUid = null;
     await flushPromises();
+    await wrapper.find('[data-testid="procesos-tarjeta-comentarios"]').trigger("click");
+    await flushPromises();
 
-    expect(wrapper.find('[data-testid="procesos-generar"]').attributes("disabled")).toBeDefined();
+    expect(
+      wrapper.find('[data-testid="procesos-tarjeta-comentarios"]').attributes("disabled"),
+    ).toBeDefined();
+    expect(wrapper.find('[data-testid="procesos-contenido"]').exists()).toBe(false);
+    expect(wrapper.find('[data-testid="procesos-generar"]').exists()).toBe(false);
   });
 
   it("con proceso elegido el boton de generar se habilita", async () => {
     const { wrapper } = montarConTodo();
     await flushPromises();
+    await abrirComentarios(wrapper);
 
     expect(wrapper.find('[data-testid="procesos-generar"]').attributes("disabled")).toBeUndefined();
   });
@@ -254,6 +267,7 @@ describe("Procesos", () => {
   it("sin prevision enseña el estado vacio", async () => {
     const { wrapper } = montarConTodo();
     await flushPromises();
+    await abrirComentarios(wrapper);
 
     expect(wrapper.find('[data-testid="procesos-vacio"]').exists()).toBe(true);
     expect(wrapper.find('[data-testid="procesos-vacio"]').text()).toContain(
@@ -265,6 +279,7 @@ describe("Procesos", () => {
   it("con prevision enseña el resumen de los slots", async () => {
     const { wrapper } = montarConPrevision();
     await flushPromises();
+    await abrirComentarios(wrapper);
 
     const resumen = wrapper.find('[data-testid="procesos-resumen"]');
     expect(resumen.exists()).toBe(true);
@@ -278,6 +293,7 @@ describe("Procesos", () => {
   it("las pestanas muestran los tres arrays con su badge de cambios", async () => {
     const { wrapper } = montarConPrevision();
     await flushPromises();
+    await abrirComentarios(wrapper);
 
     const pestanas = wrapper.findAll('[data-testid="procesos-pestanas"] button');
     expect(pestanas.length).toBe(3);
@@ -291,6 +307,7 @@ describe("Procesos", () => {
   it("la tabla se ordena por slot y pinta el estado de cada fila", async () => {
     const { wrapper } = montarConPrevision();
     await flushPromises();
+    await abrirComentarios(wrapper);
 
     // La pestana PReal esta activa por defecto.
     const celdasSlot = filas(wrapper).map((fila) => fila[0]);
@@ -305,6 +322,7 @@ describe("Procesos", () => {
   it("cambiar de pestana cambia la tabla", async () => {
     const { wrapper } = montarConPrevision();
     await flushPromises();
+    await abrirComentarios(wrapper);
 
     // PInt por defecto no: la primera pestana es PReal. Cambiamos a ALM.
     await wrapper.findAll('[data-testid="procesos-pestanas"] button')[2].trigger("click");
@@ -320,6 +338,7 @@ describe("Procesos", () => {
   it("la tarjeta de N_MAX sale con el valor actual y el nuevo", async () => {
     const { wrapper } = montarConPrevision();
     await flushPromises();
+    await abrirComentarios(wrapper);
 
     const bloque = wrapper.find('[data-testid="procesos-nmax"]');
     expect(bloque.exists()).toBe(true);
@@ -332,6 +351,7 @@ describe("Procesos", () => {
   it("el boton de aplicar esta deshabilitado sin prevision", async () => {
     const { wrapper } = montarConTodo();
     await flushPromises();
+    await abrirComentarios(wrapper);
 
     const boton = wrapper.find('[data-testid="procesos-aplicar"]');
     expect(boton.text()).toContain("Aplicar Cambios en TIA Portal");
@@ -341,6 +361,7 @@ describe("Procesos", () => {
   it("el boton de aplicar enseña cuantos cambios van a aplicarse", async () => {
     const { wrapper } = montarConPrevision();
     await flushPromises();
+    await abrirComentarios(wrapper);
 
     const boton = wrapper.find('[data-testid="procesos-aplicar"]');
     // 1 agregado + 2 renombrados + 1 eliminado + 1 N_MAX = 5.
@@ -351,6 +372,7 @@ describe("Procesos", () => {
   it("el dialogo de confirmacion se abre al pulsar y se cierra al cancelar", async () => {
     const { wrapper } = montarConPrevision();
     await flushPromises();
+    await abrirComentarios(wrapper);
 
     expect(wrapper.find('[data-testid="procesos-confirmar-dialogo"]').exists()).toBe(false);
 
@@ -374,6 +396,7 @@ describe("Procesos", () => {
   it("el dialogo de confirmacion se cierra con Escape", async () => {
     const { wrapper } = montarConPrevision();
     await flushPromises();
+    await abrirComentarios(wrapper);
 
     await wrapper.find('[data-testid="procesos-aplicar"]').trigger("click");
     expect(wrapper.find('[data-testid="procesos-confirmar-dialogo"]').exists()).toBe(true);
@@ -387,6 +410,7 @@ describe("Procesos", () => {
   it("al confirmar se encola la sincronizacion con proc_uid y queda la prevision posterior", async () => {
     const { wrapper, trabajos } = montarConPrevision();
     await flushPromises();
+    await abrirComentarios(wrapper);
 
     await confirmarAplicacion(wrapper);
 
@@ -418,6 +442,7 @@ describe("Procesos", () => {
   it("el estado de cada transaccion se ve al terminar la sincronizacion", async () => {
     const { wrapper, trabajos } = montarConPrevision();
     await flushPromises();
+    await abrirComentarios(wrapper);
 
     await confirmarAplicacion(wrapper);
 
@@ -439,6 +464,7 @@ describe("Procesos", () => {
   it("el error de la sincronizacion se ve en la vista", async () => {
     const { wrapper, trabajos } = montarConPrevision();
     await flushPromises();
+    await abrirComentarios(wrapper);
 
     await confirmarAplicacion(wrapper);
 
@@ -476,12 +502,16 @@ describe("Procesos", () => {
 
     const wrapper = mount(Procesos, { global: { plugins: [pinia] } });
     await flushPromises();
+    await wrapper.find('[data-testid="procesos-tarjeta-comentarios"]').trigger("click");
+    await flushPromises();
 
     expect(wrapper.find('[data-testid="procesos-tabla"]').exists()).toBe(true);
   });
 
   it("la prevision de otro PLC no se ve", async () => {
     const { wrapper, plc } = montarConPrevision();
+    await wrapper.find('[data-testid="procesos-tarjeta-comentarios"]').trigger("click");
+    await flushPromises();
     plc.seleccionado = "OTRO_PLC";
     await flushPromises();
 
@@ -491,6 +521,8 @@ describe("Procesos", () => {
 
   it("sin TIA la prevision no se ve", async () => {
     const { wrapper, tia } = montarConPrevision();
+    await wrapper.find('[data-testid="procesos-tarjeta-comentarios"]').trigger("click");
+    await flushPromises();
     tia.conectado = false;
     await flushPromises();
 
@@ -500,6 +532,8 @@ describe("Procesos", () => {
   it("cambiar de proceso limpia la prevision anterior", async () => {
     const { wrapper, procesos } = montarConPrevision();
     await flushPromises();
+    await wrapper.find('[data-testid="procesos-tarjeta-comentarios"]').trigger("click");
+    await flushPromises();
     expect(wrapper.find('[data-testid="procesos-tabla"]').exists()).toBe(true);
 
     // Elegir el proceso 200 limpia la prevision del 100.
@@ -508,5 +542,177 @@ describe("Procesos", () => {
 
     expect(procesos.preview).toBe(null);
     expect(wrapper.find('[data-testid="procesos-tabla"]').exists()).toBe(false);
+  });
+
+  describe("las tarjetas de modo", () => {
+    it("las dos tarjetas estan presentes con los textos de main", async () => {
+      const { wrapper } = montarConTodo();
+      await flushPromises();
+
+      const crear = wrapper.find('[data-testid="procesos-tarjeta-crear"]');
+      expect(crear.exists()).toBe(true);
+      expect(crear.text()).toContain("🏗️");
+      expect(crear.text()).toContain("Crear proceso completo");
+      expect(crear.text()).toContain("Genera el DB + bloques + UDTs del proceso.");
+
+      const comentarios = wrapper.find('[data-testid="procesos-tarjeta-comentarios"]');
+      expect(comentarios.exists()).toBe(true);
+      expect(comentarios.text()).toContain("💬");
+      expect(comentarios.text()).toContain("Actualizar comentarios de DB");
+      expect(comentarios.text()).toContain("Sincroniza los comentarios de los DBs existentes.");
+    });
+
+    it("sin Excel: deshabilitadas con el motivo en el title", async () => {
+      const { wrapper, excel } = montarConTodo();
+      excel.cargado = false;
+      await flushPromises();
+
+      const crear = wrapper.find('[data-testid="procesos-tarjeta-crear"]');
+      expect(crear.attributes("disabled")).toBeDefined();
+      expect(crear.attributes("title")).toBe(
+        "Carga primero el Excel y pulsa 'Actualizar' en 'Definición programación'.",
+      );
+      const comentarios = wrapper.find('[data-testid="procesos-tarjeta-comentarios"]');
+      expect(comentarios.attributes("disabled")).toBeDefined();
+      expect(comentarios.attributes("title")).toBe(
+        "Carga primero el Excel y pulsa 'Actualizar' en 'Definición programación'.",
+      );
+    });
+
+    it("sin PLC: deshabilitadas con el motivo en el title", async () => {
+      const { wrapper, plc } = montarConTodo();
+      plc.seleccionado = "";
+      await flushPromises();
+
+      expect(wrapper.find('[data-testid="procesos-tarjeta-crear"]').attributes("title")).toBe(
+        "Selecciona un PLC en el topbar.",
+      );
+      expect(
+        wrapper.find('[data-testid="procesos-tarjeta-comentarios"]').attributes("title"),
+      ).toBe("Selecciona un PLC en el topbar.");
+      expect(wrapper.find('[data-testid="procesos-tarjeta-crear"]').attributes("disabled")).toBeDefined();
+    });
+
+    it("sin TIA conectado: deshabilitadas con el motivo en el title", async () => {
+      const { wrapper, tia } = montarConTodo();
+      tia.conectado = false;
+      await flushPromises();
+
+      expect(wrapper.find('[data-testid="procesos-tarjeta-crear"]').attributes("title")).toBe(
+        "Conecta a TIA Portal en el topbar.",
+      );
+      expect(
+        wrapper.find('[data-testid="procesos-tarjeta-comentarios"]').attributes("title"),
+      ).toBe("Conecta a TIA Portal en el topbar.");
+      expect(wrapper.find('[data-testid="procesos-tarjeta-crear"]').attributes("disabled")).toBeDefined();
+    });
+
+    it("sin proceso elegido: deshabilitadas con el motivo en el title", async () => {
+      const { wrapper, procesos } = montarConTodo();
+      procesos.procUid = null;
+      await flushPromises();
+
+      expect(wrapper.find('[data-testid="procesos-tarjeta-crear"]').attributes("title")).toBe(
+        "Selecciona un proceso de la lista.",
+      );
+      expect(
+        wrapper.find('[data-testid="procesos-tarjeta-comentarios"]').attributes("title"),
+      ).toBe("Selecciona un proceso de la lista.");
+      expect(wrapper.find('[data-testid="procesos-tarjeta-comentarios"]').attributes("disabled")).toBeDefined();
+    });
+
+    it("con todo: habilitadas y sin motivo", async () => {
+      const { wrapper } = montarConTodo();
+      await flushPromises();
+
+      const crear = wrapper.find('[data-testid="procesos-tarjeta-crear"]');
+      expect(crear.attributes("disabled")).toBeUndefined();
+      expect(crear.attributes("title")).toBe("");
+      const comentarios = wrapper.find('[data-testid="procesos-tarjeta-comentarios"]');
+      expect(comentarios.attributes("disabled")).toBeUndefined();
+      expect(comentarios.attributes("title")).toBe("");
+    });
+
+    it("estado inicial: sin seccion de comentarios ni CrearProceso", async () => {
+      const { wrapper } = montarConTodo();
+      await flushPromises();
+
+      expect(wrapper.find('[data-testid="procesos-contenido"]').exists()).toBe(false);
+      expect(wrapper.find('[data-testid="procesos-generar"]').exists()).toBe(false);
+      expect(wrapper.find('[data-testid="crear"]').exists()).toBe(false);
+      // Ninguna tarjeta activa.
+      expect(wrapper.find('[data-testid="procesos-tarjeta-crear"]').classes()).not.toContain("border-accent");
+      expect(wrapper.find('[data-testid="procesos-tarjeta-comentarios"]').classes()).not.toContain("border-accent");
+    });
+
+    it("pulsar 'comentarios' muestra la seccion de comentarios y no CrearProceso", async () => {
+      const { wrapper } = montarConTodo();
+      await flushPromises();
+      await abrirComentarios(wrapper);
+
+      expect(wrapper.find('[data-testid="procesos-contenido"]').exists()).toBe(true);
+      expect(wrapper.find('[data-testid="procesos-generar"]').exists()).toBe(true);
+      expect(wrapper.find('[data-testid="crear"]').exists()).toBe(false);
+      expect(wrapper.find('[data-testid="procesos-tarjeta-comentarios"]').classes()).toContain("border-accent");
+      expect(wrapper.find('[data-testid="procesos-tarjeta-crear"]').classes()).not.toContain("border-accent");
+    });
+
+    it("pulsar 'crear' monta CrearProceso y oculta la de comentarios", async () => {
+      const { wrapper } = montarConTodo();
+      await flushPromises();
+      await wrapper.find('[data-testid="procesos-tarjeta-crear"]').trigger("click");
+      await flushPromises();
+
+      expect(wrapper.find('[data-testid="crear"]').exists()).toBe(true);
+      expect(wrapper.find('[data-testid="crear"]').find('h2').text()).toBe(
+        "Crear proceso completo desde plantilla",
+      );
+      expect(wrapper.find('[data-testid="procesos-contenido"]').exists()).toBe(false);
+      expect(wrapper.find('[data-testid="procesos-generar"]').exists()).toBe(false);
+      expect(wrapper.find('[data-testid="procesos-tarjeta-crear"]').classes()).toContain("border-accent");
+      expect(wrapper.find('[data-testid="procesos-tarjeta-comentarios"]').classes()).not.toContain("border-accent");
+    });
+
+    it("el evento cerrar de CrearProceso vuelve al modo inicial", async () => {
+      const { wrapper } = montarConTodo();
+      await flushPromises();
+      await wrapper.find('[data-testid="procesos-tarjeta-crear"]').trigger("click");
+      await flushPromises();
+      expect(wrapper.find('[data-testid="crear"]').exists()).toBe(true);
+
+      await wrapper.find('[data-testid="crear-cerrar"]').trigger("click");
+      await flushPromises();
+
+      expect(wrapper.find('[data-testid="crear"]').exists()).toBe(false);
+      expect(wrapper.find('[data-testid="procesos-contenido"]').exists()).toBe(false);
+    });
+
+    it("cambiar de proceso conserva el modo", async () => {
+      const { wrapper, procesos } = montarConTodo();
+      await flushPromises();
+      await abrirComentarios(wrapper);
+      expect(wrapper.find('[data-testid="procesos-contenido"]').exists()).toBe(true);
+
+      // Elegir el proceso 200 no cambia el modo (ni limpia la vista).
+      procesos.elegir(200);
+      await flushPromises();
+
+      expect(wrapper.find('[data-testid="procesos-contenido"]').exists()).toBe(true);
+      expect(wrapper.find('[data-testid="procesos-tarjeta-comentarios"]').classes()).toContain("border-accent");
+
+      // Y al volver al 100 sigue en el mismo modo.
+      procesos.elegir(100);
+      await flushPromises();
+      expect(wrapper.find('[data-testid="procesos-contenido"]').exists()).toBe(true);
+    });
+
+    it("pulsar la tarjeta activa no la cierra", async () => {
+      const { wrapper } = montarConTodo();
+      await flushPromises();
+      await abrirComentarios(wrapper);
+      await abrirComentarios(wrapper);
+
+      expect(wrapper.find('[data-testid="procesos-contenido"]').exists()).toBe(true);
+    });
   });
 });

@@ -1,19 +1,22 @@
 <script setup>
 /**
- * Procesos: la sincronizacion de los comentarios de los DBs de un proceso.
+ * Procesos: dos modos de trabajo para el proceso elegido.
  *
- * El proceso se elige en un selector (los procesos del PLC en el Excel). La
- * prevision la calcula el backend (exporta la tabla y los dos DBs del proceso
- * y los compara con el Excel). Aplicarla en TIA es un trabajo: la vista
- * encola el sync, espera a que termine y se queda con la prevision posterior.
+ * El proceso se elige en un selector (los procesos del PLC en el Excel).
+ * Debajo del selector hay dos tarjetas que activan un modo:
  *
- * Hay tres arrays (PReal, PInt, ALM), cada uno en su pestana, mas los N_MAX
- * del proceso. Los N_MAX se aplican siempre que haya cambios; los
- * comentarios, solo en TIA V21 o posterior (como main).
+ * - "Crear proceso completo": monta CrearProceso (clona el proceso desde
+ *   una plantilla TIA, paso a paso).
+ * - "Actualizar comentarios de DB": la sincronizacion de 4.5 (prevision
+ *   del diff de comentarios, N_MAX y aplicacion en TIA).
+ *
+ * Solo un modo a la vez: al activar uno se apaga el otro. El modo no
+ * cambia al cambiar de proceso ni al cerrar la app: es estado local.
  */
 import { computed, onMounted, ref } from "vue";
 import { ARRAYS, PROC_STATUS, useProcesosStore } from "../stores/procesos.js";
 import DialogoConfirmacion from "../../../nucleo/componentes/DialogoConfirmacion.vue";
+import CrearProceso from "./CrearProceso.vue";
 import { useExcelStore } from "../stores/excel.js";
 import { usePlcStore } from "../../../nucleo/stores/plc.js";
 import { useTiaStore } from "../../../nucleo/stores/tia.js";
@@ -33,9 +36,57 @@ const procesosExcel = computed(() => {
 /** `true` si hay procesos para el PLC seleccionado. */
 const hayProcesos = computed(() => procesosExcel.value.length > 0);
 
+/** La fila del Excel del proceso elegido, o `null`. */
+const procesoElegido = computed(
+  () => procesosExcel.value.find((fila) => fila.uid === procesos.procUid) || null,
+);
+
+/**
+ * El modo activo: `""` (ninguno), `"comentarios"` o `"crear"`.
+ * Estado local de la vista: no se guarda en el store ni en la sesion.
+ */
+const modo = ref("");
+
+/**
+ * `true` si se puede activar un modo: Excel cargado, PLC y TIA conectados
+ * y un proceso elegido. Sin esto las tarjetas quedan deshabilitadas.
+ */
+const tarjetasHabilitadas = computed(
+  () => excel.cargado && Boolean(plc.seleccionado) && tia.conectado && procesoElegido.value !== null,
+);
+
+/** El motivo por el que las tarjetas no se habilitan, en el orden de comprobacion. */
+const motivoTarjetas = computed(() => {
+  if (!excel.cargado) {
+    return "Carga primero el Excel y pulsa 'Actualizar' en 'Definición programación'.";
+  }
+  if (!plc.seleccionado) return "Selecciona un PLC en el topbar.";
+  if (!tia.conectado) return "Conecta a TIA Portal en el topbar.";
+  return "Selecciona un proceso de la lista.";
+});
+
+/** El motivo de la tarjeta de comentarios (el escaneo lo exige la prevision). */
+const motivoComentarios = computed(() =>
+  tarjetasHabilitadas.value ? "" : motivoTarjetas.value,
+);
+
+/** El motivo de la tarjeta de crear. */
+const motivoCrear = computed(() => (tarjetasHabilitadas.value ? "" : motivoTarjetas.value));
+
+/** Activa un modo: al activar uno se apaga el otro (solo un modo a la vez). */
+function activarModo(nuevo) {
+  modo.value = nuevo;
+}
+
+/** Cierra el modo de crear (lo emite CrearProceso con su boton Cerrar). */
+function cerrarCrear() {
+  modo.value = "";
+}
+
 /** `true` si se puede generar la prevision. */
 const puedeGenerar = computed(
   () =>
+    modo.value === "comentarios" &&
     tia.conectado &&
     excel.cargado &&
     Boolean(plc.seleccionado) &&
@@ -47,6 +98,7 @@ const puedeGenerar = computed(
 /** `true` si se puede aplicar la prevision en TIA Portal. */
 const puedeAplicar = computed(
   () =>
+    modo.value === "comentarios" &&
     procesos.hayPreview &&
     procesos.numeroDeCambios > 0 &&
     tia.conectado &&
@@ -136,7 +188,7 @@ function claseDeTransaccion(estado) {
   return "text-ink-muted";
 }
 
-/** Elige un proceso del selector. */
+/** Elige un proceso del selector. El modo no cambia. */
 function elegirProceso(evento) {
   const valor = evento.target.value;
   procesos.elegir(valor === "" ? null : Number(valor));
@@ -168,7 +220,7 @@ onMounted(() => {
       </span>
     </div>
 
-    <!-- ── la tarjeta de arriba: selector, resumen y botones ────────── -->
+    <!-- ── la tarjeta de arriba: selector, tarjetas de modo y botones ── -->
     <section class="bg-surface-raised border border-line rounded p-4 flex flex-col gap-3">
       <!-- el selector de proceso -->
       <div data-testid="procesos-selector">
@@ -189,34 +241,45 @@ onMounted(() => {
         </select>
       </div>
 
-      <div class="flex justify-between items-center gap-3">
-        <p
-          v-if="procesos.hayPreview"
-          class="text-xs text-ink-muted"
-          data-testid="procesos-resumen"
-        >
-          {{ resumenTexto.total }} slots analizados —
-          <span class="text-accent">{{ resumenTexto.agregados }} a agregar</span> ·
-          <span class="text-amber-700">{{ resumenTexto.renombrados }} a renombrar</span> ·
-          <span class="text-red-700">{{ resumenTexto.eliminados }} a eliminar</span> ·
-          <span class="text-ink-muted">{{ resumenTexto.sin_cambios }} sin cambios</span>
-        </p>
-        <span v-else></span>
+      <!-- las tarjetas de modo: ¿que quieres hacer? -->
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <button
           type="button"
-          data-testid="procesos-generar"
-          class="px-3 py-1.5 text-accent font-semibold text-xs bg-surface-sunken hover:bg-accent-subtle rounded-md transition-colors duration-200 border border-line flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
-          :disabled="!puedeGenerar"
-          @click="generar"
+          data-testid="procesos-tarjeta-crear"
+          class="bg-surface-raised border rounded-lg p-3 text-left flex flex-col items-start transition hover:border-accent hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:border-line disabled:hover:shadow-none focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-surface"
+          :class="modo === 'crear' ? 'border-accent' : 'border-line'"
+          :disabled="!tarjetasHabilitadas"
+          :title="motivoCrear"
+          @click="activarModo('crear')"
         >
-          {{ textoGenerar }}
+          <span class="text-2xl mb-1" aria-hidden="true">🏗️</span>
+          <span class="text-sm font-semibold text-ink leading-snug">Crear proceso completo</span>
+          <span class="text-xs text-ink-muted mt-0.5 leading-snug">
+            Genera el DB + bloques + UDTs del proceso.
+          </span>
+        </button>
+
+        <button
+          type="button"
+          data-testid="procesos-tarjeta-comentarios"
+          class="bg-surface-raised border rounded-lg p-3 text-left flex flex-col items-start transition hover:border-accent hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:border-line disabled:hover:shadow-none focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-surface"
+          :class="modo === 'comentarios' ? 'border-accent' : 'border-line'"
+          :disabled="!tarjetasHabilitadas"
+          :title="motivoComentarios"
+          @click="activarModo('comentarios')"
+        >
+          <span class="text-2xl mb-1" aria-hidden="true">💬</span>
+          <span class="text-sm font-semibold text-ink leading-snug">Actualizar comentarios de DB</span>
+          <span class="text-xs text-ink-muted mt-0.5 leading-snug">
+            Sincroniza los comentarios de los DBs existentes.
+          </span>
         </button>
       </div>
     </section>
 
     <!-- ── el error ─────────────────────────────────────────────────── -->
     <div
-      v-if="procesos.error"
+      v-if="modo === 'comentarios' && procesos.error"
       class="bg-surface-raised border border-red-600 rounded p-3 text-xs text-red-600"
       data-testid="procesos-error"
     >
@@ -225,7 +288,7 @@ onMounted(() => {
 
     <!-- ── el banner de precondiciones (DBs ausentes) ───────────────── -->
     <div
-      v-if="procesos.preview && !procesos.preview.precondiciones_ok"
+      v-if="modo === 'comentarios' && procesos.preview && !procesos.preview.precondiciones_ok"
       class="bg-surface-raised border border-amber-300 rounded p-3 text-xs text-amber-800"
       data-testid="procesos-precond"
     >
@@ -233,8 +296,9 @@ onMounted(() => {
       {{ (procesos.preview.missing_blocks || []).join(" · ") || "revisa el PLC y el Excel" }}
     </div>
 
-    <!-- ── la tarjeta del contenido ─────────────────────────────────── -->
+    <!-- ── el contenido del modo comentarios (la vista 4.5) ─────────── -->
     <section
+      v-if="modo === 'comentarios'"
       class="flex-1 min-h-0 bg-surface-raised border border-line rounded p-4 flex flex-col overflow-hidden"
       data-testid="procesos-contenido"
     >
@@ -361,6 +425,31 @@ onMounted(() => {
         </div>
       </div>
 
+      <!-- el resumen de la prevision y el boton de generar -->
+      <div class="flex justify-between items-center gap-3">
+        <p
+          v-if="procesos.hayPreview"
+          class="text-xs text-ink-muted"
+          data-testid="procesos-resumen"
+        >
+          {{ resumenTexto.total }} slots analizados —
+          <span class="text-accent">{{ resumenTexto.agregados }} a agregar</span> ·
+          <span class="text-amber-700">{{ resumenTexto.renombrados }} a renombrar</span> ·
+          <span class="text-red-700">{{ resumenTexto.eliminados }} a eliminar</span> ·
+          <span class="text-ink-muted">{{ resumenTexto.sin_cambios }} sin cambios</span>
+        </p>
+        <span v-else></span>
+        <button
+          type="button"
+          data-testid="procesos-generar"
+          class="px-3 py-1.5 text-accent font-semibold text-xs bg-surface-sunken hover:bg-accent-subtle rounded-md transition-colors duration-200 border border-line flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
+          :disabled="!puedeGenerar"
+          @click="generar"
+        >
+          {{ textoGenerar }}
+        </button>
+      </div>
+
       <!-- el boton de aplicar -->
       <button
         type="button"
@@ -394,6 +483,14 @@ onMounted(() => {
         </ul>
       </div>
     </section>
+
+    <!-- ── el contenido del modo crear (CrearProceso) ───────────────── -->
+    <CrearProceso
+      v-if="modo === 'crear'"
+      :proceso="procesoElegido"
+      data-testid="crear"
+      @cerrar="cerrarCrear"
+    />
 
     <!-- ── el dialogo de confirmacion ────────────────────────────────── -->
     <DialogoConfirmacion
