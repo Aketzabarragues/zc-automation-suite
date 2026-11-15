@@ -250,7 +250,12 @@ def generar_prevision_crear(
                 sesion.guardar_dato_area(
                     AREA,
                     CLAVE_PREVISION_CREAR,
-                    {"plc": plc, "proc_uid": proc_uid, "resultado": resultado},
+                    {
+                        "plc": plc,
+                        "proc_uid": proc_uid,
+                        "dir_plantilla_nombre": dir_plantilla_nombre,
+                        "resultado": resultado,
+                    },
                 )
             paso["detail"] = "sin escaneo fresco"
             return resultado
@@ -342,6 +347,11 @@ def generar_prevision_crear(
         sesion.guardar_dato_area(
             AREA,
             CLAVE_PREVISION_CREAR,
-            {"plc": plc, "proc_uid": proc_uid, "resultado": resultado},
+            {
+                "plc": plc,
+                "proc_uid": proc_uid,
+                "dir_plantilla_nombre": dir_plantilla_nombre,
+                "resultado": resultado,
+            },
         )
     return resultado

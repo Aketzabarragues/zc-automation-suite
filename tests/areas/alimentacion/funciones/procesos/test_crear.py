@@ -437,6 +437,66 @@ def test_el_refresco_del_escaneo_no_tumba_el_aplicar(
     )
 
 
+def test_el_apply_borra_la_prevision_de_crear(entorno_apply: Any) -> None:
+    """Tras crear el proceso, la prevision de crear deja de valer: se borra
+    de la sesion (volver a ofrecer "crear" para un proceso ya creado seria
+    un error)."""
+    from zc_suite.areas.alimentacion.procesos import CLAVE_PREVISION_CREAR
+
+    sesion = entorno_apply.sesion
+    sesion.guardar_dato_area(
+        "alimentacion",
+        CLAVE_PREVISION_CREAR,
+        {
+            "plc": NOMBRE_PLC,
+            "proc_uid": PROC_UID,
+            "dir_plantilla_nombre": PLANTILLA_NOMBRE,
+            "resultado": {},
+        },
+    )
+
+    evento = entorno_apply.crear(proc_uid=PROC_UID)
+
+    assert evento["estado"] == "ok", evento.get("error")
+    assert CLAVE_PREVISION_CREAR not in sesion.datos_area("alimentacion")
+
+
+def test_el_apply_con_fallo_de_import_no_borra_la_prevision(
+    entorno_apply: Any,
+) -> None:
+    """Si la transaccion de import se revierte, el proceso no existe: la
+    prevision de crear sigue en la sesion (se puede reintentar)."""
+    from zc_suite.areas.alimentacion.procesos import CLAVE_PREVISION_CREAR
+
+    sesion = entorno_apply.sesion
+    sesion.guardar_dato_area(
+        "alimentacion",
+        CLAVE_PREVISION_CREAR,
+        {
+            "plc": NOMBRE_PLC,
+            "proc_uid": PROC_UID,
+            "dir_plantilla_nombre": PLANTILLA_NOMBRE,
+            "resultado": {},
+        },
+    )
+    entorno_apply.plc._fallo_import_tablas = "fallo simulado de tablas"  # type: ignore[assignment]
+
+    evento = entorno_apply.crear(proc_uid=PROC_UID)
+
+    assert evento["estado"] == "error"
+    assert "revertida" in evento["error"].lower()
+    assert CLAVE_PREVISION_CREAR in sesion.datos_area("alimentacion")
+
+
+def test_el_apply_sin_sesion_no_falla(entorno_apply: Any) -> None:
+    """Sin sesion (``sesion=None``) el apply no falla al querer borrar la
+    prevision: no hay nada que borrar."""
+    evento = entorno_apply.crear(proc_uid=PROC_UID, sesion=None)
+
+    assert evento["estado"] == "ok", evento.get("error")
+    assert evento["resultado"]["success"] is True
+
+
 def test_dir_plantilla_nombre_con_traversal(entorno_apply: Any) -> None:
     """Un nombre de carpeta con '/' o '..' es un fallo de operacion."""
     evento = entorno_apply.crear(

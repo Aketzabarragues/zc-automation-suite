@@ -167,13 +167,16 @@ def test_camino_happy(entorno_crear: Any, tmp_path: Path) -> None:
     assert guardado is not None
     assert guardado["plc"] == NOMBRE_PLC
     assert guardado["proc_uid"] == PROC_UID
+    assert guardado["dir_plantilla_nombre"] == PLANTILLA
+    assert guardado["resultado"] == resultado
 
 
 def test_sin_escaneo_fresco(entorno_crear: Any, tmp_path: Path) -> None:
     """Sin escaneo fresco: precondiciones_ok False, sin copiar ni leer nada."""
     dir_plantilla = _plantilla(tmp_path)
+    sesion = Sesion()
 
-    evento = _crear(entorno_crear, Sesion(), dir_plantilla.parent, PLANTILLA)
+    evento = _crear(entorno_crear, sesion, dir_plantilla.parent, PLANTILLA)
 
     assert evento["estado"] == "ok", evento.get("error")
     resultado = evento["resultado"]
@@ -186,6 +189,13 @@ def test_sin_escaneo_fresco(entorno_crear: Any, tmp_path: Path) -> None:
     assert resultado["manifest_plantilla"] is None
     # No se copio nada al workdir.
     assert not (tmp_path / "procesos_crear" / "Plantilla").exists()
+    # La prevision se guardo en la sesion, con la plantilla de origen.
+    guardado = sesion.datos_area("alimentacion").get(CLAVE_PREVISION_CREAR)
+    assert guardado is not None
+    assert guardado["plc"] == NOMBRE_PLC
+    assert guardado["proc_uid"] == PROC_UID
+    assert guardado["dir_plantilla_nombre"] == PLANTILLA
+    assert guardado["resultado"] == resultado
 
 
 def test_manifest_invalido(entorno_crear: Any, tmp_path: Path) -> None:

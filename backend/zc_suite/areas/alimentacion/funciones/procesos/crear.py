@@ -52,11 +52,13 @@ from zc_suite.areas.alimentacion.funciones.procesos import (
     generar_prevision as modulo_prevision,
 )
 from zc_suite.areas.alimentacion.funciones.procesos.generar_prevision_crear import (
+    AREA,
     CARPETA_NUEVO,
     CARPETA_PLANTILLA,
     carpeta_plantillas,
     workdir_crear,
 )
+from zc_suite.areas.alimentacion.procesos import CLAVE_PREVISION_CREAR
 from zc_suite.areas.alimentacion.procesos.clonacion import (
     CARPETA_BLOQUES,
     proc_aplicar_clonacion,
@@ -312,6 +314,10 @@ def crear(
         if sesion is None:
             paso["detail"] = "sin sesion: el escaneo no se actualiza"
         else:
+            # La prevision de crear ya no vale: el proceso existe. Se borra
+            # aqui (y no al final) para que un fallo del refresco del
+            # escaneo no la deje en la sesion.
+            sesion.borrar_dato_area(AREA, CLAVE_PREVISION_CREAR)
             # El import ya esta confirmado en TIA: un fallo aqui solo deja el
             # escaneo viejo, no tumba el trabajo.
             try:
