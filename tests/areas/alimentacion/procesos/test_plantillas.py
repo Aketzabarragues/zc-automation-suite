@@ -19,6 +19,7 @@ from zc_suite.areas.alimentacion.procesos.plantillas import (
     proc_detectar_colisiones,
     proc_generar_previstos,
     proc_leer_manifest,
+    proc_listar_plantillas,
     proc_minimos_de_proceso,
     proc_resolver_plantilla,
     proc_validar_dependencias,
@@ -298,6 +299,146 @@ def test_resolver_plantilla_symlink_fuera_de_la_carpeta(
     with pytest.raises(OperacionError) as excinfo:
         proc_resolver_plantilla(raiz, "ENLACE")
     assert "fuera de la carpeta de plantillas" in str(excinfo.value)
+
+
+# ── proc_listar_plantillas ──────────────────────────────────────────────────
+
+
+def _plantilla_en(raiz: Path, nombre: str, manifest: object) -> Path:
+    """Una subcarpeta de plantilla con su ``manifest.json`` (o sin el)."""
+    dir_plantilla = raiz / nombre
+    dir_plantilla.mkdir(parents=True)
+    (dir_plantilla / "manifest.json").write_text(
+        json.dumps(manifest), encoding="utf-8"
+    )
+    return dir_plantilla
+
+
+def test_listar_plantillas_sin_carpeta(tmp_path: Path) -> None:
+    """La carpeta no existe: lista vacia con el aviso (como main)."""
+    plantillas, aviso = proc_listar_plantillas(tmp_path / "no_hay")
+
+    assert plantillas == []
+    assert aviso is not None
+    assert "Directorio no existe" in aviso
+
+
+def test_listar_plantillas_no_es_directorio(tmp_path: Path) -> None:
+    """La ruta es un fichero: lista vacia con el aviso."""
+    fichero = tmp_path / "plantillas"
+    fichero.write_bytes(b"no soy una carpeta")
+
+    plantillas, aviso = proc_listar_plantillas(fichero)
+
+    assert plantillas == []
+    assert "Directorio no existe" in (aviso or "")
+
+
+def test_listar_plantillas_vacias_sin_aviso(tmp_path: Path) -> None:
+    """Carpeta que existe pero vacia: lista vacia y sin aviso."""
+    raiz = tmp_path / "plantillas"
+    raiz.mkdir()
+
+    plantillas, aviso = proc_listar_plantillas(raiz)
+
+    assert plantillas == []
+    assert aviso is None
+
+
+def test_listar_plantillas_validas_ordenadas_por_carpeta(tmp_path: Path) -> None:
+    """Las plantillas salen ordenadas por nombre de carpeta."""
+    raiz = tmp_path / "plantillas"
+    _plantilla_en(
+        raiz,
+        "50500_CIP1",
+        {
+            "base": 50500,
+            "codigo": "CIP1",
+            "nombre": "Principal",
+            "descripcion": "Plantilla de proceso de alimentacion.",
+            "minimos": {"N_MAX_PREAL": 1, "N_MAX_PINT": 1},
+        },
+    )
+    _plantilla_en(
+        raiz,
+        "10000_BAS",
+        {"base": 10000, "codigo": "BAS", "nombre": "Basica"},
+    )
+    # Un fichero suelto (no subcarpeta) no cuenta.
+    (raiz / "basura.txt").write_bytes(b"x")
+    # Una subcarpeta sin manifest no cuenta.
+    (raiz / "60000_SIN_MANIFEST").mkdir()
+
+    plantillas, aviso = proc_listar_plantillas(raiz)
+
+    assert aviso is None
+    assert [p["carpeta"] for p in plantillas] == ["10000_BAS", "50500_CIP1"]
+    assert plantillas[1]["base"] == 50500
+    assert plantillas[1]["codigo"] == "CIP1"
+
+
+def test_listar_plantillas_defaults_de_main(tmp_path: Path) -> None:
+    """Un manifest casi vacio: los defaults de main (base 0, textos '', minimos {})."""
+    raiz = tmp_path / "plantillas"
+    _plantilla_en(raiz, "10000_VACIO", {})
+
+    plantillas, aviso = proc_listar_plantillas(raiz)
+
+    assert aviso is None
+    assert plantillas == [
+        {
+            "carpeta": "10000_VACIO",
+            "base": 0,
+            "codigo": "",
+            "nombre": "",
+            "descripcion": "",
+            "minimos": {},
+        }
+    ]
+
+
+def test_listar_plantillas_minimos_se_pasan_tal_cual(tmp_path: Path) -> None:
+    """El bloque 'minimos' del manifest viaja sin transformacion."""
+    raiz = tmp_path / "plantillas"
+    minimos = {"N_MAX_PREAL": 2, "N_MAX_PINT": 1, "N_MAX_ALM": 2, "N_MAX_ALM_HMI": 2}
+    _plantilla_en(raiz, "50500_CIP1", {"base": 50500, "codigo": "CIP1", "minimos": minimos})
+
+    plantillas, aviso = proc_listar_plantillas(raiz)
+
+    assert aviso is None
+    assert plantillas[0]["minimos"] == minimos
+    assert plantillas[0]["base"] == 50500
+    assert plantillas[0]["codigo"] == "CIP1"
+
+
+def test_listar_plantillas_json_roto_se_salta_y_las_demas_sigue(
+    tmp_path: Path,
+) -> None:
+    """Un manifest con JSON roto se salta (y se loggea); las validas siguen."""
+    raiz = tmp_path / "plantillas"
+    raiz.mkdir()
+    dir_brota = raiz / "20000_BROTA"
+    dir_brota.mkdir()
+    (dir_brota / "manifest.json").write_text("{no es json", encoding="utf-8")
+    _plantilla_en(raiz, "30000_OK", {"base": 30000, "codigo": "OK"})
+
+    plantillas, aviso = proc_listar_plantillas(raiz)
+
+    assert aviso is None
+    assert [p["carpeta"] for p in plantillas] == ["30000_OK"]
+
+
+def test_listar_plantillas_manifest_no_dict_se_salta(tmp_path: Path) -> None:
+    """Un manifest que es una lista (no dict) se salta."""
+    raiz = tmp_path / "plantillas"
+    raiz.mkdir()
+    _plantilla_en(raiz, "20000_LISTA", ["no", "soy", "un", "dict"])
+    _plantilla_en(raiz, "30000_OK", {"base": 30000, "codigo": "OK"})
+
+    plantillas, aviso = proc_listar_plantillas(raiz)
+
+    assert aviso is None
+    assert [p["carpeta"] for p in plantillas] == ["30000_OK"]
 
 
 # ── proc_detectar_colisiones ────────────────────────────────────────────────

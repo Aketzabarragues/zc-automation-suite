@@ -15,6 +15,8 @@ proceso existente) y las validaciones que se hacen con el antes de clonarla:
 - ``proc_minimos_de_proceso`` lee los 4 N_MAX del proceso del Excel maestro.
 - ``proc_resolver_plantilla`` valida y resuelve la subcarpeta de una
   plantilla dentro de la carpeta de plantillas (sin salir de ella).
+- ``proc_listar_plantillas`` lista las plantillas de una carpeta (las
+  subcarpetas con ``manifest.json``), tolerando una carpeta caida.
 
 Es logica pura: no habla con el portal de TIA y no abre transacciones. La
 usan los FB ``../funciones/procesos/generar_prevision_crear.py`` y
@@ -50,6 +52,7 @@ __all__ = [
     "proc_detectar_colisiones",
     "proc_generar_previstos",
     "proc_leer_manifest",
+    "proc_listar_plantillas",
     "proc_minimos_de_proceso",
     "proc_resolver_plantilla",
     "proc_validar_dependencias",
@@ -227,6 +230,101 @@ def proc_resolver_plantilla(
             "Verifica la carpeta de plantillas y el nombre de la subcarpeta."
         )
     return dir_plantilla
+
+
+def proc_listar_plantillas(
+    plantillas_dir: Path,
+) -> tuple[list[dict[str, Any]], str | None]:
+    """Las plantillas de una carpeta (las subcarpetas con ``manifest.json``).
+
+    Es la logica del listado que muestra la SPA: es tolerante, nunca lanza
+    por una carpeta caida. Si la carpeta no existe o no se puede leer,
+    devuelve ``([], aviso)`` (el aviso dice el motivo); si la carpeta se
+    cae a mitad del recorrido, se salta la entrada y se sigue con las demas.
+
+    No valida el manifest completo (como ``main``: la validacion la hace la
+    prevision al clonar): aqui solo se necesita que el fichero sea un dict
+    para leer sus campos.
+
+    Args:
+        plantillas_dir: la carpeta con las plantillas (ya resuelta).
+
+    Returns:
+        La tupla ``(plantillas, aviso)``: las plantillas ordenadas por
+        nombre de carpeta (``{"carpeta", "base", "codigo", "nombre",
+        "descripcion", "minimos"}``) y el aviso si la carpeta no se pudo
+        leer (``None`` si no hay nada que avisar).
+    """
+    try:
+        es_directorio = plantillas_dir.is_dir()
+    except OSError as exc:  # share de red sin responder
+        logger.warning(
+            "plantillas: no se puede leer %s (%s: %s)",
+            plantillas_dir,
+            type(exc).__name__,
+            exc,
+        )
+        return [], f"No se puede acceder a la ruta de plantillas: {exc}"
+    if not es_directorio:
+        return [], f"Directorio no existe: {plantillas_dir}"
+
+    try:
+        entradas = sorted(plantillas_dir.iterdir())
+    except OSError as exc:
+        logger.warning(
+            "plantillas: no se puede listar %s (%s: %s)",
+            plantillas_dir,
+            type(exc).__name__,
+            exc,
+        )
+        return [], f"No se puede listar la ruta de plantillas: {exc}"
+
+    plantillas: list[dict[str, Any]] = []
+    for entry in entradas:
+        try:
+            if not entry.is_dir():
+                continue
+        except OSError:
+            # La share se ha caido a mitad del recorrido: se salta la
+            # entrada y se sigue con las demas.
+            continue
+        manifest_path = entry / "manifest.json"
+        if not manifest_path.is_file():
+            continue
+        try:
+            data = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except Exception as exc:  # manifest roto: se loggea y se salta
+            logger.warning(
+                "plantillas: manifest invalido en %s (%s: %s)",
+                manifest_path,
+                type(exc).__name__,
+                exc,
+            )
+            continue
+        if not isinstance(data, dict):
+            logger.warning(
+                "plantillas: manifest en %s no es un dict (es %s)",
+                manifest_path,
+                type(data).__name__,
+            )
+            continue
+        plantillas.append(
+            {
+                "carpeta": entry.name,
+                "base": data.get("base", 0),
+                "codigo": data.get("codigo", ""),
+                "nombre": data.get("nombre", ""),
+                "descripcion": str(data.get("descripcion", "") or ""),
+                "minimos": data.get("minimos", {}),
+            }
+        )
+
+    logger.info(
+        "plantillas: %d plantilla(s) listada(s) en %s",
+        len(plantillas),
+        plantillas_dir,
+    )
+    return plantillas, None
 
 
 def _entrada_bloque_plc(item: Any) -> dict[str, Any] | None:
