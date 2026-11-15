@@ -20,8 +20,9 @@ cambia en linea con ``cambiar_valor`` sobre la tabla del proceso. El
 criterio de las operaciones es el de ``main``: solo las constantes que ya
 existen en TIA y cuyo valor no coincide.
 
-Los DBs se exportan, se copian a ``modified/`` y se editan alli: lo que se
-importa es la copia, no el export.
+Los DBs se exportan con la carpeta de TIA conservada (``mantener_estructura``)
+y se copian a ``modified/`` con su ruta relativa: lo que se importa es la
+copia, no el export, y solo los DBs que la edicion offline ha modificado.
 
 Correcciones sobre ``main``:
 
@@ -63,8 +64,11 @@ from zc_suite.areas.alimentacion.procesos.mapa import (
     proc_precondiciones_ok,
 )
 from zc_suite.areas.alimentacion.procesos.sincronizacion import (
+    EXTENSION_DCL,
+    EXTENSION_RES,
     proc_arrays_para_apply,
     proc_confirmar_db,
+    proc_localizar_db,
     proc_operaciones_n_max,
 )
 from zc_suite.errores import OperacionError
@@ -161,7 +165,7 @@ def sincronizar(
         )
 
     transacciones = _transacciones_iniciales()
-    carpeta = workdir()
+    carpeta = workdir(AREA, CONTEXTO)
 
     # ── 1. Construir el mapa de slots ────────────────────────────────────
     with job.paso("mapa") as paso:
@@ -206,7 +210,7 @@ def sincronizar(
             plc,
             destino_variables,
             [mapa.table_name],
-            mantener_estructura=False,
+            mantener_estructura=True,
         )
         db_a_exportar = [
             db
@@ -218,9 +222,14 @@ def sincronizar(
             plc,
             destino_bloques,
             db_a_exportar,
-            mantener_estructura=False,
+            mantener_estructura=True,
             version_tia=job.tia.version_tia,
         )
+        # La ruta relativa de cada DB dentro del export: la conserva la copia
+        # a ``modified/``. Sin la carpeta de TIA, TIA no haria UPDATE.
+        rutas_db = {
+            db: _ruta_relativa_db(destino_bloques, db) for db in db_a_exportar
+        }
         paso["detail"] = (
             f"tabla {mapa.table_name} y {len(db_a_exportar)} DBs exportados"
         )
@@ -318,14 +327,14 @@ def sincronizar(
                 plc,
                 destino_variables,
                 [mapa.table_name],
-                mantener_estructura=False,
+                mantener_estructura=True,
             )
             exportar_bloques(
                 job.tia.portal,
                 plc,
                 destino_bloques,
                 db_a_exportar,
-                mantener_estructura=False,
+                mantener_estructura=True,
                 version_tia=job.tia.version_tia,
             )
             # Los comentarios actuales se re-leen de la re-export: el N_MAX
@@ -346,10 +355,10 @@ def sincronizar(
             "tabla y DBs releidos" if ops_n_max else "no hacia falta releer"
         )
 
-    # ── 8. Copiar los bloques a modified ─────────────────────────────────
+    # ── 8. Copiar los DBs a modified ──────────────────────────────────────
     with job.paso("copiar") as paso:
-        _copiar_bloques(destino_bloques, carpeta.bloques_modified)
-        paso["detail"] = "bloques copiados a modified"
+        _copiar_bloques(destino_bloques, carpeta.bloques_modified, rutas_db)
+        paso["detail"] = f"{len(rutas_db)} DBs copiados a modified"
 
     # ── 9. Editar los comentarios offline ────────────────────────────────
     con_cambios = False
@@ -364,23 +373,26 @@ def sincronizar(
             actuales = _arrays_actuales(
                 mapa, dcl_param, res_param, dcl_alm, res_alm
             )
-            modificados = 0
+            modificados: dict[str, int] = {}
             for db, arrays_db in arrays_por_db.items():
-                _n = proc_confirmar_db(
+                modificados[db] = proc_confirmar_db(
                     carpeta.bloques_modified,
                     db,
                     arrays_db,
                     actuales.get(db, {}),
                 )
-                modificados += _n
-            con_cambios = modificados > 0
+            db_con_cambios = [db for db, n in modificados.items() if n > 0]
+            _recortar_a(db_con_cambios, carpeta.bloques_modified)
+            con_cambios = bool(db_con_cambios)
             if not con_cambios:
                 transacciones["comentarios"]["estado"] = NO_EJECUTADA
                 transacciones["comentarios"]["detalle"] = (
                     "los comentarios ya estaban al dia"
                 )
             paso["detail"] = (
-                f"{modificados} DBs con cambios" if con_cambios else "sin cambios"
+                f"{len(db_con_cambios)} DBs con cambios"
+                if con_cambios
+                else "sin cambios"
             )
 
     # ── 10. Tx B: los comentarios (offline, solo V21+) ──────────────────
@@ -451,14 +463,65 @@ def sincronizar(
 # ── los helpers privados del FB ─────────────────────────────────────────────
 
 
-def _copiar_bloques(origen: Path, destino: Path) -> None:
-    """Copia el arbol del export de bloques a la carpeta ``modified``.
+def _copiar_bloques(
+    origen: Path,
+    destino: Path,
+    rutas_db: dict[str, Path | None],
+) -> None:
+    """Copia a ``modified`` los pares SimaticSD de los DBs exportados.
 
-    Lo que se importa en TIA es la copia, no el export (igual que en
-    ``main``).
+    Cada DB conserva su ruta relativa dentro del export (la carpeta de TIA):
+    al importar desde la raiz de ``modified/`` TIA lo hace UPDATE en su sitio
+    original. Lo que se importa en TIA es la copia, no el export.
     """
-    if origen.is_dir():
-        shutil.copytree(origen, destino, dirs_exist_ok=True)
+    for db, ruta in rutas_db.items():
+        if ruta is None:
+            continue
+        par = origen / ruta / f"{db}{EXTENSION_DCL}"
+        destino_par = destino / ruta / f"{db}{EXTENSION_DCL}"
+        if par.is_file():
+            _copiar_par(par, destino_par)
+        else:
+            logger.warning(
+                "[proc sync] No se encontro '%s' en la exportacion: se omite "
+                "del sync.",
+                par,
+            )
+
+
+def _copiar_par(origen: Path, destino: Path) -> None:
+    """Copia un par ``.s7dcl``/``.s7res`` conservando la carpeta destino."""
+    destino.parent.mkdir(parents=True, exist_ok=True)
+    for extension in (EXTENSION_DCL, EXTENSION_RES):
+        fichero = origen.with_suffix(extension)
+        if fichero.is_file():
+            shutil.copy2(fichero, destino.with_suffix(extension))
+
+
+def _ruta_relativa_db(base: Path, db: str) -> Path | None:
+    """La ruta relativa del par de un DB dentro del export, o ``None``.
+
+    Con ``mantener_estructura=True`` el par puede estar en la raiz del
+    export o dentro de la carpeta de TIA del DB.
+    """
+    par = proc_localizar_db(base, db)
+    if par is None:
+        return None
+    return par[0].parent.relative_to(base)
+
+
+def _recortar_a(dbs: list[str], carpeta: Path) -> None:
+    """Deja en ``modified/`` solo los DBs indicados (el resto se borra).
+
+    La transaccion de comentarios importa desde la raiz de ``modified/``:
+    si alli queda un DB sin cambios, TIA lo vuelve a importar tal cual.
+    """
+    dbs = set(dbs)
+    for dcl in sorted(carpeta.rglob(f"*{EXTENSION_DCL}")):
+        if dcl.stem in dbs:
+            continue
+        dcl.unlink(missing_ok=True)
+        dcl.with_suffix(EXTENSION_RES).unlink(missing_ok=True)
 
 
 def _localizar_xml(base: Path, tabla: str) -> Path:

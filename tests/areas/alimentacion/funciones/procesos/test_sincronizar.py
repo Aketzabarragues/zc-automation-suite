@@ -210,6 +210,76 @@ def test_sin_cambios_no_hay_transaccion_de_comentarios(
     assert entorno_sync.plc.importaciones_bloques == []
 
 
+def test_el_export_del_sync_pide_mantener_estructura(
+    entorno_sync: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """El sync exporta con la carpeta de TIA conservada (UPDATE al importar)."""
+    import zc_suite.areas.alimentacion.funciones.procesos.sincronizar as mod
+
+    exportar_bloques = mod.exportar_bloques
+    exportar_tablas = mod.exportar_tablas
+    llamadas = {"bloques": [], "tablas": []}
+
+    def _bloques(portal: Any, plc: str, destino: Any, nombres: Any, **kwargs: Any) -> Any:
+        llamadas["bloques"].append(kwargs.get("mantener_estructura"))
+        return exportar_bloques(portal, plc, destino, nombres, **kwargs)
+
+    def _tablas(portal: Any, plc: str, destino: Any, nombres: Any, **kwargs: Any) -> Any:
+        llamadas["tablas"].append(kwargs.get("mantener_estructura"))
+        return exportar_tablas(portal, plc, destino, nombres, **kwargs)
+
+    monkeypatch.setattr(mod, "exportar_bloques", _bloques)
+    monkeypatch.setattr(mod, "exportar_tablas", _tablas)
+
+    evento = entorno_sync.sincronizar(PROC_UID)
+    assert evento["estado"] == "ok", evento.get("error")
+
+    # La tabla y los bloques se exportan (y re-exportan) con estructura.
+    assert llamadas["bloques"], "no se han exportado bloques"
+    assert all(estructura is True for estructura in llamadas["bloques"])
+    assert llamadas["tablas"], "no se han exportado tablas"
+    assert all(estructura is True for estructura in llamadas["tablas"])
+
+
+def test_el_db_de_subcarpeta_conserva_su_carpeta_en_modified(
+    entorno_sync: Any,
+) -> None:
+    """Un DB en una subcarpeta del PLC conserva esa subcarpeta en modified/."""
+    for bloque in entorno_sync.plc.get_program_blocks():
+        bloque._jerarquia = "0_Procesos"
+
+    evento = entorno_sync.sincronizar(PROC_UID)
+    assert evento["estado"] == "ok", evento.get("error")
+    assert entorno_sync.plc.importaciones_bloques
+
+    directorio = Path(
+        entorno_sync.plc.importaciones_bloques[0]["directorio"]
+    )
+    for db in (DB_PARAM, DB_ALM):
+        assert (directorio / "0_Procesos" / f"{db}.s7dcl").is_file()
+        assert (directorio / "0_Procesos" / f"{db}.s7res").is_file()
+
+
+def test_solo_se_importa_el_db_que_ha_cambiado(
+    entorno_sync: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Si solo cambia el DB_ALM, en modified/ no queda el DB_PARAM."""
+    import zc_suite.areas.alimentacion.funciones.procesos.sincronizar as mod
+
+    def _solo_alm(base: Any, db: str, *args: Any, **kwargs: Any) -> int:
+        return 3 if db == DB_ALM else 0
+
+    monkeypatch.setattr(mod, "proc_confirmar_db", _solo_alm)
+
+    evento = entorno_sync.sincronizar(PROC_UID)
+    assert evento["estado"] == "ok", evento.get("error")
+
+    directorio = Path(entorno_sync.plc.importaciones_bloques[0]["directorio"])
+    assert (directorio / f"{DB_ALM}.s7res").is_file()
+    assert not any(directorio.rglob(f"{DB_PARAM}.s7res"))
+    assert not any(directorio.rglob(f"{DB_PARAM}.s7dcl"))
+
+
 def test_la_prevision_post_sync_se_recopila_y_se_guarda(entorno_sync: Any) -> None:
     """Al terminar, la prevision se recalcula y queda en la sesion."""
     sesion = entorno_sync.sesion
