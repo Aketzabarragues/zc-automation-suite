@@ -225,6 +225,9 @@ describe("crearProceso", () => {
     crear.plantillas = LISTADO.plantillas;
     crear.seleccionarPlantilla("PLANTILLA_A");
     crear.preview = PREVISION_OK;
+    crear.previewPlc = "ZC_PLC_STD";
+    crear.previewProcUid = 100;
+    crear.previewPlantilla = "PLANTILLA_A";
     crear.resultadoAplicar = RESULTADO_APLICAR;
     crear.transacciones = RESULTADO_APLICAR.transacciones;
     crear.error = "un error anterior";
@@ -233,6 +236,9 @@ describe("crearProceso", () => {
 
     expect(crear.plantillaSeleccionada).toBe("PLANTILLA_B");
     expect(crear.preview).toBe(null);
+    expect(crear.previewPlc).toBe("");
+    expect(crear.previewProcUid).toBe(null);
+    expect(crear.previewPlantilla).toBe("");
     expect(crear.resultadoAplicar).toBe(null);
     expect(crear.transacciones).toEqual([]);
     expect(crear.error).toBe(null);
@@ -267,6 +273,10 @@ describe("crearProceso", () => {
     expect(crear.bloquesPrevistos).toEqual(PREVISION_OK.archivos_previstos);
     expect(crear.colisiones).toEqual([]);
     expect(crear.error).toBe(null);
+    // Y para que PLC, proceso y plantilla era la preview.
+    expect(crear.previewPlc).toBe("ZC_PLC_STD");
+    expect(crear.previewProcUid).toBe(100);
+    expect(crear.previewPlantilla).toBe("PLANTILLA_A");
   });
 
   it("generarPrevision sin PLC ni proceso ni plantilla no encola", async () => {
@@ -355,6 +365,74 @@ describe("crearProceso", () => {
     });
   });
 
+  describe("previewVale", () => {
+    /** Un store con la preview generada para el PLC/proceso/plantilla de referencia. */
+    function conPreview() {
+      const { crear } = storesLimpios();
+      crear.plantillas = LISTADO.plantillas;
+      crear.seleccionarPlantilla("PLANTILLA_A");
+      crear.preview = PREVISION_OK;
+      crear.previewPlc = "ZC_PLC_STD";
+      crear.previewProcUid = 100;
+      crear.previewPlantilla = "PLANTILLA_A";
+      return crear;
+    }
+
+    it("vale para el PLC, el proceso y la plantilla con que se genero", () => {
+      const crear = conPreview();
+      expect(crear.previewVale("ZC_PLC_STD", 100)).toBe(true);
+    });
+
+    it("no vale con un PLC distinto", () => {
+      const crear = conPreview();
+      expect(crear.previewVale("OTRO_PLC", 100)).toBe(false);
+    });
+
+    it("no vale con un proceso distinto", () => {
+      const crear = conPreview();
+      expect(crear.previewVale("ZC_PLC_STD", 200)).toBe(false);
+    });
+
+    it("no vale si la plantilla elegida ya no es la de la preview", () => {
+      const crear = conPreview();
+      crear.seleccionarPlantilla("PLANTILLA_B");
+      expect(crear.previewVale("ZC_PLC_STD", 100)).toBe(false);
+      // La misma plantilla pero sin preview: tampoco vale.
+      const limpio = storesLimpios().crear;
+      expect(limpio.previewVale("ZC_PLC_STD", 100)).toBe(false);
+    });
+  });
+
+  describe("puedeCrearPara", () => {
+    function conPreview() {
+      const crear = storesLimpios().crear;
+      crear.plantillas = LISTADO.plantillas;
+      crear.seleccionarPlantilla("PLANTILLA_A");
+      crear.preview = PREVISION_OK;
+      crear.previewPlc = "ZC_PLC_STD";
+      crear.previewProcUid = 100;
+      crear.previewPlantilla = "PLANTILLA_A";
+      return crear;
+    }
+
+    it("es true para la combinacion de la preview", () => {
+      const crear = conPreview();
+      expect(crear.puedeCrearPara("ZC_PLC_STD", 100)).toBe(true);
+    });
+
+    it("es false para otro proceso o PLC", () => {
+      const crear = conPreview();
+      expect(crear.puedeCrearPara("OTRO_PLC", 100)).toBe(false);
+      expect(crear.puedeCrearPara("ZC_PLC_STD", 200)).toBe(false);
+    });
+
+    it("es false para la preview con colision aunque corresponda", () => {
+      const crear = conPreview();
+      crear.preview = PREVISION_COLISION;
+      expect(crear.puedeCrearPara("ZC_PLC_STD", 100)).toBe(false);
+    });
+  });
+
   describe("minimosProblemas", () => {
     it("suficiente: sin problemas", () => {
       const { crear } = storesLimpios();
@@ -404,10 +482,20 @@ describe("crearProceso", () => {
     });
   });
 
-  it("aplicar ok guarda el resultado y las transacciones", async () => {
+  /** Un store con la preview generada para la combinacion de referencia. */
+  function conPreviewValido() {
     const { crear, trabajos } = storesLimpios();
     crear.plantillas = LISTADO.plantillas;
     crear.seleccionarPlantilla("PLANTILLA_A");
+    crear.preview = PREVISION_OK;
+    crear.previewPlc = "ZC_PLC_STD";
+    crear.previewProcUid = 100;
+    crear.previewPlantilla = "PLANTILLA_A";
+    return { crear, trabajos };
+  }
+
+  it("aplicar ok guarda el resultado y las transacciones", async () => {
+    const { crear, trabajos } = conPreviewValido();
 
     const promesa = crear.aplicar("ZC_PLC_STD", 100);
     await flushPromises();
@@ -427,16 +515,19 @@ describe("crearProceso", () => {
     const ok = await promesa;
 
     expect(ok).toBe(true);
+    // El proceso ya existe: la preview se vacia, el resultado se conserva.
+    expect(crear.preview).toBe(null);
+    expect(crear.previewPlc).toBe("");
+    expect(crear.previewProcUid).toBe(null);
+    expect(crear.previewPlantilla).toBe("");
     expect(crear.resultadoAplicar).toStrictEqual(RESULTADO_APLICAR);
     expect(crear.transacciones).toEqual(RESULTADO_APLICAR.transacciones);
     expect(crear.error).toBe(null);
     expect(crear.aplicando).toBe(false);
   });
 
-  it("aplicar con error deja el mensaje y sin resultado", async () => {
-    const { crear, trabajos } = storesLimpios();
-    crear.plantillas = LISTADO.plantillas;
-    crear.seleccionarPlantilla("PLANTILLA_A");
+  it("aplicar con error deja el mensaje y sin resultado, y conserva la preview", async () => {
+    const { crear, trabajos } = conPreviewValido();
 
     const promesa = crear.aplicar("ZC_PLC_STD", 100);
     terminar(trabajos, "j2", "error", null, "La transaccion de importacion se revirtio");
@@ -446,6 +537,45 @@ describe("crearProceso", () => {
     expect(crear.error).toBe("La transaccion de importacion se revirtio");
     expect(crear.resultadoAplicar).toBe(null);
     expect(crear.transacciones).toEqual([]);
+    // La preview no se toca: el operario puede reintentar.
+    expect(crear.preview).toStrictEqual(PREVISION_OK);
+    expect(crear.previewPlc).toBe("ZC_PLC_STD");
+    expect(crear.previewProcUid).toBe(100);
+    expect(crear.previewPlantilla).toBe("PLANTILLA_A");
+  });
+
+  it("aplicar con preview de otro proceso no llama a la API", async () => {
+    const { crear } = conPreviewValido();
+
+    const ok = await crear.aplicar("ZC_PLC_STD", 200);
+
+    expect(ok).toBe(false);
+    expect(crear.error).toContain("La prevision no corresponde");
+    // No se envio ninguna peticion.
+    expect(global.fetch.mock.calls).toEqual([]);
+    // La preview sigue intocada.
+    expect(crear.preview).toStrictEqual(PREVISION_OK);
+  });
+
+  it("aplicar con preview de otro PLC no llama a la API", async () => {
+    const { crear } = conPreviewValido();
+
+    const ok = await crear.aplicar("OTRO_PLC", 100);
+
+    expect(ok).toBe(false);
+    expect(crear.error).toContain("La prevision no corresponde");
+    expect(global.fetch.mock.calls).toEqual([]);
+  });
+
+  it("aplicar sin preview no llama a la API", async () => {
+    const { crear } = conPreviewValido();
+    crear.preview = null;
+
+    const ok = await crear.aplicar("ZC_PLC_STD", 100);
+
+    expect(ok).toBe(false);
+    expect(crear.error).toContain("La prevision no corresponde");
+    expect(global.fetch.mock.calls).toEqual([]);
   });
 
   it("aplicar sin plantilla no encola", async () => {
@@ -465,6 +595,7 @@ describe("crearProceso", () => {
           prevision_crear_proceso: {
             plc: "ZC_PLC_STD",
             proc_uid: 100,
+            dir_plantilla_nombre: "PLANTILLA_A",
             resultado: PREVISION_OK,
           },
         },
@@ -480,6 +611,31 @@ describe("crearProceso", () => {
     crear.hidratar();
     expect(crear.preview).toStrictEqual(PREVISION_OK);
     expect(crear.preview).not.toStrictEqual(PREVISION_COLISION);
+  });
+
+  it("hidratar rellena previewPlc, previewProcUid y previewPlantilla", () => {
+    const { crear, sesion } = storesLimpios();
+    sesion.estado = {
+      areas: {
+        alimentacion: {
+          excel: { cargado: true },
+          prevision_crear_proceso: {
+            plc: "ZC_PLC_STD",
+            proc_uid: 100,
+            dir_plantilla_nombre: "PLANTILLA_A",
+            resultado: PREVISION_OK,
+          },
+        },
+      },
+    };
+
+    crear.hidratar();
+
+    expect(crear.previewPlc).toBe("ZC_PLC_STD");
+    expect(crear.previewProcUid).toBe(100);
+    expect(crear.previewPlantilla).toBe("PLANTILLA_A");
+    expect(crear.plantillaSeleccionada).toBe("PLANTILLA_A");
+    expect(crear.previewVale("ZC_PLC_STD", 100)).toBe(true);
   });
 
   it("hidratar sin nada en la sesion deja el store limpio", () => {
@@ -500,6 +656,9 @@ describe("crearProceso", () => {
     expect(crear.aviso).toBe(null);
     expect(crear.plantillaSeleccionada).toBe("");
     expect(crear.preview).toBe(null);
+    expect(crear.previewPlc).toBe("");
+    expect(crear.previewProcUid).toBe(null);
+    expect(crear.previewPlantilla).toBe("");
     expect(crear.resultadoAplicar).toBe(null);
     expect(crear.transacciones).toEqual([]);
     expect(crear.error).toBe(null);
