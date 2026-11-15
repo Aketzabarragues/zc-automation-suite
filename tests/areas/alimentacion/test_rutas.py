@@ -694,11 +694,15 @@ def test_subir_otro_excel_borra_la_prevision_de_un_proceso(
     excel_maestro: Path,
 ) -> None:
     """La prevision del proceso era del Excel anterior: deja de valer."""
-    from zc_suite.areas.alimentacion.procesos import CLAVE_PREVISION
+    from zc_suite.areas.alimentacion.procesos import (
+        CLAVE_PREVISION,
+        CLAVE_PREVISION_CREAR,
+    )
     from zc_suite.nucleo.sesion import CLAVE_SESION, Sesion
 
     sesion = Sesion()
     sesion.guardar_dato_area("alimentacion", CLAVE_PREVISION, {"plc": "ZC_PLC_STD"})
+    sesion.guardar_dato_area("alimentacion", CLAVE_PREVISION_CREAR, {"plc": "ZC_PLC_STD"})
     app.config[CLAVE_SESION] = sesion
 
     with excel_maestro.open("rb") as fichero:
@@ -711,4 +715,6 @@ def test_subir_otro_excel_borra_la_prevision_de_un_proceso(
     evento = _esperar_job(eventos, respuesta.get_json()["job_id"])
 
     assert evento["estado"] == "ok"
-    assert CLAVE_PREVISION not in sesion.datos_area("alimentacion")
+    datos = sesion.datos_area("alimentacion")
+    assert CLAVE_PREVISION not in datos
+    assert CLAVE_PREVISION_CREAR not in datos
