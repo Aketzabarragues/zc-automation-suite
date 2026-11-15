@@ -1,5 +1,5 @@
-"""Las rutas del area de alimentacion: el Excel maestro, los dispositivos y
-las entidades.
+"""Las rutas del area de alimentacion: el Excel maestro, los dispositivos,
+las entidades y los procesos.
 
 - ``GET  /excel``            el volcado que tiene el backend.
 - ``POST /excel``            sube un ``.xlsx`` y encola su parseo.
@@ -7,6 +7,8 @@ las entidades.
 - ``POST /dispositivos/sincronizar`` encola la sincronizacion contra TIA.
 - ``POST /entidades/preview``    encola la prevision de las entidades.
 - ``POST /entidades/sincronizar`` encola la sincronizacion contra TIA.
+- ``POST /procesos/preview``    encola la prevision de un proceso.
+- ``POST /procesos/sincronizar`` encola la sincronizacion de un proceso.
 
 Las POST responden ``202`` con el ``job_id``: el trabajo va en un trabajo y su
 resultado llega por el stream de eventos, no en la respuesta.
@@ -35,6 +37,12 @@ from zc_suite.areas.alimentacion.funciones.entidades.sincronizar import (
     sincronizar as ent_sincronizar,
 )
 from zc_suite.areas.alimentacion.funciones.excel.cargar import cargar
+from zc_suite.areas.alimentacion.funciones.procesos.generar_prevision import (
+    generar_prevision as proc_generar_prevision,
+)
+from zc_suite.areas.alimentacion.funciones.procesos.sincronizar import (
+    sincronizar as proc_sincronizar,
+)
 from zc_suite.nucleo.sesion import CLAVE_SESION, Sesion
 from zc_suite.nucleo.web.app import HTTPError, lanzar, servicio
 
@@ -171,10 +179,75 @@ def sincronizar_entidades() -> tuple[Response, int]:
     )
 
 
+@rutas.post("/procesos/preview")
+def preview_procesos() -> tuple[Response, int]:
+    """Encola la prevision del proceso del PLC.
+
+    Las precondiciones se comprueban **antes** de encolar: si falta el PLC,
+    el ``proc_uid``, el Excel o la conexion con TIA, se responde con el
+    mensaje y no se lanza ningun trabajo.
+    """
+    error = _precondiciones("generar la prevision")
+    if error is not None:
+        return jsonify({"error": error}), 400
+    error = _precondicion_proc_uid()
+    if error is not None:
+        return jsonify({"error": error}), 400
+
+    almacen = _almacen()
+    return lanzar(
+        proc_generar_prevision,
+        proc_uid=_proc_uid(),
+        plc=_plc(),
+        almacen=almacen,
+        config=almacen.config,
+        sesion=_sesion(),
+    )
+
+
+@rutas.post("/procesos/sincronizar")
+def sincronizar_procesos() -> tuple[Response, int]:
+    """Encola la sincronizacion del proceso del PLC.
+
+    Las precondiciones se comprueban **antes** de encolar: si falta el PLC,
+    el ``proc_uid``, el Excel o la conexion con TIA, se responde con el
+    mensaje y no se lanza ningun trabajo.
+    """
+    error = _precondiciones("sincronizar")
+    if error is not None:
+        return jsonify({"error": error}), 400
+    error = _precondicion_proc_uid()
+    if error is not None:
+        return jsonify({"error": error}), 400
+
+    almacen = _almacen()
+    return lanzar(
+        proc_sincronizar,
+        proc_uid=_proc_uid(),
+        plc=_plc(),
+        almacen=almacen,
+        config=almacen.config,
+        sesion=_sesion(),
+    )
+
+
 def _plc() -> str:
     """El PLC que pide la peticion."""
     datos = request.get_json(silent=True) or {}
     return str(datos.get("plc") or "").strip()
+
+
+def _proc_uid() -> int:
+    """El ``proc_uid`` que pide la peticion."""
+    datos = request.get_json(silent=True) or {}
+    return int(datos.get("proc_uid") or 0)
+
+
+def _precondicion_proc_uid() -> str | None:
+    """El motivo por el que falta el proceso, o ``None`` si va."""
+    if not _proc_uid():
+        return "Indica el proceso que quieres sincronizar."
+    return None
 
 
 def _precondiciones(accion: str) -> str | None:
