@@ -13,11 +13,12 @@ resultado dice que bloques se crearian (``archivos_previstos``), que
 colisionan con el PLC (``colisiones``) y que dependencias externas faltan
 (``dependencias_faltantes``).
 
-Los fallos **esperados** del pipeline (sin escaneo, manifest invalido, N_MAX
-del operario por debajo de los minimos de la plantilla) no son fallos del
-trabajo: se capturan y devuelven con ``precondiciones_ok`` ``False`` y el
-mensaje accionable en ``colisiones``/``missing_blocks`` (el hint de la SPA).
-Solo lo inesperado sube con traceback.
+Los fallos **esperados** del pipeline suben como excepciones del trabajo, como
+en ``main``: un manifest invalido o unos N_MAX del operario por debajo de los
+minimos de la plantilla abortan la prevision (el paso queda en error). La unica
+excepcion es la falta de escaneo fresco: no es un fallo (el trabajo termina en
+``ok`` con ``precondiciones_ok`` ``False`` y el hint en ``missing_blocks``),
+como la prevision de la 4.5.
 
 El workdir del flujo es ``.build_cache/alimentacion/procesos_crear`` con dos
 carpetas propias: ``Plantilla`` (la copia de la plantilla que se renombra) y
@@ -46,7 +47,7 @@ from zc_suite.areas.alimentacion.procesos.plantillas import (
     proc_validar_dependencias,
     proc_validar_minimos,
 )
-from zc_suite.errores import OperacionError, ZCError
+from zc_suite.errores import OperacionError
 from zc_suite.nucleo.sesion import Sesion
 from zc_suite.nucleo.tia.job import Job
 from zc_suite.nucleo.tia.workdir import workdir
@@ -123,6 +124,8 @@ def _respuesta(
     ``success`` replica a ``main``: ``True`` solo si no hay colisiones. Las
     dependencias faltantes no lo rompen (se muestran como aviso);
     ``precondiciones_ok`` las cuenta, para que el apply no se lance sin ellas.
+    Una colision no es un bloque ausente: ``missing_blocks`` siempre sale
+    vacio por aqui.
     """
     warnings = list(warnings or [])
     success = len(colisiones) == 0
@@ -146,8 +149,32 @@ def _respuesta(
         "plantilla_copia_dir": str(plantilla_copia_dir),
         "success": success,
         "precondiciones_ok": precondiciones_ok,
-        "missing_blocks": list(colisiones),
+        "missing_blocks": [],
         "warnings": warnings,
+    }
+
+
+def _respuesta_sin_escaneo() -> dict[str, Any]:
+    """La respuesta cuando no hay escaneo fresco del PLC.
+
+    Como ``main`` y como la 4.5: sin la cache de bloques del PLC no se puede
+    comprobar la presencia de nada, asi que no se copia ni se lee nada de la
+    plantilla; ``precondiciones_ok`` sale False y el hint va en
+    ``missing_blocks`` (``colisiones`` queda vacia).
+    """
+    return {
+        "manifest_plantilla": None,
+        "descripcion": "",
+        "dependencias_ok": [],
+        "dependencias_faltantes": [],
+        "archivos_previstos": [],
+        "colisiones": [],
+        "colisiones_con": {},
+        "plantilla_copia_dir": "",
+        "success": False,
+        "precondiciones_ok": False,
+        "missing_blocks": [HINT_SIN_ESCANEO],
+        "warnings": [],
     }
 
 
@@ -214,7 +241,6 @@ def generar_prevision_crear(
     nombre_nuevo = str(proceso.get("nombre", "") or "") if proceso else ""
 
     manifest_plantilla: dict[str, Any] | None = None
-    warnings: list[str] = []
 
     with job.paso("validar") as paso:
         if proceso is None:
@@ -249,11 +275,9 @@ def generar_prevision_crear(
         escaneo = modulo_prevision.escaneo_de(sesion, plc)
         if escaneo is None:
             # Como main y como la 4.5: sin escaneo fresco no se copia ni se
-            # lee nada de la plantilla; el hint va en ``colisiones`` (como el
-            # de main, de forma que ``success`` sale False) y la SPA lo muestra.
-            resultado = _respuesta(
-                None, [], [HINT_SIN_ESCANEO], {}, [], [], ""
-            )
+            # lee nada de la plantilla. No es un fallo del trabajo: el hint va
+            # en ``missing_blocks`` y la SPA lo muestra.
+            resultado = _respuesta_sin_escaneo()
             if sesion is not None:
                 sesion.guardar_dato_area(
                     AREA,
@@ -264,18 +288,12 @@ def generar_prevision_crear(
             return resultado
         paso["detail"] = f"proceso {proc_uid} y escaneo de {plc}"
 
+    # Manifest invalido o minimos insuficientes: como en ``main``, son fallos
+    # del trabajo. ``proc_leer_manifest`` y ``proc_validar_minimos`` lanzan
+    # (``ManifestInvalidoError`` / ``PlantillaMinimosNoCumplidosError``, que
+    # cuelgan de ``ZCError``) y el paso queda en error.
     with job.paso("manifest") as paso:
-        try:
-            manifest_plantilla = proc_leer_manifest(dir_plantilla)
-        except ZCError as exc:
-            # Fallo esperado: el preview no aborta, devuelve el mensaje.
-            logger.warning("manifest: %s", exc)
-            resultado = _respuesta(
-                None, [], [str(exc)], {}, [], [], "", warnings
-            )
-            return _guardar_y_devolver(
-                sesion, plc, proc_uid, resultado, str(exc)
-            )
+        manifest_plantilla = proc_leer_manifest(dir_plantilla)
         base_vieja = int(manifest_plantilla["base"])
         codigo_viejo = str(manifest_plantilla["codigo"]).strip()
         nombre_viejo = str(manifest_plantilla.get("nombre", "") or "")
@@ -284,17 +302,7 @@ def generar_prevision_crear(
 
     with job.paso("minimos") as paso:
         minimos_usuario = _minimos_de_proceso(proceso)
-        try:
-            proc_validar_minimos(manifest_plantilla, minimos_usuario)
-        except ZCError as exc:
-            # Fallo esperado: el preview no aborta, devuelve el mensaje.
-            logger.warning("minimos: %s", exc)
-            resultado = _respuesta(
-                manifest_plantilla, [], [str(exc)], {}, [], [], "", warnings
-            )
-            return _guardar_y_devolver(
-                sesion, plc, proc_uid, resultado, str(exc)
-            )
+        proc_validar_minimos(manifest_plantilla, minimos_usuario)
         paso["detail"] = "los N_MAX del proceso cubren los de la plantilla"
 
     carpeta = workdir_crear()
@@ -327,10 +335,10 @@ def generar_prevision_crear(
         )
         paso["detail"] = f"{len(colisiones)} colision(es)"
 
-    dependencias_faltantes = list(
-        proc_validar_dependencias(dependencias, escaneo.bloques)
-    )
     with job.paso("dependencias") as paso:
+        dependencias_faltantes = list(
+            proc_validar_dependencias(dependencias, escaneo.bloques)
+        )
         dependencias_ok = [
             d for d in dependencias if d not in dependencias_faltantes
         ]
@@ -356,35 +364,12 @@ def generar_prevision_crear(
             dependencias_ok,
             dependencias_faltantes,
             dir_plantilla_copia,
-            warnings,
         )
         paso["detail"] = (
             f"{len(archivos_previstos)} archivos previstos, "
             f"{len(colisiones)} colision(es)"
         )
 
-    if sesion is not None:
-        sesion.guardar_dato_area(
-            AREA,
-            CLAVE_PREVISION_CREAR,
-            {"plc": plc, "proc_uid": proc_uid, "resultado": resultado},
-        )
-    return resultado
-
-
-def _guardar_y_devolver(
-    sesion: Sesion | None,
-    plc: str,
-    proc_uid: int,
-    resultado: dict[str, Any],
-    error: str,
-) -> dict[str, Any]:
-    """Guarda en la sesion y devuelve la respuesta con el fallo esperado.
-
-    El fallo no es del trabajo (``estado`` ``ok``): va como
-    ``precondiciones_ok`` ``False`` con el mensaje en ``missing_blocks``.
-    """
-    resultado["missing_blocks"] = [error]
     if sesion is not None:
         sesion.guardar_dato_area(
             AREA,

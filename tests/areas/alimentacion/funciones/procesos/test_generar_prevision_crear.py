@@ -6,6 +6,7 @@ No escribe nada en TIA: el preview solo lee y calcula.
 from __future__ import annotations
 
 import json
+import time
 from pathlib import Path
 from typing import Any
 
@@ -14,8 +15,12 @@ import pytest
 from zc_suite.areas.alimentacion.funciones.procesos import (
     generar_prevision_crear as modulo_crear,
 )
+from zc_suite.areas.alimentacion.funciones.procesos.generar_prevision_crear import (
+    HINT_SIN_ESCANEO,
+)
 from zc_suite.areas.alimentacion.procesos import CLAVE_PREVISION_CREAR
 from zc_suite.nucleo.sesion import Sesion
+from zc_suite.nucleo.tia.job import ERROR
 from zc_suite.nucleo.tia.workdir import Workdir
 
 from .conftest import NOMBRE_PLC, PROC_UID
@@ -89,6 +94,30 @@ def _crear(
     return entorno._esperar(job_id)
 
 
+def _etapa(entorno: Any, nombre: str) -> dict[str, Any]:
+    """El estado final de un paso del trabajo, desde el ultimo ``progress``.
+
+    El evento ``job`` de fin no lleva las etapas: estas viajan en los
+    eventos ``progress`` (``job.snapshot()``), el ``progress`` final se
+    publica justo despues del ``job`` (de ahi el pequeño wait). El fixture
+    es por test y el test lanza un solo trabajo, asi que el ultimo
+    ``progress`` inactivo de la operacion es el final del trabajo.
+    """
+    limite = time.monotonic() + 5.0
+    while time.monotonic() < limite:
+        for tipo, carga in reversed(list(entorno.eventos)):
+            if (
+                tipo == "progress"
+                and not carga["active"]
+                and carga["operation"] == "generar_prevision_crear"
+            ):
+                for etapa in carga["stages"]:
+                    if etapa["id"] == nombre:
+                        return etapa
+        time.sleep(0.005)
+    raise AssertionError(f"No se encontro la etapa {nombre!r}.")
+
+
 @pytest.fixture
 def entorno_crear(
     tmp_path: Path,
@@ -149,9 +178,9 @@ def test_sin_escaneo_fresco(entorno_crear: Any, tmp_path: Path) -> None:
     resultado = evento["resultado"]
     assert resultado["precondiciones_ok"] is False
     assert resultado["success"] is False
-    assert "Cache de bloques del PLC no disponible" in (
-        resultado["missing_blocks"][0]
-    )
+    # El hint va en missing_blocks (como la 4.5); colisiones queda vacia.
+    assert resultado["missing_blocks"] == [HINT_SIN_ESCANEO]
+    assert resultado["colisiones"] == []
     assert resultado["archivos_previstos"] == []
     assert resultado["manifest_plantilla"] is None
     # No se copio nada al workdir.
@@ -159,7 +188,8 @@ def test_sin_escaneo_fresco(entorno_crear: Any, tmp_path: Path) -> None:
 
 
 def test_manifest_invalido(entorno_crear: Any, tmp_path: Path) -> None:
-    """Un manifest sin 'base' no aborta el trabajo: precondiciones_ok False."""
+    """Un manifest sin 'base' aborta el trabajo (como main): el paso
+    "manifest" queda en error con el mensaje."""
     dir_plantilla = _plantilla(
         tmp_path, manifest={"codigo": "CIP1", "dependencias": []}
     )
@@ -167,18 +197,19 @@ def test_manifest_invalido(entorno_crear: Any, tmp_path: Path) -> None:
 
     evento = _crear(entorno_crear, sesion, dir_plantilla.parent, PLANTILLA)
 
-    assert evento["estado"] == "ok", evento.get("error")
-    resultado = evento["resultado"]
-    assert resultado["precondiciones_ok"] is False
-    assert "debe contener 'base' (int)" in resultado["missing_blocks"][0]
-    assert resultado["manifest_plantilla"] is None
+    assert evento["estado"] == "error"
+    assert "debe contener 'base' (int)" in evento["error"]
+    # El paso "manifest" es el que quedo en error.
+    etapa = _etapa(entorno_crear, "manifest")
+    assert etapa["status"] == ERROR
+    assert "debe contener 'base' (int)" in etapa["detail"]
     # Sin manifest valido no se copio la plantilla.
     assert not (tmp_path / "procesos_crear" / "Plantilla").exists()
 
 
 def test_minimos_insuficientes(entorno_crear: Any, tmp_path: Path) -> None:
-    """Los N_MAX del proceso por debajo de los minimos: precondiciones_ok
-    False y el mensaje lista todas las claves que fallan."""
+    """Los N_MAX del proceso por debajo de los minimos: el trabajo aborta
+    (como main) y el mensaje lista todas las claves que fallan."""
     dir_plantilla = _plantilla(
         tmp_path,
         manifest={
@@ -194,17 +225,18 @@ def test_minimos_insuficientes(entorno_crear: Any, tmp_path: Path) -> None:
 
     evento = _crear(entorno_crear, sesion, dir_plantilla.parent, PLANTILLA)
 
-    assert evento["estado"] == "ok", evento.get("error")
-    resultado = evento["resultado"]
-    assert resultado["precondiciones_ok"] is False
-    mensaje = resultado["missing_blocks"][0]
-    assert mensaje.startswith(
-        "Los N_MAX del operario no cubren los minimos de la plantilla:"
+    assert evento["estado"] == "error"
+    mensaje = evento["error"]
+    assert (
+        "Los N_MAX del operario no cubren los minimos de la plantilla:" in mensaje
     )
     assert "N_MAX_PREAL: usuario=2 < plantilla=5" in mensaje
     assert "N_MAX_ALM_HMI: usuario=2 < plantilla=4" in mensaje
-    # El manifest es valido: se devuelve en la respuesta.
-    assert resultado["manifest_plantilla"]["base"] == 50500
+    # El paso "minimos" es el que quedo en error.
+    etapa = _etapa(entorno_crear, "minimos")
+    assert etapa["status"] == ERROR
+    # Sin minimos validos no se copio la plantilla.
+    assert not (tmp_path / "procesos_crear" / "Plantilla").exists()
 
 
 def test_colision_por_nombre(entorno_crear: Any, tmp_path: Path) -> None:
