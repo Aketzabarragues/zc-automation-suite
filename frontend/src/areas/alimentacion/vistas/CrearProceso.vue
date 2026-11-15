@@ -110,16 +110,16 @@ const textoConfirmacion = computed(() => {
   return (
     `¿Crear el proceso ${p ? `${p.uid}_${p.codigo}` : ""} en TIA Portal?\n\n` +
     `Plantilla: ${planta ? planta.carpeta : ""}\n` +
-    `Bloques a importar: ${nBloques} bloques previstos\n` +
+    `Bloques a importar: ${nBloques}\n` +
     `Dependencias validadas: ${nDeps}\n` +
     `Se importan las tablas y los bloques en una sola transaccion y se compila.\n` +
     `Esta operacion modifica el PLC.`
   );
 });
 
-/** El estado de una fila, con su color. */
+/** El color del estado de un bloque previsto: OK en verde, lo demas en rojo. */
 function estadoDeBloque(estado) {
-  return estado === "OK" ? "text-green-600" : "text-red-600";
+  return estado === "OK" ? "text-green-700" : "text-red-700";
 }
 
 /** La clase del estado de una transaccion (igual que en Procesos). */
