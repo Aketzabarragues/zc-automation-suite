@@ -138,7 +138,7 @@ def _mapa() -> MapaProceso:
 
 def test_los_arrays_tienen_la_shape_de_main() -> None:
     """Cada array sale con ``db_name``, ``array_name``, ``satellite_arrays``,
-    ``current_count``, ``desired_count`` y ``slot_map``."""
+    ``current_count``, ``desired_count``, ``slot_map`` y ``summary``."""
     arrays = proc_calcular_arrays(_mapa(), _dcl_param(), _res_param(), _dcl_alm(), _res_alm())
 
     assert set(arrays) == {"PReal", "PInt", "ALM"}
@@ -147,9 +147,30 @@ def test_los_arrays_tienen_la_shape_de_main() -> None:
     assert preal["array_name"] == "PReal"
     assert preal["satellite_arrays"] == ["PReal_Vis", "Aux.PReal_ValorAnterior"]
     assert preal["desired_count"] == 4  # slots 0..3 del Excel
+    assert set(preal["summary"]) == {
+        "total", "agregados", "renombrados", "eliminados", "sin_cambios"
+    }
     assert arrays["PInt"]["db_name"] == "DB53100_CPR_PARAM"
     assert arrays["ALM"]["db_name"] == "DB55100_CPR_ALM"
     assert arrays["ALM"]["satellite_arrays"] == []
+
+
+def test_el_summary_de_cada_array_cuenta_su_slot_map() -> None:
+    """El ``summary`` de un array cuenta los slots de su propio
+    ``slot_map`` por accion."""
+    arrays = proc_calcular_arrays(_mapa(), _dcl_param(), _res_param(), _dcl_alm(), _res_alm())
+
+    for arr in arrays.values():
+        slot_map = arr["slot_map"]
+        summary = arr["summary"]
+        assert summary["total"] == len(slot_map)
+        for accion, clave in (
+            ("agregar", "agregados"),
+            ("renombrar", "renombrados"),
+            ("eliminar", "eliminados"),
+            ("sin_cambios", "sin_cambios"),
+        ):
+            assert summary[clave] == sum(1 for e in slot_map.values() if e["action"] == accion)
 
 
 def test_el_slot_cero_no_sale_en_el_diff() -> None:

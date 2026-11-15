@@ -144,18 +144,18 @@ export const useProcesosStore = defineStore("procesos", {
     },
 
     /**
-     * El numero de cambios de un array (renombrar + agregar + eliminar).
+     * El numero de cambios de un array (renombrar + agregar + eliminar),
+     * del `summary` que calcula el backend.
      *
      * @param {string} array uno de `PReal`, `PInt` o `ALM`.
      */
     cambiosDe: (state) => (array) => {
       const preview = state.vigente || state.preview;
-      if (!preview || !preview.arrays || !preview.arrays[array]) return 0;
-      let total = 0;
-      for (const entrada of Object.values(preview.arrays[array].slot_map || {})) {
-        if (entrada.action && entrada.action !== "sin_cambios") total += 1;
-      }
-      return total;
+      const arr = preview && preview.arrays && preview.arrays[array];
+      const summary = (arr && arr.summary) || {};
+      return (
+        (summary.agregados || 0) + (summary.renombrados || 0) + (summary.eliminados || 0)
+      );
     },
   },
 

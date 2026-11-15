@@ -130,6 +130,39 @@ def _slots_a_eliminar(
     return eliminados
 
 
+#: La clave de cada accion en el resumen (singular -> plural).
+_ACCION_A_CLAVE: dict[str, str] = {
+    "agregar": "agregados",
+    "renombrar": "renombrados",
+    "eliminar": "eliminados",
+    "sin_cambios": "sin_cambios",
+}
+
+
+def proc_resumen_array(slot_map: dict[str, dict[str, Any]]) -> dict[str, int]:
+    """El resumen de un array: cuenta de slots por accion.
+
+    Args:
+        slot_map: el ``slot_map`` de un array (claves de slot como ``str``).
+
+    Returns:
+        ``{total, agregados, renombrados, eliminados, sin_cambios}``.
+    """
+    resumen: dict[str, int] = {
+        "total": 0,
+        "agregados": 0,
+        "renombrados": 0,
+        "eliminados": 0,
+        "sin_cambios": 0,
+    }
+    for entry in slot_map.values():
+        resumen["total"] += 1
+        clave = _ACCION_A_CLAVE.get(entry.get("action") or "")
+        if clave:
+            resumen[clave] += 1
+    return resumen
+
+
 def proc_calcular_arrays(
     mapa: MapaProceso,
     dcl_param: str,
@@ -152,7 +185,8 @@ def proc_calcular_arrays(
     Returns:
         ``{"PReal": {...}, "PInt": {...}, "ALM": {...}}`` con ``db_name``,
         ``array_name``, ``satellite_arrays``, ``current_count``,
-        ``desired_count`` y ``slot_map`` (claves de slot como ``str``).
+        ``desired_count``, ``slot_map`` (claves de slot como ``str``) y
+        ``summary`` (resumen del array, de su ``slot_map``).
     """
     arrays: dict[str, Any] = {}
     configuracion = (
@@ -182,40 +216,29 @@ def proc_calcular_arrays(
             "current_count": len(actual) if actual is not None else 0,
             "desired_count": len(slot_map),
             "slot_map": slot_map_serializado,
+            "summary": proc_resumen_array(slot_map_serializado),
         }
     return arrays
 
 
 def proc_resumen(arrays: dict[str, Any]) -> dict[str, int]:
-    """El resumen agregado de los arrays: total de slots y cuenta por accion.
+    """El resumen agregado de los arrays: suma de sus ``summary``.
 
     Returns:
         ``{total, agregados, renombrados, eliminados, sin_cambios}``.
     """
-    total = 0
-    agregados = 0
-    renombrados = 0
-    eliminados = 0
-    sin_cambios = 0
-    for arr in arrays.values():
-        for entry in arr.get("slot_map", {}).values():
-            total += 1
-            action = entry.get("action")
-            if action == "agregar":
-                agregados += 1
-            elif action == "renombrar":
-                renombrados += 1
-            elif action == "eliminar":
-                eliminados += 1
-            elif action == "sin_cambios":
-                sin_cambios += 1
-    return {
-        "total": total,
-        "agregados": agregados,
-        "renombrados": renombrados,
-        "eliminados": eliminados,
-        "sin_cambios": sin_cambios,
+    resumen = {
+        "total": 0,
+        "agregados": 0,
+        "renombrados": 0,
+        "eliminados": 0,
+        "sin_cambios": 0,
     }
+    for arr in arrays.values():
+        for clave, valor in (arr.get("summary") or {}).items():
+            if clave in resumen:
+                resumen[clave] += valor
+    return resumen
 
 
 # ── el diff del N_MAX ────────────────────────────────────────────────────────

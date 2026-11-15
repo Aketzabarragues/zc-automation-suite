@@ -55,6 +55,7 @@ const PREVISION = {
         "1": { current: "Parametro uno (viejo)", desired: "Parametro uno", action: "renombrar" },
         "3": { current: null, desired: "Parametro tres", action: "agregar" },
       },
+      summary: { total: 3, agregados: 1, renombrados: 1, eliminados: 0, sin_cambios: 1 },
     },
     PInt: {
       db_name: "DB53100_CPR_PARAM",
@@ -65,6 +66,7 @@ const PREVISION = {
       slot_map: {
         "1": { current: "Entero uno", desired: "Entero uno", action: "sin_cambios" },
       },
+      summary: { total: 1, agregados: 0, renombrados: 0, eliminados: 0, sin_cambios: 1 },
     },
     ALM: {
       db_name: "DB55100_CPR_ALM",
@@ -77,6 +79,7 @@ const PREVISION = {
         "2": { current: "Alarma dos", desired: "Alarma dos (ren)", action: "renombrar" },
         "3": { current: "Alarma tres", desired: null, action: "eliminar" },
       },
+      summary: { total: 3, agregados: 0, renombrados: 1, eliminados: 1, sin_cambios: 1 },
     },
   },
   summary: { total: 7, agregados: 1, renombrados: 2, eliminados: 1, sin_cambios: 3 },
@@ -100,9 +103,17 @@ const PREVISION = {
 const PREVISION_POST = {
   ...PREVISION,
   arrays: {
-    PReal: { ...PREVISION.arrays.PReal, slot_map: { "1": { current: "Parametro uno", desired: "Parametro uno", action: "sin_cambios" } } },
+    PReal: {
+      ...PREVISION.arrays.PReal,
+      slot_map: { "1": { current: "Parametro uno", desired: "Parametro uno", action: "sin_cambios" } },
+      summary: { total: 1, agregados: 0, renombrados: 0, eliminados: 0, sin_cambios: 1 },
+    },
     PInt: { ...PREVISION.arrays.PInt },
-    ALM: { ...PREVISION.arrays.ALM, slot_map: { "1": { current: "Alarma uno", desired: "Alarma uno", action: "sin_cambios" } } },
+    ALM: {
+      ...PREVISION.arrays.ALM,
+      slot_map: { "1": { current: "Alarma uno", desired: "Alarma uno", action: "sin_cambios" } },
+      summary: { total: 1, agregados: 0, renombrados: 0, eliminados: 0, sin_cambios: 1 },
+    },
   },
   summary: { total: 3, agregados: 0, renombrados: 0, eliminados: 0, sin_cambios: 3 },
 };
