@@ -27,13 +27,18 @@ y ``proc_process_aplicar_clonacion.py``) con los mismos criterios:
   - ``dicc_xml``: solo los prefijos (carpetas, stems y bases estandar) y
     los fallbacks de codigo y nombre.
 
-- ``proc_aplicar_clonacion`` copia la plantilla a ``dir_nuevo`` (sin el
-  ``manifest.json``), renombra los nombres de ficheros y carpetas
-  (profundidad descendente, para no romper los paths de los hijos) y
-  reescribe el contenido segun la extension:
+- ``proc_aplicar_clonacion`` **no** copia la plantilla: recibe
+  ``dir_nuevo`` ya copiado por el llamador (``shutil.copytree`` de la
+  plantilla, sin el ``manifest.json``) y renombra los nombres de ficheros y
+  carpetas (profundidad descendente, para no romper los paths de los hijos)
+  y reescribe el contenido segun la extension:
 
   - ``.s7res``: ``dicc_bloques``, encoding ``utf-8-sig`` (BOM).
-  - ``.xml``: ``dicc_xml``, encoding ``utf-8``.
+  - ``.xml``: ``dicc_xml``, encoding ``utf-8``. Si el XML contiene
+    ``PlcUserConstant`` y el llamador pasa ``base_nueva`` y
+    ``minimos_usuario``, se fija ademas el ``<Value>`` de las cuatro
+    constantes N_MAX del proceso nuevo (las de
+    ``<Name>{base_nueva}_N_MAX_*</Name>``) con los valores del operario.
   - ``.s7dcl``/``.scl``/``.awl``: ``dicc_bloques``, encoding ``utf-8``.
   - El resto (binarios) no se toca.
 
@@ -67,6 +72,12 @@ EXTENSIONES: dict[str, tuple[str, str]] = {
     ".awl": ("bloques", "utf-8"),
     ".xml": ("xml", "utf-8"),
 }
+
+#: Las claves de las cuatro constantes N_MAX de un proceso (las de
+#: ``<Name>{base}_N_MAX_<clave></Name>`` en el XML de la tabla).
+N_MAX_KEYS: tuple[str, ...] = (
+    "N_MAX_PREAL", "N_MAX_PINT", "N_MAX_ALM", "N_MAX_ALM_HMI",
+)
 
 
 def proc_construir_diccionarios(
@@ -196,25 +207,70 @@ def _escribir_texto(path: Path, contenido: str, encoding: str) -> None:
         f.write(contenido)
 
 
+def _reemplazar_nmax_en_xml(
+    contenido: str,
+    base_nueva: int,
+    minimos_usuario: dict[str, int],
+) -> str:
+    """Fija el ``<Value>`` de las constantes N_MAX del proceso nuevo.
+
+    Sustituye el valor de cada ``<Name>{base_nueva}_N_MAX_<clave></Name>``
+    por el del operario (las que tenga en ``minimos_usuario``). Asume que
+    ``contenido`` ya paso por ``dicc_xml``: el nombre canonico con la base
+    nueva ya esta presente.
+
+    Args:
+        contenido: el XML ya renombrado con ``dicc_xml``.
+        base_nueva: la base numerica del proceso nuevo.
+        minimos_usuario: los valores del operario por clave
+            (``{"N_MAX_PREAL": 10, ...}``); las ausentes no se tocan.
+
+    Returns:
+        El XML con los valores fijados.
+    """
+    for clave in N_MAX_KEYS:
+        valor = minimos_usuario.get(clave)
+        if valor is None:
+            continue
+        patron = rf"(<Name>{base_nueva}_{clave}</Name>.*?<Value>)(\d+)(</Value>)"
+        contenido = re.sub(
+            patron,
+            lambda m, v=valor: f"{m.group(1)}{v}{m.group(3)}",
+            contenido,
+            flags=re.DOTALL,
+        )
+    return contenido
+
+
 def proc_aplicar_clonacion(
     dir_nuevo: Path,
     dicc_bloques: dict[str, str],
     dicc_xml: dict[str, str],
+    base_nueva: int | None = None,
+    minimos_usuario: dict[str, int] | None = None,
 ) -> list[str]:
     """Renombra la clonacion ya copiada en ``dir_nuevo``.
+
+    **No copia nada**: el llamador hace el ``shutil.copytree`` de la
+    plantilla a ``dir_nuevo`` (sin el ``manifest.json``) antes de llamar.
 
     Aplica el dicc_bloques a los **nombres** de ficheros y carpetas (en
     profundidad descendente, para no romper los paths de los hijos) y el
     **contenido** de ``.s7res`` (utf-8-sig), ``.s7dcl``/``.scl``/``.awl``
-    (utf-8) y ``.xml`` (``dicc_xml``, utf-8). El resto (binarios) no se
-    toca.
+    (utf-8) y ``.xml`` (``dicc_xml``, utf-8). En un ``.xml`` con
+    ``PlcUserConstant``, si se pasan ``base_nueva`` y
+    ``minimos_usuario``, se fija ademas el ``<Value>`` de las constantes
+    N_MAX del proceso nuevo. El resto (binarios) no se toca.
 
     Args:
-        dir_nuevo: la clonacion ya copiada (``shutil.copytree`` desde la
-            plantilla, sin el ``manifest.json``).
+        dir_nuevo: la clonacion ya copiada por el llamador.
         dicc_bloques: el diccionario de bloques
             (``proc_construir_diccionarios``).
         dicc_xml: el diccionario de XML.
+        base_nueva: la base numerica del proceso nuevo; se usa para fijar
+            los N_MAX en el XML.
+        minimos_usuario: los valores del operario por clave N_MAX; se usa
+            para fijar los N_MAX en el XML.
 
     Returns:
         Las rutas relativas (con ``"/"``) de todos los ficheros generados.
@@ -245,5 +301,13 @@ def proc_aplicar_clonacion(
             continue
         dicc = dicc_bloques if clave == "bloques" else dicc_xml
         contenido = _leer_texto(path, encoding)
-        _escribir_texto(path, _aplicar_diccionario(contenido, dicc), encoding)
+        nuevo = _aplicar_diccionario(contenido, dicc)
+        if (
+            clave == "xml"
+            and "PlcUserConstant" in nuevo
+            and base_nueva is not None
+            and minimos_usuario
+        ):
+            nuevo = _reemplazar_nmax_en_xml(nuevo, base_nueva, minimos_usuario)
+        _escribir_texto(path, nuevo, encoding)
     return generados

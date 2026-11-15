@@ -7,6 +7,7 @@ transacciones.
 from __future__ import annotations
 
 import shutil
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
 from zc_suite.areas.alimentacion.procesos.clonacion import (
@@ -205,3 +206,150 @@ def test_aplicar_clonacion_s7dcl_con_bom_y_crlf(tmp_path: Path) -> None:
     assert salida == (
         b"\xef\xbb\xbfDATA_BLOCK DB500_NUE_INTERFAZ\r\nEND_DATA_BLOCK\r\n"
     )
+
+
+# ── los N_MAX en el XML ──────────────────────────────────────────────────────
+
+
+def _xml_tabla(base: int) -> bytes:
+    """El XML de la tabla de un proceso ``base``, con las cuatro N_MAX."""
+    return (
+        '<?xml version="1.0" encoding="utf-8"?>\r\n'
+        "<Document>\r\n"
+        "  <ObjectList>\r\n"
+        f'    <SW.Tags.PlcUserConstant ID="1">\r\n'
+        f'      <AttributeList><Name>{base}_N_MAX_PREAL</Name>'
+        "<Value>1</Value></AttributeList>\r\n"
+        '    </SW.Tags.PlcUserConstant>\r\n'
+        f'    <SW.Tags.PlcUserConstant ID="2">\r\n'
+        f'      <AttributeList><Name>{base}_N_MAX_PINT</Name>'
+        "<Value>1</Value></AttributeList>\r\n"
+        '    </SW.Tags.PlcUserConstant>\r\n'
+        f'    <SW.Tags.PlcUserConstant ID="3">\r\n'
+        f'      <AttributeList><Name>{base}_N_MAX_ALM</Name>'
+        "<Value>1</Value></AttributeList>\r\n"
+        '    </SW.Tags.PlcUserConstant>\r\n'
+        f'    <SW.Tags.PlcUserConstant ID="4">\r\n'
+        f'      <AttributeList><Name>{base}_N_MAX_ALM_HMI</Name>'
+        "<Value>1</Value></AttributeList>\r\n"
+        '    </SW.Tags.PlcUserConstant>\r\n'
+        '    <SW.Tags.PlcUserConstant ID="5">\r\n'
+        f'      <AttributeList><Name>{base}_OTRA</Name>'
+        "<Value>9</Value></AttributeList>\r\n"
+        '    </SW.Tags.PlcUserConstant>\r\n'
+        "  </ObjectList>\r\n"
+        "</Document>\r\n"
+    ).encode()
+
+
+MINIMOS_COMPLETOS = {
+    "N_MAX_PREAL": 10,
+    "N_MAX_PINT": 20,
+    "N_MAX_ALM": 30,
+    "N_MAX_ALM_HMI": 5,
+}
+
+
+def test_aplicar_clonacion_fija_los_nmax_del_operario(tmp_path: Path) -> None:
+    """El <Value> de las cuatro N_MAX pasa al valor del operario."""
+    plantilla = _plantilla(tmp_path)
+    (plantilla / "Table1.xml").write_bytes(_xml_tabla(50500))
+    dir_nuevo = tmp_path / "nuevo"
+    _copiar_plantilla(plantilla, dir_nuevo)
+    proc_aplicar_clonacion(
+        dir_nuevo,
+        *_diccionarios(plantilla),
+        base_nueva=BASE_NUEVA,
+        minimos_usuario=MINIMOS_COMPLETOS,
+    )
+    salida = (dir_nuevo / "Table1.xml").read_text(encoding="utf-8")
+    assert f"<Name>{BASE_NUEVA}_N_MAX_PREAL</Name>" in salida
+    for clave, valor in MINIMOS_COMPLETOS.items():
+        assert f"<Name>{BASE_NUEVA}_{clave}</Name><Value>{valor}</Value>" in salida
+    # Una constante no N_MAX de la tabla no se toca.
+    assert f"<Name>{BASE_NUEVA}_OTRA</Name><Value>9</Value>" in salida
+
+
+def test_aplicar_clonacion_nmax_clave_ausente_no_se_toca(tmp_path: Path) -> None:
+    """Una clave sin valor del operario queda con el valor de la plantilla."""
+    plantilla = _plantilla(tmp_path)
+    (plantilla / "Table1.xml").write_bytes(_xml_tabla(50500))
+    dir_nuevo = tmp_path / "nuevo"
+    _copiar_plantilla(plantilla, dir_nuevo)
+    proc_aplicar_clonacion(
+        dir_nuevo,
+        *_diccionarios(plantilla),
+        base_nueva=BASE_NUEVA,
+        minimos_usuario={"N_MAX_PREAL": 10},
+    )
+    salida = (dir_nuevo / "Table1.xml").read_text(encoding="utf-8")
+    assert f"<Name>{BASE_NUEVA}_N_MAX_PREAL</Name><Value>10</Value>" in salida
+    for clave in ("N_MAX_PINT", "N_MAX_ALM", "N_MAX_ALM_HMI"):
+        assert f"<Name>{BASE_NUEVA}_{clave}</Name><Value>1</Value>" in salida
+
+
+def test_aplicar_clonacion_xml_sin_plcuserconstant_no_se_toca(tmp_path: Path) -> None:
+    """Un XML sin PlcUserConstant no recibe el override de N_MAX."""
+    plantilla = _plantilla(tmp_path)
+    (plantilla / "Table1.xml").write_bytes(
+        b"<Document><Value>7</Value></Document>\r\n"
+    )
+    dir_nuevo = tmp_path / "nuevo"
+    _copiar_plantilla(plantilla, dir_nuevo)
+    proc_aplicar_clonacion(
+        dir_nuevo,
+        *_diccionarios(plantilla),
+        base_nueva=BASE_NUEVA,
+        minimos_usuario=MINIMOS_COMPLETOS,
+    )
+    salida = (dir_nuevo / "Table1.xml").read_bytes()
+    assert b"<Value>7</Value>" in salida
+
+
+def test_aplicar_clonacion_sin_nmax_como_antes(tmp_path: Path) -> None:
+    """Sin base_nueva/minimos_usuario el XML solo recibe dicc_xml."""
+    plantilla = _plantilla(tmp_path)
+    (plantilla / "Table1.xml").write_bytes(_xml_tabla(50500))
+    dir_nuevo = tmp_path / "nuevo"
+    _copiar_plantilla(plantilla, dir_nuevo)
+    proc_aplicar_clonacion(dir_nuevo, *_diccionarios(plantilla))
+    salida = (dir_nuevo / "Table1.xml").read_text(encoding="utf-8")
+    # Renombrado de nombres por dicc_xml...
+    assert f"<Name>{BASE_NUEVA}_N_MAX_PREAL</Name>" in salida
+    # ... pero los valores quedan los de la plantilla (1).
+    assert f"<Name>{BASE_NUEVA}_N_MAX_PREAL</Name><Value>1</Value>" in salida
+
+
+def test_aplicar_clonacion_nmax_preserva_crlf_y_encoding(tmp_path: Path) -> None:
+    """El XML con CRLF sale con CRLF y el override no rompe la estructura."""
+    plantilla = _plantilla(tmp_path)
+    (plantilla / "Table1.xml").write_bytes(_xml_tabla(50500))
+    dir_nuevo = tmp_path / "nuevo"
+    _copiar_plantilla(plantilla, dir_nuevo)
+    proc_aplicar_clonacion(
+        dir_nuevo,
+        *_diccionarios(plantilla),
+        base_nueva=BASE_NUEVA,
+        minimos_usuario=MINIMOS_COMPLETOS,
+    )
+    salida = (dir_nuevo / "Table1.xml").read_bytes()
+    assert b"\r\n" in salida
+    assert b"\n<Name>" not in salida
+    assert b"\n  </ObjectList>\r\n" in salida
+    # El XML sigue siendo parseable con los cuatro valores fijados.
+    arbol = ET.fromstring(salida.decode("utf-8"))
+    valores = {
+        nombre.text: valor.text
+        for nombre, valor in (
+            (elemento.find("./AttributeList/Name"), elemento.find("./AttributeList/Value"))
+            for elemento in arbol.iter("SW.Tags.PlcUserConstant")
+        )
+        if nombre is not None and valor is not None
+        and nombre.text is not None and "N_MAX" in nombre.text
+    }
+    assert valores == {
+        f"{BASE_NUEVA}_N_MAX_PREAL": "10",
+        f"{BASE_NUEVA}_N_MAX_PINT": "20",
+        f"{BASE_NUEVA}_N_MAX_ALM": "30",
+        f"{BASE_NUEVA}_N_MAX_ALM_HMI": "5",
+    }
