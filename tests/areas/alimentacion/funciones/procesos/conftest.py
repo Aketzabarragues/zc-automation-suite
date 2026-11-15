@@ -7,6 +7,8 @@ que se exportan en SimaticSD desde el fixture.
 """
 from __future__ import annotations
 
+import json
+import threading
 import time
 from collections.abc import Callable
 from pathlib import Path
@@ -19,6 +21,9 @@ from openpyxl.worksheet.table import Table, TableStyleInfo
 
 from zc_suite.areas.alimentacion.config import ConfigArea
 from zc_suite.areas.alimentacion.excel.almacen import AlmacenExcel
+from zc_suite.areas.alimentacion.funciones.procesos import (
+    crear as modulo_crear,
+)
 from zc_suite.areas.alimentacion.funciones.procesos import (
     generar_prevision as modulo_prevision,
 )
@@ -819,4 +824,457 @@ def _entorno(
         eventos,
     )
     servicio.parar()
+
+
+# ── el doble de la aplicacion (crear.py) ───────────────────────────────────
+#
+# El doble del apply es mas grueso que el del sync: el PLC importa tablas y
+# bloques (sin carpeta destino), registra el orden de las llamadas, deja
+# fallar cada import de forma programable y expone sus bloques a
+# ``escanear_bloques`` (``get_program_blocks``) y a ``compilar_bloques``
+# (``is_consistent``/``compile`` por bloque).
+#
+# El ``modulo_crear`` (importado arriba) es el FB de apply (``crear.py``),
+# no la prevision.
+
+#: El nombre de la subcarpeta de la plantilla de prueba del apply.
+PLANTILLA_NOMBRE = "50500_CIP1"
+
+#: La carpeta de los bloques dentro de la exportacion de TIA (la plantilla).
+CARPETA_BLOQUES_APPLY = "Bloques de programa"
+
+#: La carpeta de las tablas de variables dentro de la exportacion de TIA.
+CARPETA_VARIABLES_APPLY = "Variables PLC"
+
+
+class BloqueDatoFalso:
+    """Un bloque del PLC, lo minimo que ``escanear_bloques`` necesita."""
+
+    def __init__(self, nombre: str) -> None:
+        self._nombre = nombre
+
+    def get_name(self) -> str:
+        return self._nombre
+
+    def get_property(self, name: str) -> Any:
+        if name == "Name":
+            return self._nombre
+        return None
+
+    def get_properties(self) -> list[str]:
+        return ["Name"]
+
+
+class BloqueCompilableFalso:
+    """Un bloque que se puede compilar (``compilar_bloques``)."""
+
+    def __init__(self, nombre: str, error: str | None = None) -> None:
+        self._nombre = nombre
+        self._error = error
+        self.n_compilaciones = 0
+
+    def get_name(self) -> str:
+        return self._nombre
+
+    def get_property(self, name: str) -> Any:
+        if name == "Name":
+            return self._nombre
+        return None
+
+    def get_properties(self) -> list[str]:
+        return ["Name"]
+
+    def is_consistent(self) -> bool:
+        return False
+
+    def compile(self) -> Any:
+        self.n_compilaciones += 1
+        if self._error is not None:
+            raise RuntimeError(self._error)
+        return False
+
+
+class PlcCrearFalso:
+    """El PLC del apply: tablas, bloques y las importaciones."""
+
+    def __init__(
+        self,
+        orden: list[str],
+        bloques: list[Any] | None = None,
+        fallo_import_tablas: str | None = None,
+        fallo_import_bloques: str | None = None,
+    ) -> None:
+        self._orden = orden
+        self._bloques = bloques if bloques is not None else []
+        self._fallo_import_tablas = fallo_import_tablas
+        self._fallo_import_bloques = fallo_import_bloques
+        self.importaciones_tablas: list[dict[str, Any]] = []
+        self.importaciones_bloques: list[dict[str, Any]] = []
+        #: Puerta para bloquear un import y soltarlo desde el test: simula un
+        #: TIA lento para que la cancelacion caiga mientras el import esta en
+        #: curso (la cancelacion se respeta entre pasos, no dentro de un
+        #: import que ya arranco).
+        self.bloquea_import = False
+        self.esperando_import = threading.Event()
+        self.libera_import = threading.Event()
+
+    def _esperar_libre(self) -> None:
+        if self.bloquea_import:
+            self.esperando_import.set()
+            self.libera_import.wait(timeout=30.0)
+
+    def get_name(self) -> str:
+        return NOMBRE_PLC
+
+    def get_plc_tag_tables(self) -> list[Any]:
+        return []
+
+    def get_program_blocks(self) -> list[Any]:
+        return self._bloques
+
+    def import_plc_tags(
+        self,
+        import_root_directory: str,
+        target_folder_path: str | None = None,
+    ) -> None:
+        self._orden.append("import_tablas")
+        self.importaciones_tablas.append(
+            {
+                "directorio": import_root_directory,
+                "carpeta_destino": target_folder_path,
+            }
+        )
+        self._esperar_libre()
+        if self._fallo_import_tablas is not None:
+            raise RuntimeError(self._fallo_import_tablas)
+
+    def import_blocks(
+        self,
+        import_root_directory: str,
+        target_folder_path: str | None = None,
+    ) -> None:
+        self._orden.append("import_bloques")
+        self.importaciones_bloques.append(
+            {
+                "directorio": import_root_directory,
+                "carpeta_destino": target_folder_path,
+            }
+        )
+        self._esperar_libre()
+        if self._fallo_import_bloques is not None:
+            raise RuntimeError(self._fallo_import_bloques)
+
+
+class ProyectoCrearFalso:
+    """El proyecto del apply, con transacciones."""
+
+    def __init__(self, plc: PlcCrearFalso) -> None:
+        self.plc = plc
+        self.transacciones: list[dict[str, Any]] = []
+
+    def get_plcs(self) -> list[PlcCrearFalso]:
+        return [self.plc]
+
+    def start_transaction(self, undo_text: str = "", dialog_text: str = "") -> None:
+        self.transacciones.append({"inicio": undo_text})
+
+    def end_transaction(self, rollback: bool = False) -> None:
+        self.transacciones.append({"rollback": rollback})
+
+
+class PortalCrearFalso:
+    """El portal del apply."""
+
+    def __init__(self, proyecto: ProyectoCrearFalso) -> None:
+        self.proyecto = proyecto
+
+    def get_process_id(self) -> int:
+        return 4242
+
+    def get_project(self) -> ProyectoCrearFalso:
+        return self.proyecto
+
+    def detach(self) -> None:
+        pass
+
+
+class TsCrearFalso:
+    """El modulo del SDK del apply, con un portal ya abierto."""
+
+    class Enums:
+        class PortalMode:
+            AnyUserInterface = "cualquier"
+            WithGraphicalUserInterface = "con_gui"
+            WithoutGraphicalUserInterface = "sin_gui"
+
+    def __init__(
+        self,
+        plc: PlcCrearFalso,
+        proyecto: ProyectoCrearFalso,
+        version: str = VERSION_TIA,
+    ) -> None:
+        self._version = version
+        self.portal = PortalCrearFalso(proyecto)
+
+    def get_installed_bundles(self) -> list[Any]:
+        version = self._version
+
+        class _Bundle:
+            def get_title(self) -> str:
+                return version
+
+        return [_Bundle()]
+
+    def attach_portal(self, portal_mode: str | None = None) -> PortalCrearFalso:
+        return self.portal
+
+    def open_portal(self, portal_mode: str | None = None) -> PortalCrearFalso:
+        return self.portal
+
+    def set_logging(self, path: str, console: bool) -> None:
+        pass
+
+
+class EntornoCrear:
+    """El almacen, un escaneo y un TIA falso que acepta el apply."""
+
+    def __init__(
+        self,
+        servicio: ServicioTIA,
+        almacen: AlmacenExcel,
+        modelo: ConfigArea,
+        plc: PlcCrearFalso,
+        proyecto: ProyectoCrearFalso,
+        sesion: Sesion,
+        eventos: list[tuple[str, dict[str, Any]]],
+        orden: list[str],
+        plantillas: Path,
+    ) -> None:
+        self.servicio = servicio
+        self.almacen = almacen
+        self.modelo = modelo
+        self.plc = plc
+        self.proyecto = proyecto
+        self.sesion = sesion
+        self.eventos = eventos
+        self.orden = orden
+        self.plantillas = plantillas
+
+    def lanzar(self, **params: Any) -> str:
+        """Encola el apply de crear y devuelve su ``job_id`` (sin esperar)."""
+        sesion = params.pop("sesion", None)
+        if sesion is None:
+            sesion = self.sesion
+        plantillas_dir = params.pop("plantillas_dir", None)
+        return self.servicio.lanzar(
+            modulo_crear.crear,
+            almacen=self.almacen,
+            config=self.modelo,
+            sesion=sesion,
+            plantillas_dir=plantillas_dir
+            if plantillas_dir is not None
+            else self.plantillas,
+            **params,
+        )
+
+    def crear(
+        self,
+        proc_uid: int,
+        sesion: Sesion | None = None,
+        plantillas_dir: Path | None = None,
+        dir_plantilla: str = PLANTILLA_NOMBRE,
+    ) -> dict[str, Any]:
+        """Lanza el apply de crear y devuelve su evento de fin."""
+        job_id = self.lanzar(
+            proc_uid=proc_uid,
+            plc=NOMBRE_PLC,
+            dir_plantilla_nombre=dir_plantilla,
+            sesion=sesion,
+            plantillas_dir=plantillas_dir,
+        )
+        return self._esperar(job_id)
+
+    def _esperar(self, job_id: str) -> dict[str, Any]:
+        """Espera al evento de fin del trabajo."""
+        limite = time.monotonic() + 15.0
+        while time.monotonic() < limite:
+            for tipo, carga in list(self.eventos):
+                if tipo == "job" and carga["job"] == job_id:
+                    return carga
+            time.sleep(0.005)
+        raise AssertionError(f"El trabajo {job_id} no termino.")
+
+
+def _plantilla_apply(raiz: Path) -> Path:
+    """La plantilla 50500 con su XML de variables (N_MAX) para el apply."""
+    dir_plantilla = raiz / PLANTILLA_NOMBRE
+    (dir_plantilla / CARPETA_BLOQUES_APPLY).mkdir(parents=True)
+    for bloque in ("DB50500_CIP1_INTERFAZ", "FC50501_CIP1_ORDENES"):
+        (dir_plantilla / CARPETA_BLOQUES_APPLY / f"{bloque}.s7dcl").write_bytes(
+            b"END_DATA_BLOCK\r\n"
+        )
+        (dir_plantilla / CARPETA_BLOQUES_APPLY / f"{bloque}.s7res").write_bytes(
+            b"es-ES\r\n"
+        )
+    (dir_plantilla / CARPETA_VARIABLES_APPLY).mkdir()
+    (dir_plantilla / CARPETA_VARIABLES_APPLY / "50500_CIP1.xml").write_text(
+        _xml_tabla_plantilla(),
+        encoding="utf-8",
+    )
+    manifest = {
+        "base": 50500,
+        "codigo": "CIP1",
+        "nombre": "Principal",
+        "descripcion": "Plantilla de proceso de alimentacion.",
+        "dependencias": ["DB1_SYS"],
+        "minimos": {"N_MAX_PREAL": 1, "N_MAX_PINT": 1},
+    }
+    (dir_plantilla / "manifest.json").write_text(
+        json.dumps(manifest), encoding="utf-8"
+    )
+    return dir_plantilla
+
+
+def _xml_tabla_plantilla() -> str:
+    """El XML de la tabla de variables de la plantilla, con los N_MAX.
+
+    Mismo formato que ``xml_de_tabla`` del conftest del area: cada constante
+    es un ``SW.Tags.PlcUserConstant`` con su ``<Name>`` y su ``<Value>``.
+    El nombre ya lleva la base nueva (``100_``), porque el XML de la
+    plantilla pasa por ``dicc_xml`` y ahi se fija la base del proceso nuevo.
+    """
+    constantes = [
+        ("100_N_MAX_PREAL", 1),
+        ("100_N_MAX_PINT", 1),
+        ("100_N_MAX_ALM", 2),
+        ("100_N_MAX_ALM_HMI", 2),
+    ]
+    partes = [
+        '<?xml version="1.0" encoding="utf-8"?>',
+        "<Document>",
+        '  <SW.Tags.PlcTagTable ID="0">',
+        "    <ObjectList>",
+    ]
+    for indice, (nombre_constante, valor) in enumerate(constantes, start=1):
+        partes.append(
+            f'      <SW.Tags.PlcUserConstant ID="{indice}">\n'
+            f"        <AttributeList><Name>{nombre_constante}</Name>"
+            f"<Value>{valor}</Value></AttributeList>\n"
+            "      </SW.Tags.PlcUserConstant>"
+        )
+    partes += ["    </ObjectList>", "  </SW.Tags.PlcTagTable>", "</Document>", ""]
+    return "\n".join(partes)
+
+
+def _entorno_crear(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    modelo: ConfigArea,
+    excel_procesos: Path,
+    version: str,
+    plantillas: Path,
+    fallo_import_tablas: str | None = None,
+    fallo_import_bloques: str | None = None,
+    bloques: list[Any] | None = None,
+) -> Any:
+    """Monta el fixture del apply para la version de TIA indicada."""
+    almacen = AlmacenExcel()
+    almacen.config = modelo
+    almacen.volcar(excel_procesos)
+
+    workdir = Workdir(
+        base=tmp_path / "procesos_crear",
+        carpetas_contexto=("Plantilla", "Nuevo"),
+    )
+    monkeypatch.setattr(modulo_crear, "workdir_crear", lambda: workdir)
+    # La pausa de consolidacion de TIA no aporta nada en un test.
+    monkeypatch.setattr(modulo_crear, "TIA_CONSOLIDATION_SLEEP_S", 0.0)
+
+    orden: list[str] = []
+    plc = PlcCrearFalso(
+        orden,
+        bloques=bloques,
+        fallo_import_tablas=fallo_import_tablas,
+        fallo_import_bloques=fallo_import_bloques,
+    )
+    proyecto = ProyectoCrearFalso(plc)
+
+    eventos: list[tuple[str, dict[str, Any]]] = []
+    servicio = ServicioTIA(
+        publicador=lambda tipo, carga: eventos.append((tipo, carga)),
+        cargador=lambda: TsCrearFalso(plc, proyecto, version),
+    )
+    conectar = servicio.lanzar(tia.conectar)
+    _esperar_job(eventos, conectar)
+    yield EntornoCrear(
+        servicio,
+        almacen,
+        modelo,
+        plc,
+        proyecto,
+        _sesion_apply(),
+        eventos,
+        orden,
+        plantillas,
+    )
+    servicio.parar()
+
+
+def _sesion_con_escaneo(bloques: list[dict[str, str]]) -> Sesion:
+    """Una sesion con un escaneo fresco del PLC y los bloques dados."""
+    sesion = Sesion()
+    sesion.guardar_escaneo(
+        NOMBRE_PLC,
+        bloques=bloques,
+        tablas=[{"nombre": TABLA_PROCESO}],
+        tipos=[],
+    )
+    return sesion
+
+
+def _sesion_apply() -> Sesion:
+    """Una sesion con un escaneo fresco que incluye la dependencia."""
+    return _sesion_con_escaneo(
+        bloques=[{"nombre": "DB1_SYS"}, {"nombre": "DB999_OTRO"}]
+    )
+
+
+@pytest.fixture
+def entorno_apply(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    modelo: ConfigArea,
+    excel_procesos: Path,
+) -> Any:
+    """El almacen, un escaneo fresco y un TIA falso que acepta el apply."""
+    plantillas = tmp_path / "plantillas_apply"
+    _plantilla_apply(plantillas)
+    yield from _entorno_crear(
+        tmp_path,
+        monkeypatch,
+        modelo,
+        excel_procesos,
+        VERSION_TIA,
+        plantillas,
+    )
+
+
+@pytest.fixture
+def entorno_apply_v18(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    modelo: ConfigArea,
+    excel_procesos: Path,
+) -> Any:
+    """Lo mismo, pero con un TIA Portal V18: no soporta SimaticSD."""
+    plantillas = tmp_path / "plantillas_apply"
+    _plantilla_apply(plantillas)
+    yield from _entorno_crear(
+        tmp_path,
+        monkeypatch,
+        modelo,
+        excel_procesos,
+        "Siemens TIA Portal V18.0",
+        plantillas,
+    )
 
