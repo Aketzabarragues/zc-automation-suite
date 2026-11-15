@@ -8,6 +8,8 @@ comprobar: el trabajo del Excel no la exige.
 from __future__ import annotations
 
 import importlib
+import json
+import threading
 import time
 from pathlib import Path
 from typing import Any
@@ -718,3 +720,354 @@ def test_subir_otro_excel_borra_la_prevision_de_un_proceso(
     datos = sesion.datos_area("alimentacion")
     assert CLAVE_PREVISION not in datos
     assert CLAVE_PREVISION_CREAR not in datos
+
+
+# ── crear un proceso desde una plantilla ────────────────────────────────────
+
+
+def _plantilla_en(
+    raiz: Path,
+    nombre: str,
+    manifest: dict[str, Any] | None = None,
+) -> Path:
+    """Una subcarpeta de plantilla con su ``manifest.json`` (o sin el)."""
+    dir_plantilla = raiz / nombre
+    dir_plantilla.mkdir(parents=True)
+    if manifest is not None:
+        (dir_plantilla / "manifest.json").write_text(
+            json.dumps(manifest), encoding="utf-8"
+        )
+    return dir_plantilla
+
+
+def _carpeta_plantillas(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> Path:
+    """Una carpeta de plantillas en un temporal, apuntada por ``raiz_datos``."""
+    raiz_datos = tmp_path / "datos"
+    raiz_datos.mkdir()
+    carpeta = raiz_datos / "plantillas"
+    carpeta.mkdir()
+    modulo_crear = importlib.import_module(
+        "zc_suite.areas.alimentacion.funciones.procesos.generar_prevision_crear"
+    )
+    monkeypatch.setattr(modulo_crear, "raiz_datos", lambda: raiz_datos)
+    return carpeta
+
+
+def test_listar_plantillas_responde_200_con_las_plantillas(
+    cliente: Any,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    carpeta = _carpeta_plantillas(tmp_path, monkeypatch)
+    _plantilla_en(
+        carpeta,
+        "10000_BAS",
+        {"base": 10000, "codigo": "BAS", "nombre": "Basica"},
+    )
+    _plantilla_en(
+        carpeta,
+        "50500_CIP1",
+        {"base": 50500, "codigo": "CIP1", "nombre": "Principal"},
+    )
+    (carpeta / "60000_SIN_MANIFEST").mkdir()
+    (carpeta / "basura.txt").write_bytes(b"x")
+
+    respuesta = cliente.get(
+        "/api/v1/areas/alimentacion/procesos/plantillas", base_url=BASE
+    )
+
+    assert respuesta.status_code == 200
+    cuerpo = respuesta.get_json()
+    assert [p["carpeta"] for p in cuerpo["plantillas"]] == [
+        "10000_BAS",
+        "50500_CIP1",
+    ]
+    assert cuerpo["aviso"] is None
+    assert cuerpo["plantillas_path"] == str(carpeta)
+
+
+def test_listar_plantillas_sin_carpeta_responde_200_con_aviso(
+    cliente: Any,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """La carpeta no existe: 200 con lista vacia y el aviso (como main)."""
+    raiz_datos = tmp_path / "datos"
+    raiz_datos.mkdir()
+    modulo_crear = importlib.import_module(
+        "zc_suite.areas.alimentacion.funciones.procesos.generar_prevision_crear"
+    )
+    monkeypatch.setattr(modulo_crear, "raiz_datos", lambda: raiz_datos)
+
+    respuesta = cliente.get(
+        "/api/v1/areas/alimentacion/procesos/plantillas", base_url=BASE
+    )
+
+    assert respuesta.status_code == 200
+    cuerpo = respuesta.get_json()
+    assert cuerpo["plantillas"] == []
+    assert "Directorio no existe" in (cuerpo["aviso"] or "")
+    assert cuerpo["plantillas_path"] == str(raiz_datos / "plantillas")
+
+
+def test_listar_plantillas_con_config_invalido_responde_400(
+    cliente: Any,
+    almacen: AlmacenExcel,
+) -> None:
+    almacen.config = None
+
+    respuesta = cliente.get(
+        "/api/v1/areas/alimentacion/procesos/plantillas", base_url=BASE
+    )
+
+    assert respuesta.status_code == 400
+    assert "config" in respuesta.get_json()["error"]
+
+
+def test_crear_prevision_responde_202_y_encola_el_trabajo(
+    cliente: Any,
+    almacen: AlmacenExcel,
+    excel_maestro: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    almacen.volcar(excel_maestro)
+    modulo = importlib.import_module("zc_suite.areas.alimentacion.rutas")
+    nucleo = importlib.import_module("zc_suite.nucleo.web.app")
+    servicio = _ServicioConectado()
+    monkeypatch.setattr(modulo, "servicio", lambda: servicio)
+    monkeypatch.setattr(nucleo, "servicio", lambda: servicio)
+
+    respuesta = _encolar(
+        cliente,
+        "procesos/crear/preview",
+        {
+            "plc": "ZC_PLC_STD",
+            "proc_uid": 100,
+            "dir_plantilla_nombre": "50500_CIP1",
+        },
+    )
+
+    assert respuesta.status_code == 202
+    assert respuesta.get_json()["job_id"] == "job-de-prueba"
+    assert servicio.funcion is not None
+    assert servicio.funcion.__name__ == "generar_prevision_crear"
+    assert servicio.params["proc_uid"] == 100
+    assert servicio.params["plc"] == "ZC_PLC_STD"
+    assert servicio.params["dir_plantilla_nombre"] == "50500_CIP1"
+    assert servicio.params["almacen"] is almacen
+    assert servicio.params["config"] is almacen.config
+
+
+def test_crear_aplicar_responde_202_y_encola_el_trabajo(
+    cliente: Any,
+    almacen: AlmacenExcel,
+    excel_maestro: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    almacen.volcar(excel_maestro)
+    modulo = importlib.import_module("zc_suite.areas.alimentacion.rutas")
+    nucleo = importlib.import_module("zc_suite.nucleo.web.app")
+    servicio = _ServicioConectado()
+    monkeypatch.setattr(modulo, "servicio", lambda: servicio)
+    monkeypatch.setattr(nucleo, "servicio", lambda: servicio)
+
+    respuesta = _encolar(
+        cliente,
+        "procesos/crear/aplicar",
+        {
+            "plc": "ZC_PLC_STD",
+            "proc_uid": 100,
+            "dir_plantilla_nombre": "50500_CIP1",
+        },
+    )
+
+    assert respuesta.status_code == 202
+    assert respuesta.get_json()["job_id"] == "job-de-prueba"
+    assert servicio.funcion is not None
+    assert servicio.funcion.__name__ == "crear"
+    assert servicio.params["proc_uid"] == 100
+    assert servicio.params["plc"] == "ZC_PLC_STD"
+    assert servicio.params["dir_plantilla_nombre"] == "50500_CIP1"
+    assert servicio.params["almacen"] is almacen
+    assert servicio.params["config"] is almacen.config
+
+
+@pytest.mark.parametrize("ruta", ["procesos/crear/preview", "procesos/crear/aplicar"])
+def test_crear_un_proceso_sin_plc_responde_400(cliente: Any, ruta: str) -> None:
+    respuesta = _encolar(
+        cliente, ruta, {"proc_uid": 100, "dir_plantilla_nombre": "50500_CIP1"}
+    )
+
+    assert respuesta.status_code == 400
+    assert "PLC" in respuesta.get_json()["error"]
+
+
+def test_crear_prevision_sin_excel_responde_400(cliente: Any) -> None:
+    respuesta = _encolar(
+        cliente,
+        "procesos/crear/preview",
+        {"plc": "ZC_PLC_STD", "proc_uid": 100, "dir_plantilla_nombre": "50500_CIP1"},
+    )
+
+    assert respuesta.status_code == 400
+    assert "Excel" in respuesta.get_json()["error"]
+
+
+def test_crear_aplicar_sin_excel_responde_400(cliente: Any) -> None:
+    respuesta = _encolar(
+        cliente,
+        "procesos/crear/aplicar",
+        {"plc": "ZC_PLC_STD", "proc_uid": 100, "dir_plantilla_nombre": "50500_CIP1"},
+    )
+
+    assert respuesta.status_code == 400
+    assert "Excel" in respuesta.get_json()["error"]
+
+
+def test_crear_prevision_sin_conexion_con_tia_responde_400(
+    cliente: Any,
+    almacen: AlmacenExcel,
+    excel_maestro: Path,
+) -> None:
+    almacen.volcar(excel_maestro)
+
+    respuesta = _encolar(
+        cliente,
+        "procesos/crear/preview",
+        {"plc": "ZC_PLC_STD", "proc_uid": 100, "dir_plantilla_nombre": "50500_CIP1"},
+    )
+
+    assert respuesta.status_code == 400
+    assert "TIA" in respuesta.get_json()["error"]
+
+
+def test_crear_aplicar_sin_conexion_con_tia_responde_400(
+    cliente: Any,
+    almacen: AlmacenExcel,
+    excel_maestro: Path,
+) -> None:
+    almacen.volcar(excel_maestro)
+
+    respuesta = _encolar(
+        cliente,
+        "procesos/crear/aplicar",
+        {"plc": "ZC_PLC_STD", "proc_uid": 100, "dir_plantilla_nombre": "50500_CIP1"},
+    )
+
+    assert respuesta.status_code == 400
+    assert "TIA" in respuesta.get_json()["error"]
+
+
+@pytest.mark.parametrize("proc_uid", ["abc", [1], True, 0, -5, None])
+@pytest.mark.parametrize("ruta", ["procesos/crear/preview", "procesos/crear/aplicar"])
+def test_crear_un_proceso_con_proc_uid_invalido_responde_400(
+    cliente: Any,
+    almacen: AlmacenExcel,
+    excel_maestro: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    ruta: str,
+    proc_uid: Any,
+) -> None:
+    almacen.volcar(excel_maestro)
+    modulo = importlib.import_module("zc_suite.areas.alimentacion.rutas")
+    nucleo = importlib.import_module("zc_suite.nucleo.web.app")
+    servicio = _ServicioConectado()
+    monkeypatch.setattr(modulo, "servicio", lambda: servicio)
+    monkeypatch.setattr(nucleo, "servicio", lambda: servicio)
+
+    respuesta = _encolar(
+        cliente,
+        ruta,
+        {"plc": "ZC_PLC_STD", "proc_uid": proc_uid, "dir_plantilla_nombre": "50500_CIP1"},
+    )
+
+    assert respuesta.status_code == 400, ruta
+    assert "proceso" in respuesta.get_json()["error"].lower(), ruta
+
+
+@pytest.mark.parametrize(
+    "valor",
+    [None, "", "   ", "../otro", "otro/sub", "otro\\sub", "a..b"],
+    ids=["ausente", "vacio", "espacios", "dospuntos", "barras", "barras_inv", "puntos"],
+)
+@pytest.mark.parametrize("ruta", ["procesos/crear/preview", "procesos/crear/aplicar"])
+def test_crear_un_proceso_con_dir_plantilla_invalido_responde_400(
+    cliente: Any,
+    almacen: AlmacenExcel,
+    excel_maestro: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    ruta: str,
+    valor: Any,
+) -> None:
+    almacen.volcar(excel_maestro)
+    modulo = importlib.import_module("zc_suite.areas.alimentacion.rutas")
+    nucleo = importlib.import_module("zc_suite.nucleo.web.app")
+    servicio = _ServicioConectado()
+    monkeypatch.setattr(modulo, "servicio", lambda: servicio)
+    monkeypatch.setattr(nucleo, "servicio", lambda: servicio)
+    body: dict[str, Any] = {"plc": "ZC_PLC_STD", "proc_uid": 100}
+    if valor is not None:
+        body["dir_plantilla_nombre"] = valor
+
+    respuesta = _encolar(cliente, ruta, body)
+
+    assert respuesta.status_code == 400, ruta
+    assert "plantilla" in respuesta.get_json()["error"].lower(), ruta
+
+
+class _PortalFalso:
+    """Un portal de TIA minimo, para que la conexion diga que va."""
+
+    def get_process_id(self) -> int:
+        return 4242
+
+    def detach(self) -> None:
+        pass
+
+
+def test_crear_un_proceso_con_un_trabajo_en_curso_responde_409(
+    app: Any,
+    cliente: Any,
+    almacen: AlmacenExcel,
+    excel_maestro: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Con un trabajo en curso, la ruta responde 409 (el shell lo bloquea)."""
+    from zc_suite.nucleo.sesion import CLAVE_SESION, Sesion
+
+    almacen.volcar(excel_maestro)
+    servicio = app.config["ZC_TIA"]
+    espera = threading.Event()
+
+    def trabajo_lento(job: Any) -> dict[str, Any]:
+        job.empezar("Trabajo lento", ["uno"])
+        with job.paso("uno"):
+            espera.wait(10.0)
+        return {}
+
+    # La ruta comprueba la conexion antes de encolar: se deja un portal
+    # en el servicio (lo que haria el trabajo de conectar) para llegar al
+    # 409 del shell.
+    monkeypatch.setattr(servicio, "_portal", _PortalFalso())
+    sesion = Sesion()
+    sesion.guardar_escaneo("ZC_PLC_STD", [], [], [])
+    app.config[CLAVE_SESION] = sesion
+
+    servicio.lanzar(trabajo_lento)
+    try:
+        respuesta = _encolar(
+            cliente,
+            "procesos/crear/preview",
+            {
+                "plc": "ZC_PLC_STD",
+                "proc_uid": 100,
+                "dir_plantilla_nombre": "50500_CIP1",
+            },
+        )
+    finally:
+        espera.set()
+
+    assert respuesta.status_code == 409

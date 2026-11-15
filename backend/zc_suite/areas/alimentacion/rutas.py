@@ -9,6 +9,11 @@ las entidades y los procesos.
 - ``POST /entidades/sincronizar`` encola la sincronizacion contra TIA.
 - ``POST /procesos/preview``    encola la prevision de un proceso.
 - ``POST /procesos/sincronizar`` encola la sincronizacion de un proceso.
+- ``GET  /procesos/plantillas``    las plantillas de procesos disponibles.
+- ``POST /procesos/crear/preview``    encola la prevision de crear un proceso
+  desde una plantilla.
+- ``POST /procesos/crear/aplicar``    encola la creacion del proceso desde
+  la plantilla.
 
 Las POST responden ``202`` con el ``job_id``: el trabajo va en un trabajo y su
 resultado llega por el stream de eventos, no en la respuesta.
@@ -37,12 +42,22 @@ from zc_suite.areas.alimentacion.funciones.entidades.sincronizar import (
     sincronizar as ent_sincronizar,
 )
 from zc_suite.areas.alimentacion.funciones.excel.cargar import cargar
+from zc_suite.areas.alimentacion.funciones.procesos.crear import (
+    crear as proc_crear_aplicar,
+)
 from zc_suite.areas.alimentacion.funciones.procesos.generar_prevision import (
     generar_prevision as proc_generar_prevision,
+)
+from zc_suite.areas.alimentacion.funciones.procesos.generar_prevision_crear import (
+    carpeta_plantillas,
+)
+from zc_suite.areas.alimentacion.funciones.procesos.generar_prevision_crear import (
+    generar_prevision_crear as proc_crear_prevision,
 )
 from zc_suite.areas.alimentacion.funciones.procesos.sincronizar import (
     sincronizar as proc_sincronizar,
 )
+from zc_suite.areas.alimentacion.procesos.plantillas import proc_listar_plantillas
 from zc_suite.nucleo.sesion import CLAVE_SESION, Sesion
 from zc_suite.nucleo.web.app import HTTPError, lanzar, servicio
 
@@ -231,6 +246,89 @@ def sincronizar_procesos() -> tuple[Response, int]:
     )
 
 
+@rutas.get("/procesos/plantillas")
+def listar_plantillas_procesos() -> tuple[Response, int]:
+    """Las plantillas de procesos de la carpeta del config.
+
+    Siempre responde ``200``: si la carpeta no existe o no se puede leer,
+    la lista sale vacia y el aviso lo explica (el frontend puede mostrar
+    un CTA "configura la ruta" sin tratarlo como error).
+    """
+    almacen = _almacen()
+    if almacen.config is None:
+        error = "El config del area no es valido: revisa el config.json en uso."
+        return jsonify({"error": error}), 400
+    plantillas_carpeta = carpeta_plantillas(None, almacen.config)
+    plantillas, aviso = proc_listar_plantillas(plantillas_carpeta)
+    return jsonify(
+        {
+            "plantillas": plantillas,
+            "plantillas_path": str(plantillas_carpeta),
+            "aviso": aviso,
+        }
+    ), 200
+
+
+@rutas.post("/procesos/crear/preview")
+def preview_crear_proceso() -> tuple[Response, int]:
+    """Encola la prevision de crear un proceso desde una plantilla.
+
+    Las precondiciones se comprueban **antes** de encolar: si falta el PLC,
+    el ``proc_uid`` o el nombre de la plantilla, el Excel o la conexion con
+    TIA, se responde con el mensaje y no se lanza ningun trabajo.
+    """
+    error = _precondiciones("generar la prevision")
+    if error is not None:
+        return jsonify({"error": error}), 400
+    error = _precondicion_proc_uid("generar la prevision")
+    if error is not None:
+        return jsonify({"error": error}), 400
+    error = _precondicion_dir_plantilla("generar la prevision")
+    if error is not None:
+        return jsonify({"error": error}), 400
+
+    almacen = _almacen()
+    return lanzar(
+        proc_crear_prevision,
+        proc_uid=_proc_uid(),
+        plc=_plc(),
+        dir_plantilla_nombre=_dir_plantilla(),
+        almacen=almacen,
+        config=almacen.config,
+        sesion=_sesion(),
+    )
+
+
+@rutas.post("/procesos/crear/aplicar")
+def aplicar_crear_proceso() -> tuple[Response, int]:
+    """Encola la creacion de un proceso desde una plantilla.
+
+    Las precondiciones se comprueban **antes** de encolar: si falta el PLC,
+    el ``proc_uid`` o el nombre de la plantilla, el Excel o la conexion con
+    TIA, se responde con el mensaje y no se lanza ningun trabajo.
+    """
+    error = _precondiciones("crear el proceso")
+    if error is not None:
+        return jsonify({"error": error}), 400
+    error = _precondicion_proc_uid("crear el proceso")
+    if error is not None:
+        return jsonify({"error": error}), 400
+    error = _precondicion_dir_plantilla("crear el proceso")
+    if error is not None:
+        return jsonify({"error": error}), 400
+
+    almacen = _almacen()
+    return lanzar(
+        proc_crear_aplicar,
+        proc_uid=_proc_uid(),
+        plc=_plc(),
+        dir_plantilla_nombre=_dir_plantilla(),
+        almacen=almacen,
+        config=almacen.config,
+        sesion=_sesion(),
+    )
+
+
 def _plc() -> str:
     """El PLC que pide la peticion."""
     datos = request.get_json(silent=True) or {}
@@ -260,6 +358,30 @@ def _precondicion_proc_uid(accion: str) -> str | None:
     """El motivo por el que falta el proceso, o ``None`` si va."""
     if _proc_uid() is None:
         return f"Indica el proceso que quieres {accion}."
+    return None
+
+
+def _dir_plantilla() -> str:
+    """El nombre de la subcarpeta de la plantilla que pide la peticion."""
+    datos = request.get_json(silent=True) or {}
+    return str(datos.get("dir_plantilla_nombre") or "").strip()
+
+
+def _precondicion_dir_plantilla(accion: str) -> str | None:
+    """El motivo por el que falta la plantilla, o ``None`` si va.
+
+    El nombre debe ser una subcarpeta simple dentro de la carpeta de
+    plantillas: sin barras (relativas o absolutas) ni ``..``. El FB lo
+    revalida al resolver la carpeta.
+    """
+    nombre = _dir_plantilla()
+    if not nombre:
+        return f"Indica la plantilla que quieres usar para {accion}."
+    if "/" in nombre or "\\" in nombre or ".." in nombre:
+        return (
+            f"El nombre de la plantilla es invalido: {nombre!r}. Usa el nombre "
+            "de la subcarpeta, sin barras ni rutas."
+        )
     return None
 
 
