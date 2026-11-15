@@ -50,7 +50,11 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-__all__ = ["proc_aplicar_clonacion", "proc_construir_diccionarios"]
+__all__ = [
+    "proc_aplicar_clonacion",
+    "proc_aplicar_diccionario",
+    "proc_construir_diccionarios",
+]
 
 #: La carpeta de los bloques dentro de la exportacion de TIA.
 CARPETA_BLOQUES = "Bloques de programa"
@@ -184,7 +188,7 @@ def proc_construir_diccionarios(
     return _ordenar(dicc_bloques), _ordenar(dicc_xml)
 
 
-def _aplicar_diccionario(texto: str, dicc: dict[str, str]) -> str:
+def proc_aplicar_diccionario(texto: str, dicc: dict[str, str]) -> str:
     """Aplica los reemplazos en cascada (el orden del dicc manda)."""
     for viejo, nuevo in dicc.items():
         texto = texto.replace(viejo, nuevo)
@@ -280,9 +284,9 @@ def proc_aplicar_clonacion(
         if path == dir_nuevo:
             continue
         if path.is_file():
-            nuevo_nombre = f"{_aplicar_diccionario(path.stem, dicc_bloques)}{path.suffix}"
+            nuevo_nombre = f"{proc_aplicar_diccionario(path.stem, dicc_bloques)}{path.suffix}"
         else:
-            nuevo_nombre = _aplicar_diccionario(path.name, dicc_bloques)
+            nuevo_nombre = proc_aplicar_diccionario(path.name, dicc_bloques)
         if path.name != nuevo_nombre:
             renombres.append((path, path.with_name(nuevo_nombre)))
 
@@ -301,7 +305,7 @@ def proc_aplicar_clonacion(
             continue
         dicc = dicc_bloques if clave == "bloques" else dicc_xml
         contenido = _leer_texto(path, encoding)
-        nuevo = _aplicar_diccionario(contenido, dicc)
+        nuevo = proc_aplicar_diccionario(contenido, dicc)
         if (
             clave == "xml"
             and "PlcUserConstant" in nuevo

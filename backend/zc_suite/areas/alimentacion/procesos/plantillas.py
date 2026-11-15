@@ -31,15 +31,20 @@ import re
 from pathlib import Path
 from typing import Any
 
-from zc_suite.areas.alimentacion.procesos.clonacion import N_MAX_KEYS
+from zc_suite.areas.alimentacion.procesos.clonacion import (
+    N_MAX_KEYS,
+    proc_aplicar_diccionario,
+)
 from zc_suite.errores import ZCError
 
 logger = logging.getLogger(__name__)
 
 __all__ = [
-    "ManifestInvalido",
-    "PlantillaMinimosNoCumplidos",
+    "EXTENSIONES_BLOQUE",
+    "ManifestInvalidoError",
+    "PlantillaMinimosNoCumplidosError",
     "proc_detectar_colisiones",
+    "proc_generar_previstos",
     "proc_leer_manifest",
     "proc_validar_dependencias",
     "proc_validar_minimos",
@@ -50,12 +55,17 @@ __all__ = [
 #: ``FC100`` y ``OB100`` son bloques distintos en TIA Portal.
 PREFIJO_NUMERO = re.compile(r"^([A-Za-z]+)(\d+)")
 
+#: Las extensiones de un bloque canonico TIA: cada bloque vive en 2 archivos
+#: (``.s7dcl`` + ``.s7res``, mismo stem). El resto de archivos de una
+#: exportacion (XML de variables PLC, ``.scl``, ``.awl``...) no son bloques.
+EXTENSIONES_BLOQUE: frozenset[str] = frozenset({".s7dcl", ".s7res"})
 
-class ManifestInvalido(ZCError):  # noqa: N818 (nombre heredado de main)
+
+class ManifestInvalidoError(ZCError):
     """El ``manifest.json`` de la plantilla no existe o le faltan campos."""
 
 
-class PlantillaMinimosNoCumplidos(ZCError):  # noqa: N818 (nombre heredado de main)
+class PlantillaMinimosNoCumplidosError(ZCError):
     """Los N_MAX del operario no cubren los minimos de la plantilla."""
 
 
@@ -70,35 +80,35 @@ def proc_leer_manifest(dir_plantilla: Path) -> dict[str, Any]:
         El dict del manifest.
 
     Raises:
-        ManifestInvalido: si el fichero no existe, no es JSON valido o le
-            falta alguno de los campos obligatorios.
+        ManifestInvalidoError: si el fichero no existe, no es JSON valido o
+            le falta alguno de los campos obligatorios.
     """
     manifest_path = dir_plantilla / "manifest.json"
     if not manifest_path.exists():
-        raise ManifestInvalido(f"No se encontro manifest.json en: {dir_plantilla}")
+        raise ManifestInvalidoError(f"No se encontro manifest.json en: {dir_plantilla}")
 
     try:
         manifest_text = manifest_path.read_text(encoding="utf-8")
         manifest = json.loads(manifest_text)
     except (OSError, json.JSONDecodeError) as exc:
-        raise ManifestInvalido(f"manifest.json invalido: {exc}") from exc
+        raise ManifestInvalidoError(f"manifest.json invalido: {exc}") from exc
 
     if "base" not in manifest or not isinstance(manifest["base"], int):
-        raise ManifestInvalido("manifest.json debe contener 'base' (int).")
+        raise ManifestInvalidoError("manifest.json debe contener 'base' (int).")
     if "codigo" not in manifest or not str(manifest["codigo"]).strip():
-        raise ManifestInvalido("manifest.json debe contener 'codigo' (str).")
+        raise ManifestInvalidoError("manifest.json debe contener 'codigo' (str).")
     if "descripcion" not in manifest or not str(manifest["descripcion"]).strip():
-        raise ManifestInvalido(
+        raise ManifestInvalidoError(
             "manifest.json debe contener 'descripcion' (str no vacio). "
             "Es obligatorio para mostrar la plantilla en la SPA."
         )
     if "dependencias" not in manifest or not isinstance(manifest["dependencias"], list):
-        raise ManifestInvalido(
+        raise ManifestInvalidoError(
             "manifest.json debe contener 'dependencias' (list[str]). "
             "Es obligatorio para validar bloques externos en el PLC."
         )
     if not all(isinstance(d, str) and d.strip() for d in manifest["dependencias"]):
-        raise ManifestInvalido(
+        raise ManifestInvalidoError(
             "manifest.json 'dependencias' debe ser una lista de strings no vacios."
         )
 
@@ -116,8 +126,8 @@ def proc_validar_minimos(
         minimos_usuario: los N_MAX del operario (``{clave: valor}``).
 
     Raises:
-        PlantillaMinimosNoCumplidos: si alguna clave N_MAX del operario es
-            menor que la minima de la plantilla.
+        PlantillaMinimosNoCumplidosError: si alguna clave N_MAX del
+            operario es menor que la minima de la plantilla.
     """
     minimos_plantilla = manifest.get("minimos", {}) or {}
     problemas: list[str] = []
@@ -129,7 +139,7 @@ def proc_validar_minimos(
                 f"{clave}: usuario={valor_usuario} < plantilla={valor_plantilla}"
             )
     if problemas:
-        raise PlantillaMinimosNoCumplidos(
+        raise PlantillaMinimosNoCumplidosError(
             "Los N_MAX del operario no cubren los minimos de la plantilla:\n"
             "  - " + "\n  - ".join(problemas)
         )
@@ -299,3 +309,65 @@ def proc_validar_dependencias(
         if dependencia not in nombres_plc:
             faltantes.append(dependencia)
     return faltantes
+
+
+def proc_generar_previstos(
+    dir_plantilla_copia: Path,
+    dicc_bloques: dict[str, str],
+    colisiones: list[str],
+    colisiones_con: dict[str, str],
+) -> list[dict[str, str]]:
+    """Los bloques que se generarian al aplicar la plantilla.
+
+    Recorre ``dir_plantilla_copia`` y emite **una entry por bloque**: cada
+    bloque TIA vive en 2 archivos (``.s7dcl`` + ``.s7res``, mismo stem) y se
+    agrupan en una sola entry (la clave es el stem del stem viejo, sin
+    extension). Solo se emiten archivos de bloque TIA
+    (``EXTENSIONES_BLOQUE``): el ``manifest.json``, el XML de variables PLC
+    y los ``.scl``/``.awl`` no son bloques y no aparecen.
+
+    No escribe en disco: solo construye la lista.
+
+    Args:
+        dir_plantilla_copia: la copia de la plantilla.
+        dicc_bloques: los reemplazamientos de bloques de la clonacion
+            (``procesos.clonacion``).
+        colisiones: los nombres que colisionan
+            (``proc_detectar_colisiones``).
+        colisiones_con: el identificador del bloque del PLC que produce
+            cada colision.
+
+    Returns:
+        La lista de ``{"nombre_original", "nombre_nuevo", "estado"}``
+        ordenada por ``nombre_nuevo`` ascendente (casefold sobre el stem
+        viejo). ``estado`` es ``"OK"``, o ``"DUPLICADO - <id>"`` si
+        ``nombre_nuevo`` esta en ``colisiones`` (``"DUPLICADO"`` sin id).
+    """
+    archivos_por_stem: dict[str, list[Path]] = {}
+    for in_path in dir_plantilla_copia.rglob("*"):
+        if not in_path.is_file():
+            continue
+        rel_in = in_path.relative_to(dir_plantilla_copia)
+        if rel_in.name == "manifest.json":
+            continue
+        suffix = in_path.suffix.lower()
+        if suffix not in EXTENSIONES_BLOQUE:
+            continue
+        archivos_por_stem.setdefault(in_path.stem, []).append(in_path)
+
+    bloques: list[dict[str, str]] = []
+    for stem_viejo in sorted(archivos_por_stem, key=str.casefold):
+        nuevo_stem = proc_aplicar_diccionario(stem_viejo, dicc_bloques)
+        if nuevo_stem in colisiones:
+            ident = colisiones_con.get(nuevo_stem) or ""
+            estado = f"DUPLICADO - {ident}" if ident else "DUPLICADO"
+        else:
+            estado = "OK"
+        bloques.append(
+            {
+                "nombre_original": stem_viejo,
+                "nombre_nuevo": nuevo_stem,
+                "estado": estado,
+            }
+        )
+    return bloques

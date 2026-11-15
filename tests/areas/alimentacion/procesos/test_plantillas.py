@@ -13,9 +13,10 @@ from pathlib import Path
 import pytest
 
 from zc_suite.areas.alimentacion.procesos.plantillas import (
-    ManifestInvalido,
-    PlantillaMinimosNoCumplidos,
+    ManifestInvalidoError,
+    PlantillaMinimosNoCumplidosError,
     proc_detectar_colisiones,
+    proc_generar_previstos,
     proc_leer_manifest,
     proc_validar_dependencias,
     proc_validar_minimos,
@@ -62,7 +63,7 @@ def test_leer_manifest_valido(tmp_path: Path) -> None:
 
 def test_leer_manifest_sin_fichero(tmp_path: Path) -> None:
     """Sin manifest.json: error con la ruta de la carpeta."""
-    with pytest.raises(ManifestInvalido) as excinfo:
+    with pytest.raises(ManifestInvalidoError) as excinfo:
         proc_leer_manifest(tmp_path)
     assert str(excinfo.value) == f"No se encontro manifest.json en: {tmp_path}"
 
@@ -70,7 +71,7 @@ def test_leer_manifest_sin_fichero(tmp_path: Path) -> None:
 def test_leer_manifest_json_roto(tmp_path: Path) -> None:
     """JSON no parseable: 'manifest.json invalido'."""
     (tmp_path / "manifest.json").write_text("{no es json", encoding="utf-8")
-    with pytest.raises(ManifestInvalido) as excinfo:
+    with pytest.raises(ManifestInvalidoError) as excinfo:
         proc_leer_manifest(tmp_path)
     assert str(excinfo.value).startswith("manifest.json invalido")
 
@@ -82,7 +83,7 @@ def test_leer_manifest_json_roto(tmp_path: Path) -> None:
 def test_leer_manifest_campo_falta(tmp_path: Path, campo: str) -> None:
     """Cada campo obligatorio produce su error propio (texto exacto de main)."""
     dir_plantilla = _escribir_manifest(tmp_path, _manifest_sin(campo))
-    with pytest.raises(ManifestInvalido) as excinfo:
+    with pytest.raises(ManifestInvalidoError) as excinfo:
         proc_leer_manifest(dir_plantilla)
     texto_esperado = {
         "base": "manifest.json debe contener 'base' (int).",
@@ -103,7 +104,7 @@ def test_leer_manifest_base_no_int(tmp_path: Path) -> None:
     """'base' como str no vale (debe ser int)."""
     manifest = dict(MANIFEST_VALIDO, base="50500")
     dir_plantilla = _escribir_manifest(tmp_path, manifest)
-    with pytest.raises(ManifestInvalido, match="debe contener 'base'"):
+    with pytest.raises(ManifestInvalidoError, match="debe contener 'base'"):
         proc_leer_manifest(dir_plantilla)
 
 
@@ -112,7 +113,7 @@ def test_leer_manifest_dependencias_elemento_vacio(tmp_path: Path) -> None:
     manifest = dict(MANIFEST_VALIDO, dependencias=["DB1_SYS", "  "])
     dir_plantilla = _escribir_manifest(tmp_path, manifest)
     with pytest.raises(
-        ManifestInvalido, match="debe ser una lista de strings no vacios"
+        ManifestInvalidoError, match="debe ser una lista de strings no vacios"
     ):
         proc_leer_manifest(dir_plantilla)
 
@@ -151,7 +152,7 @@ def test_validar_minimos_insuficientes_lista_todas_las_claves() -> None:
             "N_MAX_ALM_HMI": 3,
         },
     }
-    with pytest.raises(PlantillaMinimosNoCumplidos) as excinfo:
+    with pytest.raises(PlantillaMinimosNoCumplidosError) as excinfo:
         proc_validar_minimos(manifest, {})
     mensaje = str(excinfo.value)
     assert mensaje.startswith(
@@ -177,10 +178,10 @@ def test_validar_minimos_cubre_justo() -> None:
 
 def test_excepciones_cuelgan_de_zcerror() -> None:
     """Las dos excepciones son fallos esperados (ZCError), no ValueError."""
-    assert issubclass(ManifestInvalido, ZCError)
-    assert issubclass(PlantillaMinimosNoCumplidos, ZCError)
-    assert not issubclass(ManifestInvalido, ValueError)
-    assert not issubclass(PlantillaMinimosNoCumplidos, ValueError)
+    assert issubclass(ManifestInvalidoError, ZCError)
+    assert issubclass(PlantillaMinimosNoCumplidosError, ZCError)
+    assert not issubclass(ManifestInvalidoError, ValueError)
+    assert not issubclass(PlantillaMinimosNoCumplidosError, ValueError)
 
 
 # ── proc_detectar_colisiones ────────────────────────────────────────────────
@@ -298,3 +299,109 @@ def test_validar_dependencias_match_exacto_no_prefijo() -> None:
         ["DB15151_ZC"], [{"nombre": "DB15151_OTRO", "numero": 15151}]
     )
     assert faltantes == ["DB15151_ZC"]
+
+
+# ── proc_generar_previstos ──────────────────────────────────────────────────
+
+
+def _copia_previstos(tmp_path: Path, ficheros: dict[str, bytes]) -> Path:
+    """Una copia de plantilla con los ``ficheros`` (ruta relativa -> bytes)."""
+    raiz = tmp_path / "copia"
+    raiz.mkdir()
+    for rel, contenido in ficheros.items():
+        path = raiz / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(contenido)
+    return raiz
+
+
+def test_previstos_agrupa_dcl_res_y_ignora_no_bloques(tmp_path: Path) -> None:
+    """dcl+res del mismo stem = 1 entry; manifest/.xml/.scl no aparecen."""
+    raiz = _copia_previstos(
+        tmp_path,
+        {
+            "Bloques/DB50500_CIP1_INTERFAZ.s7dcl": b"END_DATA_BLOCK",
+            "Bloques/DB50500_CIP1_INTERFAZ.s7res": b"es-ES",
+            "Bloques/FC50501_CIP1_ORDENES.s7dcl": b"END_FUNCTION_BLOCK",
+            "Bloques/FC50501_CIP1_ORDENES.s7res": b"es-ES",
+            "Bloques/FC50501_CIP1_ORDENES.scl": b"(* scl no es bloque *)",
+            "Table1.xml": b"<AttributeList/>",
+            "manifest.json": b"{}",
+        },
+    )
+    dicc = {
+        "DB50500_CIP1_INTERFAZ": "DB600_EXP_INTERFAZ",
+        "FC50501_CIP1_ORDENES": "FC601_EXP_ORDENES",
+    }
+    previstos = proc_generar_previstos(raiz, dicc, [], {})
+    assert len(previstos) == 2
+    assert previstos[0] == {
+        "nombre_original": "DB50500_CIP1_INTERFAZ",
+        "nombre_nuevo": "DB600_EXP_INTERFAZ",
+        "estado": "OK",
+    }
+    assert previstos[1]["nombre_nuevo"] == "FC601_EXP_ORDENES"
+    assert previstos[1]["estado"] == "OK"
+
+
+def test_previstos_duplicado_con_id(tmp_path: Path) -> None:
+    """nombre_nuevo en colisiones: 'DUPLICADO - <id>'."""
+    raiz = _copia_previstos(
+        tmp_path,
+        {"Bloques/FC50501_CIP1.s7dcl": b"END_FUNCTION_BLOCK"},
+    )
+    previstos = proc_generar_previstos(
+        raiz,
+        {"FC50501_CIP1": "FC601_EXP_ORDENES"},
+        ["FC601_EXP_ORDENES"],
+        {"FC601_EXP_ORDENES": "FC601_OTRO"},
+    )
+    assert previstos == [
+        {
+            "nombre_original": "FC50501_CIP1",
+            "nombre_nuevo": "FC601_EXP_ORDENES",
+            "estado": "DUPLICADO - FC601_OTRO",
+        }
+    ]
+
+
+def test_previstos_duplicado_sin_id(tmp_path: Path) -> None:
+    """Colision sin identificador: 'DUPLICADO' (sin ' - <id>')."""
+    raiz = _copia_previstos(
+        tmp_path,
+        {"Bloques/FC50501_CIP1.s7dcl": b"END_FUNCTION_BLOCK"},
+    )
+    previstos = proc_generar_previstos(
+        raiz,
+        {"FC50501_CIP1": "FC601_EXP_ORDENES"},
+        ["FC601_EXP_ORDENES"],
+        {},
+    )
+    assert previstos[0]["estado"] == "DUPLICADO"
+
+
+def test_previstos_orden_casefold(tmp_path: Path) -> None:
+    """El orden es por stem viejo casefold: 'a1' antes de 'B2' (mayusculas)."""
+    raiz = _copia_previstos(
+        tmp_path,
+        {
+            "Bloques/b2_aux.s7dcl": b"END_DATA_BLOCK",
+            "Bloques/a1_base.s7dcl": b"END_DATA_BLOCK",
+            "Bloques/C3_capital.s7dcl": b"END_DATA_BLOCK",
+        },
+    )
+    previstos = proc_generar_previstos(raiz, {}, [], {})
+    assert [p["nombre_original"] for p in previstos] == [
+        "a1_base",
+        "b2_aux",
+        "C3_capital",
+    ]
+
+
+def test_previstos_plantilla_vacia(tmp_path: Path) -> None:
+    """Copia sin ficheros de bloque (o vacia): lista vacia."""
+    raiz = _copia_previstos(tmp_path, {"manifest.json": b"{}"})
+    assert proc_generar_previstos(raiz, {}, [], {}) == []
+    raiz_vacia = tmp_path / "vacia"
+    raiz_vacia.mkdir()
+    assert proc_generar_previstos(raiz_vacia, {}, [], {}) == []
