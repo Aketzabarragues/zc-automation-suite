@@ -154,6 +154,41 @@ def test_la_prevision_detecta_el_n_max(entorno_prevision: Any) -> None:
     assert by_name[f"{PROC_UID}_N_MAX_PINT"]["status"] == "sin_cambios"
 
 
+def test_la_prevision_en_tia_v18_solo_calcula_el_n_max(
+    entorno_prevision_v18: Any, tmp_path: Path
+) -> None:
+    """En V18 no hay SimaticSD: arrays vacios, N_MAX calculado y aviso."""
+    evento = entorno_prevision_v18.prevision(PROC_UID, _sesion_con_escaneo())
+
+    assert evento["estado"] == "ok", evento.get("error")
+    resultado = evento["resultado"]
+    # Los arrays salen sin datos de TIA: sin SimaticSD no hay bloques que
+    # leer, asi que el estado actual es desconocido (current None) y el
+    # slot_map se infiere del Excel.
+    assert set(resultado["arrays"]) == {"PReal", "PInt", "ALM"}
+    for nombre in ("PReal", "PInt", "ALM"):
+        assert resultado["arrays"][nombre]["current_count"] == 0
+        for entry in resultado["arrays"][nombre]["slot_map"].values():
+            assert entry["current"] is None
+    # El N_MAX, en cambio, se calcula igual: la tabla si se exporta.
+    assert (
+        tmp_path / "procesos" / "preview" / "disp" / f"{TABLA_PROCESO}.xml"
+    ).is_file()
+    assert resultado["nmax"]["summary"] == {
+        "actualizar": 2,
+        "sin_cambios": 2,
+        "total": 4,
+    }
+    # El doble V18 lanza si se le pide export SimaticSD: el preview no deja
+    # ningun par de bloques en disco.
+    carpeta_bloques = tmp_path / "procesos" / "preview" / "bloques"
+    assert not any(carpeta_bloques.rglob("*.s7dcl"))
+    assert not any(carpeta_bloques.rglob("*.s7res"))
+    assert "Los comentarios de los DB necesitan TIA Portal V21 o superior." in (
+        resultado["warnings"]
+    )
+
+
 def test_la_prevision_avisa_de_el_comentario_vacio(entorno_prevision: Any) -> None:
     """El comentario_db vacio del Excel se mapea a '.' (convencion TIA)."""
     evento = entorno_prevision.prevision(PROC_UID, _sesion_con_escaneo())

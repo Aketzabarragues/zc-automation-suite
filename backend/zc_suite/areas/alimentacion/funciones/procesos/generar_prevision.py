@@ -37,6 +37,7 @@ from zc_suite.errores import OperacionError
 from zc_suite.nucleo.sesion import Escaneo, Sesion
 from zc_suite.nucleo.tia.job import Job
 from zc_suite.nucleo.tia.workdir import workdir
+from zc_suite.simatic.sd.cabecera import soporta_simaticsd
 from zc_suite.tia_ops.exportar import exportar_bloques, exportar_tablas
 
 logger = logging.getLogger(__name__)
@@ -226,22 +227,44 @@ def generar_prevision(
             [mapa.table_name],
             mantener_estructura=False,
         )
-        exportar_bloques(
-            job.tia.portal,
-            plc,
-            destino_bloques,
-            [mapa.db_param_name, mapa.db_alm_name],
-            mantener_estructura=False,
-            version_tia=job.tia.version_tia,
+        # La exportacion en SimaticSD no existe antes de TIA V21: en V18 no
+        # se tocan los bloques y los arrays salen vacios (solo el N_MAX).
+        con_simaticsd = soporta_simaticsd(job.tia.version_tia)
+        if con_simaticsd:
+            exportar_bloques(
+                job.tia.portal,
+                plc,
+                destino_bloques,
+                [mapa.db_param_name, mapa.db_alm_name],
+                mantener_estructura=False,
+                version_tia=job.tia.version_tia,
+            )
+            texto_dcl_param, texto_res_param = leer_par_sd(
+                destino_bloques, mapa.db_param_name
+            )
+            texto_dcl_alm, texto_res_alm = leer_par_sd(
+                destino_bloques, mapa.db_alm_name
+            )
+        else:
+            avisos.append(
+                "Los comentarios de los DB necesitan TIA Portal V21 o superior."
+            )
+            job.log(
+                "Los comentarios de los DB necesitan TIA Portal V21 o superior.",
+                nivel="warning",
+            )
+            texto_dcl_param = ""
+            texto_res_param = ""
+            texto_dcl_alm = ""
+            texto_res_alm = ""
+        paso["detail"] = (
+            f"tabla {mapa.table_name} y 2 DBs exportados"
+            if con_simaticsd
+            else f"tabla {mapa.table_name} (los DBs no se exportan en esta version)"
         )
-        paso["detail"] = f"tabla {mapa.table_name} y 2 DBs exportados"
 
     arrays: dict[str, Any] = {}
     with _paso(job, "comentarios", con_pasos) as paso:
-        texto_dcl_param, texto_res_param = leer_par_sd(
-            destino_bloques, mapa.db_param_name
-        )
-        texto_dcl_alm, texto_res_alm = leer_par_sd(destino_bloques, mapa.db_alm_name)
         arrays = proc_calcular_arrays(
             mapa,
             texto_dcl_param,

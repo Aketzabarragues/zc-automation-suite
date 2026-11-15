@@ -29,6 +29,7 @@ from zc_suite.nucleo.sesion import Sesion
 from zc_suite.nucleo.tia import servicio as tia
 from zc_suite.nucleo.tia.servicio import ServicioTIA
 from zc_suite.nucleo.tia.workdir import Workdir
+from zc_suite.simatic.sd.cabecera import soporta_simaticsd
 
 #: La carpeta de TIA donde viven la tabla de variables y los DBs del proceso.
 CARPETA_PROCESOS = "0_Procesos"
@@ -88,9 +89,15 @@ class TablaFalsa:
 class BloqueFalso:
     """Un bloque de datos que se exporta en SimaticSD."""
 
-    def __init__(self, nombre: str, jerarquia: str = "") -> None:
+    def __init__(
+        self,
+        nombre: str,
+        jerarquia: str = "",
+        soporta_simaticsd: bool = True,
+    ) -> None:
         self._nombre = nombre
         self._jerarquia = jerarquia
+        self._soporta_simaticsd = soporta_simaticsd
 
     def get_name(self) -> str:
         return self._nombre
@@ -101,6 +108,10 @@ class BloqueFalso:
         export_format: str = "SimaticSD",
         keep_folder_structure: bool = False,
     ) -> None:
+        if not self._soporta_simaticsd:
+            raise RuntimeError(
+                "The method is not supported in this API version"
+            )
         carpeta = Path(target_directory_path)
         if keep_folder_structure and self._jerarquia:
             carpeta = carpeta / self._jerarquia
@@ -169,13 +180,16 @@ class TsFalso:
             WithGraphicalUserInterface = "con_gui"
             WithoutGraphicalUserInterface = "sin_gui"
 
-    def __init__(self, plc: PlcFalso) -> None:
+    def __init__(self, plc: PlcFalso, version: str = VERSION_TIA) -> None:
+        self._version = version
         self.portal = PortalFalso(ProyectoFalso(plc))
 
     def get_installed_bundles(self) -> list[Any]:
+        version = self._version
+
         class _Bundle:
             def get_title(self) -> str:
-                return "Siemens TIA Portal V21.0"
+                return version
 
         return [_Bundle()]
 
@@ -322,15 +336,15 @@ def excel_procesos(tmp_path: Path) -> Path:
     return escribir_excel_procesos(tmp_path / "maestro.xlsx")
 
 
-@pytest.fixture
-def entorno_prevision(
+def _entorno_prevision(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     modelo: ConfigArea,
     excel_procesos: Path,
     xml_tabla: Callable[[str, tuple[tuple[str, int], ...]], str],
+    version: str,
 ) -> Any:
-    """El almacen con el Excel del fixture y un TIA falso conectado."""
+    """Monta el fixture de la prevision para la version de TIA indicada."""
     almacen = AlmacenExcel()
     almacen.config = modelo
     almacen.volcar(excel_procesos)
@@ -351,18 +365,55 @@ def entorno_prevision(
             CARPETA_PROCESOS,
         )
     ]
-    bloques = [BloqueFalso(DB_PARAM, CARPETA_PROCESOS), BloqueFalso(DB_ALM, CARPETA_PROCESOS)]
+    con_simaticsd = soporta_simaticsd(version)
+    bloques = [
+        BloqueFalso(DB_PARAM, CARPETA_PROCESOS, con_simaticsd),
+        BloqueFalso(DB_ALM, CARPETA_PROCESOS, con_simaticsd),
+    ]
     plc = PlcFalso(tablas, bloques)
 
     eventos: list[tuple[str, dict[str, Any]]] = []
     servicio = ServicioTIA(
         publicador=lambda tipo, carga: eventos.append((tipo, carga)),
-        cargador=lambda: TsFalso(plc),
+        cargador=lambda: TsFalso(plc, version),
     )
     conectar = servicio.lanzar(tia.conectar)
     _esperar_job(eventos, conectar)
     yield Entorno(servicio, almacen, modelo, eventos)
     servicio.parar()
+
+
+@pytest.fixture
+def entorno_prevision(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    modelo: ConfigArea,
+    excel_procesos: Path,
+    xml_tabla: Callable[[str, tuple[tuple[str, int], ...]], str],
+) -> Any:
+    """El almacen con el Excel del fixture y un TIA falso conectado."""
+    yield from _entorno_prevision(
+        tmp_path, monkeypatch, modelo, excel_procesos, xml_tabla, VERSION_TIA
+    )
+
+
+@pytest.fixture
+def entorno_prevision_v18(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    modelo: ConfigArea,
+    excel_procesos: Path,
+    xml_tabla: Callable[[str, tuple[tuple[str, int], ...]], str],
+) -> Any:
+    """La prevision sobre un TIA Portal V18: sin exportacion SimaticSD."""
+    yield from _entorno_prevision(
+        tmp_path,
+        monkeypatch,
+        modelo,
+        excel_procesos,
+        xml_tabla,
+        "Siemens TIA Portal V18.0",
+    )
 
 
 def _esperar_job(
@@ -459,6 +510,7 @@ class BloqueSyncFalso:
         nombre: str,
         jerarquia: str = "",
         orden: list[str] | None = None,
+        soporta_simaticsd: bool = True,
     ) -> None:
         self._nombre = nombre
         self._jerarquia = jerarquia
@@ -466,6 +518,8 @@ class BloqueSyncFalso:
         self._orden = orden
         #: Cuantas veces se ha compilado el bloque.
         self.n_compilaciones = 0
+        #: Las versiones sin SimaticSD (V18) no dejan exportar bloques.
+        self._soporta_simaticsd = soporta_simaticsd
 
     def get_name(self) -> str:
         return self._nombre
@@ -476,6 +530,10 @@ class BloqueSyncFalso:
         export_format: str = "SimaticSD",
         keep_folder_structure: bool = False,
     ) -> None:
+        if not self._soporta_simaticsd:
+            raise RuntimeError(
+                "The method is not supported in this API version"
+            )
         if self._orden is not None:
             self._orden.append(f"export:{self._nombre}")
         carpeta = Path(target_directory_path)
@@ -735,9 +793,10 @@ def _entorno(
 
     orden: list[str] = []
     tablas = [TablaSyncFalsa(TABLA_PROCESO, CONSTANTES_TIA, xml_tabla)]
+    con_simaticsd = soporta_simaticsd(version)
     bloques = [
-        BloqueSyncFalso(DB_PARAM, orden=orden),
-        BloqueSyncFalso(DB_ALM, orden=orden),
+        BloqueSyncFalso(DB_PARAM, orden=orden, soporta_simaticsd=con_simaticsd),
+        BloqueSyncFalso(DB_ALM, orden=orden, soporta_simaticsd=con_simaticsd),
     ]
     plc = PlcSyncFalso(tablas, bloques)
     plc.orden = orden

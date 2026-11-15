@@ -53,6 +53,7 @@ from zc_suite.areas.alimentacion.funciones.procesos.generar_prevision import (
     leer_par_sd,
 )
 from zc_suite.areas.alimentacion.procesos.diferencias import (
+    SATELITES_POR_ARRAY,
     proc_calcular_arrays,
     proc_calcular_diff_n_max,
     proc_resumen,
@@ -212,27 +213,35 @@ def sincronizar(
             [mapa.table_name],
             mantener_estructura=True,
         )
-        db_a_exportar = [
-            db
-            for db in (mapa.db_param_name, mapa.db_alm_name)
-            if db not in mapa.db_missing
-        ]
-        exportar_bloques(
-            job.tia.portal,
-            plc,
-            destino_bloques,
-            db_a_exportar,
-            mantener_estructura=True,
-            version_tia=job.tia.version_tia,
-        )
-        # La ruta relativa de cada DB dentro del export: la conserva la copia
-        # a ``modified/``. Sin la carpeta de TIA, TIA no haria UPDATE.
-        rutas_db = {
-            db: _ruta_relativa_db(destino_bloques, db) for db in db_a_exportar
-        }
-        paso["detail"] = (
-            f"tabla {mapa.table_name} y {len(db_a_exportar)} DBs exportados"
-        )
+        # En TIA anterior a V21 no se exporta SimaticSD: el sync solo toca
+        # el N_MAX y la tx de comentarios queda no ejecutada.
+        sin_comentarios = not soporta_simaticsd(job.tia.version_tia)
+        if sin_comentarios:
+            db_a_exportar: list[str] = []
+            rutas_db: dict[str, Path | None] = {}
+            paso["detail"] = f"tabla {mapa.table_name} exportada (sin DBs)"
+        else:
+            db_a_exportar = [
+                db
+                for db in (mapa.db_param_name, mapa.db_alm_name)
+                if db not in mapa.db_missing
+            ]
+            exportar_bloques(
+                job.tia.portal,
+                plc,
+                destino_bloques,
+                db_a_exportar,
+                mantener_estructura=True,
+                version_tia=job.tia.version_tia,
+            )
+            # La ruta relativa de cada DB dentro del export: la conserva la
+            # copia a ``modified/``. Sin la carpeta de TIA, TIA no haria UPDATE.
+            rutas_db = {
+                db: _ruta_relativa_db(destino_bloques, db) for db in db_a_exportar
+            }
+            paso["detail"] = (
+                f"tabla {mapa.table_name} y {len(db_a_exportar)} DBs exportados"
+            )
 
     # ── 3. Preparar las operaciones ──────────────────────────────────────
     with job.paso("preparar") as paso:
@@ -251,25 +260,34 @@ def sincronizar(
             )
         ops_n_max = proc_operaciones_n_max(mapa.table_name, diff_n_max)
 
-        dcl_param, res_param = leer_par_sd(destino_bloques, mapa.db_param_name)
-        dcl_alm, res_alm = leer_par_sd(destino_bloques, mapa.db_alm_name)
-        arrays = proc_calcular_arrays(
-            mapa,
-            dcl_param,
-            res_param,
-            dcl_alm,
-            res_alm,
-        )
-        arrays_por_db = proc_arrays_para_apply(
-            {
-                "preal": mapa.preal,
-                "pint": mapa.pint,
-                "alm": mapa.alm,
-            },
-            mapa.db_param_name,
-            mapa.db_alm_name,
-            mapa.db_missing,
-        )
+        # En TIA anterior a V21 no se exporta SimaticSD: el sync solo toca
+        # el N_MAX y la tx de comentarios queda no ejecutada.
+        sin_comentarios = not soporta_simaticsd(job.tia.version_tia)
+        if sin_comentarios:
+            arrays = _arrays_vacios(mapa)
+            arrays_por_db: dict[str, dict[str, dict[int, str]]] = {}
+        else:
+            dcl_param, res_param = leer_par_sd(
+                destino_bloques, mapa.db_param_name
+            )
+            dcl_alm, res_alm = leer_par_sd(destino_bloques, mapa.db_alm_name)
+            arrays = proc_calcular_arrays(
+                mapa,
+                dcl_param,
+                res_param,
+                dcl_alm,
+                res_alm,
+            )
+            arrays_por_db = proc_arrays_para_apply(
+                {
+                    "preal": mapa.preal,
+                    "pint": mapa.pint,
+                    "alm": mapa.alm,
+                },
+                mapa.db_param_name,
+                mapa.db_alm_name,
+                mapa.db_missing,
+            )
         paso["detail"] = (
             f"{len(ops_n_max)} N_MAX, "
             f"{len(arrays_por_db.get(mapa.db_param_name, {}))} arrays en el "
@@ -307,7 +325,7 @@ def sincronizar(
     # bloques inconsistentes. No depende de si los comentarios cambian.
     compilacion = {"ok": True, "error": None, "detalle": "compile=no-op"}
     with job.paso("compilar") as paso:
-        if ops_n_max:
+        if ops_n_max and not sin_comentarios:
             compilacion = _compilar(
                 job,
                 plc,
@@ -329,36 +347,45 @@ def sincronizar(
                 [mapa.table_name],
                 mantener_estructura=True,
             )
-            exportar_bloques(
-                job.tia.portal,
-                plc,
-                destino_bloques,
-                db_a_exportar,
-                mantener_estructura=True,
-                version_tia=job.tia.version_tia,
-            )
-            # Los comentarios actuales se re-leen de la re-export: el N_MAX
-            # pudo redimensionar los arrays.
-            dcl_param, res_param = leer_par_sd(destino_bloques, mapa.db_param_name)
-            dcl_alm, res_alm = leer_par_sd(destino_bloques, mapa.db_alm_name)
-            # Los arrays se recalculan con lo releido: el N_MAX pudo
-            # redimensionar los DBs y el resumen de 'comentarios' debe
-            # reflejar el estado post-N_MAX.
-            arrays = proc_calcular_arrays(
-                mapa,
-                dcl_param,
-                res_param,
-                dcl_alm,
-                res_alm,
-            )
-        paso["detail"] = (
-            "tabla y DBs releidos" if ops_n_max else "no hacia falta releer"
-        )
+            if sin_comentarios:
+                # V18: no se re-exportan bloques (no hay SimaticSD).
+                paso["detail"] = "tabla releida (los DBs no se re-exportan)"
+            else:
+                exportar_bloques(
+                    job.tia.portal,
+                    plc,
+                    destino_bloques,
+                    db_a_exportar,
+                    mantener_estructura=True,
+                    version_tia=job.tia.version_tia,
+                )
+                # Los comentarios actuales se re-leen de la re-export: el N_MAX
+                # pudo redimensionar los arrays.
+                dcl_param, res_param = leer_par_sd(
+                    destino_bloques, mapa.db_param_name
+                )
+                dcl_alm, res_alm = leer_par_sd(destino_bloques, mapa.db_alm_name)
+                # Los arrays se recalculan con lo releido: el N_MAX pudo
+                # redimensionar los DBs y el resumen de 'comentarios' debe
+                # reflejar el estado post-N_MAX.
+                arrays = proc_calcular_arrays(
+                    mapa,
+                    dcl_param,
+                    res_param,
+                    dcl_alm,
+                    res_alm,
+                )
+                paso["detail"] = "tabla y DBs releidos"
+        else:
+            paso["detail"] = "no hacia falta releer"
 
     # ── 8. Copiar los DBs a modified ──────────────────────────────────────
     with job.paso("copiar") as paso:
-        _copiar_bloques(destino_bloques, carpeta.bloques_modified, rutas_db)
-        paso["detail"] = f"{len(rutas_db)} DBs copiados a modified"
+        if sin_comentarios:
+            paso["detail"] = "no hay que copiar (sin comentarios en esta version)"
+        else:
+            _copiar_bloques(destino_bloques, carpeta.bloques_modified, rutas_db)
+            paso["detail"] = f"{len(rutas_db)} DBs copiados a modified"
 
     # ── 9. Editar los comentarios offline ────────────────────────────────
     con_cambios = False
@@ -535,6 +562,37 @@ def _localizar_xml(base: Path, tabla: str) -> Path:
     for encontrado in sorted(base.rglob(f"{tabla}.xml")):
         return encontrado
     return base / f"{tabla}.xml"
+
+
+def _arrays_vacios(mapa: MapaProceso) -> dict[str, Any]:
+    """Los tres arrays del proceso sin datos: TIA anterior a V21.
+
+    Misma forma que ``proc_calcular_arrays``, pero con el slot_map vacio:
+    sin SimaticSD no hay comentarios que comparar.
+    """
+    configuracion = (
+        ("PReal", mapa.preal, mapa.db_param_name),
+        ("PInt", mapa.pint, mapa.db_param_name),
+        ("ALM", mapa.alm, mapa.db_alm_name),
+    )
+    return {
+        nombre: {
+            "db_name": db,
+            "array_name": nombre,
+            "satellite_arrays": list(SATELITES_POR_ARRAY.get(nombre, ())),
+            "current_count": 0,
+            "desired_count": len(slot_map),
+            "slot_map": {},
+            "summary": {
+                "total": 0,
+                "agregados": 0,
+                "renombrados": 0,
+                "eliminados": 0,
+                "sin_cambios": 0,
+            },
+        }
+        for nombre, slot_map, db in configuracion
+    }
 
 
 def _arrays_actuales(

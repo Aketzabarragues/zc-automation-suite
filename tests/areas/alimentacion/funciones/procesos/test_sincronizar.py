@@ -353,6 +353,35 @@ def test_la_cancelacion_no_se_confunde_con_un_error(
     assert evento["estado"] == "cancelado"
 
 
+def test_el_sync_en_tia_v18_no_exporta_bloques(
+    entorno_sync_v18: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """En V18 el sync no exporta bloques: solo la tabla y la tx de N_MAX."""
+    import zc_suite.areas.alimentacion.funciones.procesos.sincronizar as mod
+
+    exportados: list[str] = []
+
+    def _bloques(portal: Any, plc: str, destino: Any, nombres: Any, **kwargs: Any) -> Any:
+        exportados.extend(nombres or [])
+        return mod.exportar_bloques(portal, plc, destino, nombres, **kwargs)
+
+    monkeypatch.setattr(mod, "exportar_bloques", _bloques)
+
+    evento = entorno_sync_v18.sincronizar(PROC_UID)
+    assert evento["estado"] == "ok", evento.get("error")
+
+    # Ni export ni re-export de bloques en V18.
+    assert exportados == []
+    # El doble V18 lanza si se le pide export SimaticSD: si el sync llegara
+    # a exportar, el trabajo fallaria.
+    resultado = evento["resultado"]
+    assert _transaccion_por_nombre(resultado, "N_MAX")["estado"] == CONFIRMADA
+    comentarios = _transaccion_por_nombre(resultado, "Comentarios")
+    assert comentarios["estado"] == NO_EJECUTADA
+    assert "V21" in comentarios["detalle"]
+    assert entorno_sync_v18.plc.importaciones_bloques == []
+
+
 def test_los_comentarios_no_se_ejecutan_en_tia_v18(entorno_sync_v18: Any) -> None:
     """La transaccion de comentarios necesita TIA V21: antes no se ejecuta."""
     evento = entorno_sync_v18.sincronizar(PROC_UID)
