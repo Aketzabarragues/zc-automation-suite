@@ -12,9 +12,13 @@ proceso existente) y las validaciones que se hacen con el antes de clonarla:
   del PLC, por nombre exacto o por la tupla ``(prefijo_upper, numero)``.
 - ``proc_validar_dependencias`` exige que cada bloque externo declarado en
   el manifest exista ya en el PLC (nombre exacto).
+- ``proc_minimos_de_proceso`` lee los 4 N_MAX del proceso del Excel maestro.
+- ``proc_resolver_plantilla`` valida y resuelve la subcarpeta de una
+  plantilla dentro de la carpeta de plantillas (sin salir de ella).
 
-Es logica pura: no habla con el portal de TIA y no abre transacciones. El FB
-que la usara sera ``../funciones/procesos/crear.py``.
+Es logica pura: no habla con el portal de TIA y no abre transacciones. La
+usan los FB ``../funciones/procesos/generar_prevision_crear.py`` y
+``../funciones/procesos/crear.py``.
 
 El port de ``main`` (``function_proc_crear_generar_preview.py``, funciones
 ``proc_process_leer_manifest``, ``proc_process_validar_minimos``,
@@ -35,7 +39,7 @@ from zc_suite.areas.alimentacion.procesos.clonacion import (
     N_MAX_KEYS,
     proc_aplicar_diccionario,
 )
-from zc_suite.errores import ZCError
+from zc_suite.errores import OperacionError, ZCError
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +50,8 @@ __all__ = [
     "proc_detectar_colisiones",
     "proc_generar_previstos",
     "proc_leer_manifest",
+    "proc_minimos_de_proceso",
+    "proc_resolver_plantilla",
     "proc_validar_dependencias",
     "proc_validar_minimos",
 ]
@@ -143,6 +149,84 @@ def proc_validar_minimos(
             "Los N_MAX del operario no cubren los minimos de la plantilla:\n"
             "  - " + "\n  - ".join(problemas)
         )
+
+
+def proc_minimos_de_proceso(proceso: dict[str, Any]) -> dict[str, int]:
+    """Los 4 N_MAX del proceso del Excel maestro, con el nombre de la constante.
+
+    El Excel lleva las columnas ``preal``, ``pint``, ``alarmas`` y
+    ``alm_hmi``; el manifest los declara como ``N_MAX_PREAL``,
+    ``N_MAX_PINT``, ``N_MAX_ALM`` y ``N_MAX_ALM_HMI``. Los campos ausentes
+    o vacios valen 0.
+
+    Args:
+        proceso: la fila del proceso (``excel/tablas.py``).
+
+    Returns:
+        ``{clave N_MAX: valor}`` para las cuatro claves de ``N_MAX_KEYS``.
+    """
+    return {
+        "N_MAX_PREAL": int(proceso.get("preal", 0) or 0),
+        "N_MAX_PINT": int(proceso.get("pint", 0) or 0),
+        "N_MAX_ALM": int(proceso.get("alarmas", 0) or 0),
+        "N_MAX_ALM_HMI": int(proceso.get("alm_hmi", 0) or 0),
+    }
+
+
+def proc_resolver_plantilla(
+    plantillas_dir: Path,
+    dir_plantilla_nombre: str,
+) -> Path:
+    """La carpeta de la plantilla, dentro de la carpeta de plantillas.
+
+    ``plantillas_dir`` se usa tal cual: resolver su por defecto (contra
+    ``raiz_datos`` y el config) es cosa del FB, no de aqui. La subcarpeta
+    tiene que existir y no puede salir de ``plantillas_dir``: un symlink que
+    apunte fuera se rechaza.
+
+    Args:
+        plantillas_dir: la carpeta con las plantillas (ya resuelta).
+        dir_plantilla_nombre: el nombre de la subcarpeta (sin separadores).
+
+    Returns:
+        La ruta de la carpeta de la plantilla.
+
+    Raises:
+        OperacionError: si el nombre es vacio, lleva separadores o ``..``,
+            si falta la carpeta de plantillas, si la subcarpeta queda fuera
+            de ella o si no existe.
+    """
+    if not dir_plantilla_nombre:
+        raise OperacionError(
+            "El nombre de la carpeta de la plantilla es obligatorio."
+        )
+    if (
+        "/" in dir_plantilla_nombre
+        or "\\" in dir_plantilla_nombre
+        or ".." in dir_plantilla_nombre
+    ):
+        raise OperacionError(
+            "El nombre de la carpeta de la plantilla no puede contener "
+            f"separadores ni '..': {dir_plantilla_nombre!r}."
+        )
+    if not plantillas_dir.is_dir():
+        raise OperacionError(
+            f"No se encontro la carpeta de plantillas: {plantillas_dir}."
+        )
+    dir_plantilla = plantillas_dir / dir_plantilla_nombre
+    # La ruta final (con symlinks resueltos) tiene que quedar dentro de
+    # la carpeta de plantillas: un symlink no puede salir de ella.
+    if dir_plantilla.resolve().parent != plantillas_dir.resolve():
+        raise OperacionError(
+            "La carpeta de la plantilla queda fuera de la carpeta de "
+            f"plantillas: {dir_plantilla}. No se permite."
+        )
+    if not dir_plantilla.is_dir():
+        raise OperacionError(
+            f"No se encontro la plantilla: {dir_plantilla}. "
+            "Verifica la carpeta de plantillas y el nombre de la subcarpeta."
+        )
+    return dir_plantilla
 
 
 def _entrada_bloque_plc(item: Any) -> dict[str, Any] | None:

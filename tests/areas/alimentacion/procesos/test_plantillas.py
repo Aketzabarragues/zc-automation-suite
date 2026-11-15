@@ -8,6 +8,7 @@ transacciones.
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -18,10 +19,12 @@ from zc_suite.areas.alimentacion.procesos.plantillas import (
     proc_detectar_colisiones,
     proc_generar_previstos,
     proc_leer_manifest,
+    proc_minimos_de_proceso,
+    proc_resolver_plantilla,
     proc_validar_dependencias,
     proc_validar_minimos,
 )
-from zc_suite.errores import ZCError
+from zc_suite.errores import OperacionError, ZCError
 
 #: Un manifest completo y valido, base para los tests.
 MANIFEST_VALIDO: dict[str, object] = {
@@ -182,6 +185,119 @@ def test_excepciones_cuelgan_de_zcerror() -> None:
     assert issubclass(PlantillaMinimosNoCumplidosError, ZCError)
     assert not issubclass(ManifestInvalidoError, ValueError)
     assert not issubclass(PlantillaMinimosNoCumplidosError, ValueError)
+
+
+# ── proc_minimos_de_proceso ─────────────────────────────────────────────────
+
+
+def test_minimos_de_proceso_completo() -> None:
+    """Las 4 columnas del Excel pasan a las 4 claves del manifest."""
+    minimos = proc_minimos_de_proceso(
+        {"preal": 2, "pint": 1, "alarmas": 2, "alm_hmi": 2}
+    )
+    assert minimos == {
+        "N_MAX_PREAL": 2,
+        "N_MAX_PINT": 1,
+        "N_MAX_ALM": 2,
+        "N_MAX_ALM_HMI": 2,
+    }
+
+
+def test_minimos_de_proceso_campos_ausentes_y_none() -> None:
+    """Campos ausentes o vacios valen 0."""
+    minimos = proc_minimos_de_proceso({"preal": None, "alarmas": 3})
+    assert minimos == {
+        "N_MAX_PREAL": 0,
+        "N_MAX_PINT": 0,
+        "N_MAX_ALM": 3,
+        "N_MAX_ALM_HMI": 0,
+    }
+
+
+def test_minimos_de_proceso_proceso_vacio() -> None:
+    """Un proceso sin columnas: todo a 0."""
+    assert proc_minimos_de_proceso({}) == {
+        "N_MAX_PREAL": 0,
+        "N_MAX_PINT": 0,
+        "N_MAX_ALM": 0,
+        "N_MAX_ALM_HMI": 0,
+    }
+
+
+# ── proc_resolver_plantilla ─────────────────────────────────────────────────
+
+
+def _carpeta_con_plantilla(tmp_path: Path) -> Path:
+    raiz = tmp_path / "plantillas"
+    (raiz / "50500_CIP1").mkdir(parents=True)
+    return raiz
+
+
+def test_resolver_plantilla_valida(tmp_path: Path) -> None:
+    """Una subcarpeta que existe dentro de la carpeta de plantillas."""
+    raiz = _carpeta_con_plantilla(tmp_path)
+    assert (
+        proc_resolver_plantilla(raiz, "50500_CIP1")
+        == raiz / "50500_CIP1"
+    )
+
+
+def test_resolver_plantilla_nombre_vacio(tmp_path: Path) -> None:
+    """Un nombre vacio es un fallo de operacion (texto de main)."""
+    raiz = _carpeta_con_plantilla(tmp_path)
+    with pytest.raises(OperacionError) as excinfo:
+        proc_resolver_plantilla(raiz, "")
+    assert str(excinfo.value) == (
+        "El nombre de la carpeta de la plantilla es obligatorio."
+    )
+
+
+@pytest.mark.parametrize("nombre", ["sub/50500_CIP1", "sub\\50500_CIP1"])
+def test_resolver_plantilla_con_separadores(tmp_path: Path, nombre: str) -> None:
+    """'/' o '\\' en el nombre: path traversal, fallo de operacion."""
+    raiz = _carpeta_con_plantilla(tmp_path)
+    with pytest.raises(OperacionError) as excinfo:
+        proc_resolver_plantilla(raiz, nombre)
+    assert "separadores" in str(excinfo.value)
+
+
+def test_resolver_plantilla_con_dotdot(tmp_path: Path) -> None:
+    """'..' en el nombre: path traversal, fallo de operacion."""
+    raiz = _carpeta_con_plantilla(tmp_path)
+    with pytest.raises(OperacionError) as excinfo:
+        proc_resolver_plantilla(raiz, "../50500_CIP1")
+    assert "separadores" in str(excinfo.value)
+
+
+def test_resolver_plantilla_carpeta_inexistente(tmp_path: Path) -> None:
+    """La carpeta de plantillas no existe: fallo de operacion."""
+    with pytest.raises(OperacionError) as excinfo:
+        proc_resolver_plantilla(tmp_path / "no_hay", "50500_CIP1")
+    assert "No se encontro la carpeta de plantillas" in str(excinfo.value)
+
+
+def test_resolver_plantilla_subcarpeta_inexistente(tmp_path: Path) -> None:
+    """Una subcarpeta que no existe: fallo de operacion."""
+    raiz = _carpeta_con_plantilla(tmp_path)
+    with pytest.raises(OperacionError) as excinfo:
+        proc_resolver_plantilla(raiz, "99999_NO_EXISTE")
+    assert "No se encontro la plantilla" in str(excinfo.value)
+
+
+def test_resolver_plantilla_symlink_fuera_de_la_carpeta(
+    tmp_path: Path,
+) -> None:
+    """Un symlink que sale de la carpeta de plantillas se rechaza."""
+    if not hasattr(os, "symlink"):
+        pytest.skip("el sistema no soporta symlinks")
+    raiz = _carpeta_con_plantilla(tmp_path)
+    dir_fuera = tmp_path / "fuera"
+    dir_fuera.mkdir()
+    os.symlink(dir_fuera, raiz / "ENLACE")
+
+    with pytest.raises(OperacionError) as excinfo:
+        proc_resolver_plantilla(raiz, "ENLACE")
+    assert "fuera de la carpeta de plantillas" in str(excinfo.value)
 
 
 # ── proc_detectar_colisiones ────────────────────────────────────────────────

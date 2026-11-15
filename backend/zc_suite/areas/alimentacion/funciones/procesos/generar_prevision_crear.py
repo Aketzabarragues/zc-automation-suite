@@ -44,6 +44,8 @@ from zc_suite.areas.alimentacion.procesos.plantillas import (
     proc_detectar_colisiones,
     proc_generar_previstos,
     proc_leer_manifest,
+    proc_minimos_de_proceso,
+    proc_resolver_plantilla,
     proc_validar_dependencias,
     proc_validar_minimos,
 )
@@ -77,7 +79,7 @@ def workdir_crear() -> Any:
     return workdir(AREA, CONTEXTO, carpetas=(CARPETA_PLANTILLA, CARPETA_NUEVO))
 
 
-def _carpeta_plantillas(
+def carpeta_plantillas(
     plantillas_dir: Path | None,
     config: ConfigArea,
 ) -> Path:
@@ -92,21 +94,6 @@ def _carpeta_plantillas(
     if plantillas_dir is not None:
         return plantillas_dir
     return raiz_datos() / config.plantillas_procesos
-
-
-def _minimos_de_proceso(proceso: dict[str, Any]) -> dict[str, int]:
-    """Los 4 N_MAX del proceso del Excel, con el nombre de la constante.
-
-    El Excel lleva las columnas ``preal``, ``pint``, ``alarmas`` y
-    ``alm_hmi``; el manifest los declara como ``N_MAX_PREAL``,
-    ``N_MAX_PINT``, ``N_MAX_ALM`` y ``N_MAX_ALM_HMI``.
-    """
-    return {
-        "N_MAX_PREAL": int(proceso.get("preal", 0) or 0),
-        "N_MAX_PINT": int(proceso.get("pint", 0) or 0),
-        "N_MAX_ALM": int(proceso.get("alarmas", 0) or 0),
-        "N_MAX_ALM_HMI": int(proceso.get("alm_hmi", 0) or 0),
-    }
 
 
 def _respuesta(
@@ -249,37 +236,10 @@ def generar_prevision_crear(
                 f"No hay un proceso con uid={proc_uid} en el Excel: el dominio "
                 "'Procesos' no lo tiene."
             )
-        if not dir_plantilla_nombre:
-            raise OperacionError(
-                "El nombre de la carpeta de la plantilla es obligatorio."
-            )
-        if (
-            "/" in dir_plantilla_nombre
-            or "\\" in dir_plantilla_nombre
-            or ".." in dir_plantilla_nombre
-        ):
-            raise OperacionError(
-                "El nombre de la carpeta de la plantilla no puede contener "
-                f"separadores ni '..': {dir_plantilla_nombre!r}."
-            )
-        plantillas_dir = _carpeta_plantillas(plantillas_dir, config)
-        if not plantillas_dir.is_dir():
-            raise OperacionError(
-                f"No se encontro la carpeta de plantillas: {plantillas_dir}."
-            )
-        dir_plantilla = plantillas_dir / dir_plantilla_nombre
-        # La ruta final (con symlinks resueltos) tiene que quedar dentro de
-        # la carpeta de plantillas: un symlink no puede salir de ella.
-        if dir_plantilla.resolve().parent != plantillas_dir.resolve():
-            raise OperacionError(
-                "La carpeta de la plantilla queda fuera de la carpeta de "
-                f"plantillas: {dir_plantilla}. No se permite."
-            )
-        if not dir_plantilla.is_dir():
-            raise OperacionError(
-                f"No se encontro la plantilla: {dir_plantilla}. "
-                "Verifica la carpeta de plantillas y el nombre de la subcarpeta."
-            )
+        dir_plantilla = proc_resolver_plantilla(
+            carpeta_plantillas(plantillas_dir, config),
+            dir_plantilla_nombre,
+        )
         escaneo = modulo_prevision.escaneo_de(sesion, plc)
         if escaneo is None:
             # Como main y como la 4.5: sin escaneo fresco no se copia ni se
@@ -309,7 +269,7 @@ def generar_prevision_crear(
         paso["detail"] = f"base={base_vieja} codigo={codigo_viejo}"
 
     with job.paso("minimos") as paso:
-        minimos_usuario = _minimos_de_proceso(proceso)
+        minimos_usuario = proc_minimos_de_proceso(proceso)
         proc_validar_minimos(manifest_plantilla, minimos_usuario)
         paso["detail"] = "los N_MAX del proceso cubren los de la plantilla"
 
