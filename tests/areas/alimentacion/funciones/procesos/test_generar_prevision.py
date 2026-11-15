@@ -5,16 +5,28 @@ compara con el Excel. No escribe nada en TIA.
 """
 from __future__ import annotations
 
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-from zc_suite.nucleo.sesion import Sesion
+from zc_suite.nucleo.sesion import TTL_ESCANEO, Sesion
 
 from .conftest import DB_ALM, DB_PARAM, NOMBRE_PLC, PROC_UID, TABLA_PROCESO
 
+#: El mensaje de main para la cache de bloques no disponible.
+AVISO_SIN_CACHE = (
+    "Cache de bloques del PLC no disponible. "
+    "Selecciona el PLC en el sidebar y espera al "
+    "escaneo de bloques (1-3 min en PLCs grandes)."
+)
 
-def _sesion_con_escaneo() -> Sesion:
-    """Una sesion con el escaneo del PLC: la tabla y los dos DBs."""
+
+def _sesion_con_escaneo(ttl_extra: int = 0) -> Sesion:
+    """Una sesion con el escaneo del PLC: la tabla y los dos DBs.
+
+    Con ``ttl_extra > 0`` el escaneo se guarda y envejece ``ttl_extra``
+    segundos, para probar el camino del escaneo caducado.
+    """
     sesion = Sesion()
     sesion.guardar_escaneo(
         NOMBRE_PLC,
@@ -22,6 +34,10 @@ def _sesion_con_escaneo() -> Sesion:
         tablas=[{"nombre": TABLA_PROCESO}],
         tipos=[],
     )
+    if ttl_extra:
+        sesion._escaneos[NOMBRE_PLC].momento = datetime.now() - timedelta(
+            seconds=TTL_ESCANEO + ttl_extra
+        )
     return sesion
 
 
@@ -29,7 +45,7 @@ def test_la_prevision_exporta_la_tabla_y_los_dbs(
     entorno_prevision: Any, tmp_path: Path
 ) -> None:
     """El preview deja la tabla y los dos DBs exportados."""
-    evento = entorno_prevision.prevision(PROC_UID)
+    evento = entorno_prevision.prevision(PROC_UID, _sesion_con_escaneo())
 
     assert evento["estado"] == "ok", evento.get("error")
     preview = tmp_path / "procesos" / "preview"
@@ -161,16 +177,17 @@ def test_la_prevision_se_guarda_en_la_sesion(entorno_prevision: Any) -> None:
     assert guardado["resultado"]["proc_codigo"] == "CPR"
 
 
-def test_sin_escaneo_no_hay_precondiciones(entorno_prevision: Any) -> None:
-    """Sin escaneo en la sesion, la presencia no se puede comprobar."""
-    evento = entorno_prevision.prevision(PROC_UID)
+def test_sin_escaneo_no_hay_precondiciones(
+    entorno_prevision: Any, tmp_path: Path
+) -> None:
+    """Sin escaneo fresco, no se construye mapa ni se exporta."""
+    evento = entorno_prevision.prevision(PROC_UID, Sesion())
 
     assert evento["estado"] == "ok", evento.get("error")
     resultado = evento["resultado"]
     assert resultado["precondiciones_ok"] is False
-    assert resultado["table_present"] is False
+    assert resultado["missing_blocks"] == [AVISO_SIN_CACHE]
     assert resultado["arrays"] == {}
-    assert resultado["nmax"]["summary"] == {"actualizar": 0, "sin_cambios": 0, "total": 0}
     assert resultado["summary"] == {
         "total": 0,
         "agregados": 0,
@@ -178,13 +195,24 @@ def test_sin_escaneo_no_hay_precondiciones(entorno_prevision: Any) -> None:
         "eliminados": 0,
         "sin_cambios": 0,
     }
-    assert resultado["missing_blocks"] == [
-        f"Tabla de variables: {TABLA_PROCESO}",
-        f"DB de parametros: {DB_PARAM}",
-        f"DB de alarmas: {DB_ALM}",
-    ]
-    assert any(DB_PARAM in aviso for aviso in resultado["warnings"])
-    assert any(DB_ALM in aviso for aviso in resultado["warnings"])
+    assert resultado["nmax"]["summary"] == {"actualizar": 0, "sin_cambios": 0, "total": 0}
+    assert resultado["warnings"] == []
+    # No se ha exportado nada: el preview no existe.
+    assert not (tmp_path / "procesos" / "preview").exists()
+
+
+def test_escaneo_caducado_no_hay_precondiciones(
+    entorno_prevision: Any, tmp_path: Path
+) -> None:
+    """Un escaneo mayor que TTL_ESCANEO es como no tener ninguno."""
+    evento = entorno_prevision.prevision(PROC_UID, _sesion_con_escaneo(ttl_extra=1))
+
+    assert evento["estado"] == "ok", evento.get("error")
+    resultado = evento["resultado"]
+    assert resultado["precondiciones_ok"] is False
+    assert resultado["missing_blocks"] == [AVISO_SIN_CACHE]
+    assert resultado["arrays"] == {}
+    assert not (tmp_path / "procesos" / "preview").exists()
 
 
 def test_falta_un_db_y_se_sigue(entorno_prevision: Any) -> None:

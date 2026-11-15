@@ -33,7 +33,7 @@ from zc_suite.areas.alimentacion.procesos.mapa import (
     proc_precondiciones_ok,
 )
 from zc_suite.errores import OperacionError
-from zc_suite.nucleo.sesion import Sesion
+from zc_suite.nucleo.sesion import Escaneo, Sesion
 from zc_suite.nucleo.tia.job import Job
 from zc_suite.nucleo.tia.workdir import workdir
 from zc_suite.tia_ops.exportar import exportar_bloques, exportar_tablas
@@ -78,14 +78,15 @@ def _fila_de_proceso(filas: list[dict[str, Any]], proc_uid: int) -> dict[str, An
 def _escaneo_de(
     sesion: Sesion | None,
     plc: str,
-) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    """Los bloques y tablas del escaneo del PLC. Vacios si no hay."""
+) -> Escaneo | None:
+    """El escaneo fresco del PLC, o ``None`` si no hay o ha caducado.
+
+    Los datos del escaneo dejan de ser de fiar pasados ``TTL_ESCANEO``
+    segundos: un escaneo caducado es como no tener ninguno.
+    """
     if sesion is None:
-        return [], []
-    escaneo = sesion.escaneo(plc)
-    if escaneo is None:
-        return [], []
-    return escaneo.bloques, escaneo.tablas
+        return None
+    return sesion.escaneo_fresco(plc)
 
 
 def _leer_par_sd(carpeta: Path, db: str) -> tuple[str, str]:
@@ -179,6 +180,19 @@ def generar_prevision(
             "'Procesos' no lo tiene."
         )
 
+    escaneo = _escaneo_de(sesion, plc)
+    if escaneo is None:
+        # Como main: sin cache de bloques del PLC no se construye mapa ni se
+        # exporta; la SPA muestra el hint y el operario re-escanea.
+        resultado = componer_respuesta_sin_escaneo(proc_uid, proceso)
+        if sesion is not None:
+            sesion.guardar_dato_area(
+                AREA,
+                CLAVE_PREVISION,
+                {"plc": plc, "proc_uid": proc_uid, "resultado": resultado},
+            )
+        return resultado
+
     avisos: list[str] = []
     carpeta = workdir_procesos()
     carpeta.limpiar_preview()
@@ -186,15 +200,14 @@ def generar_prevision(
     destino_bloques = carpeta.preview_de("bloques")
 
     with _paso(job, "mapa", con_pasos) as paso:
-        bloques, tablas = _escaneo_de(sesion, plc)
         mapa = proc_construir_mapa(
             proceso,
             preal_filas,
             pint_filas,
             alarmas,
             config.procesos.sufijos_nmax,
-            bloques,
-            tablas,
+            escaneo.bloques,
+            escaneo.tablas,
         )
         for aviso in mapa.warnings:
             logger.warning(aviso)
@@ -328,6 +341,32 @@ def componer_respuesta(
         "summary": proc_resumen(arrays) if precondiciones_ok else _resumen_vacio(),
         "nmax": nmax_block if precondiciones_ok else _bloque_n_max_vacio(),
         "warnings": warnings,
+    }
+
+
+def componer_respuesta_sin_escaneo(
+    proc_uid: int,
+    proceso: dict[str, Any],
+) -> dict[str, Any]:
+    """La respuesta cuando no hay escaneo fresco del PLC.
+
+    Como ``main``: sin la cache de bloques del PLC no se puede comprobar la
+    presencia de nada, asi que no se construye mapa ni se exporta; la SPA
+    muestra el hint para que el operario re-escanee.
+    """
+    return {
+        "proc_uid": proc_uid,
+        "proc_codigo": str(proceso.get("codigo", "") or ""),
+        "precondiciones_ok": False,
+        "missing_blocks": [
+            "Cache de bloques del PLC no disponible. "
+            "Selecciona el PLC en el sidebar y espera al "
+            "escaneo de bloques (1-3 min en PLCs grandes)."
+        ],
+        "arrays": {},
+        "summary": _resumen_vacio(),
+        "nmax": _bloque_n_max_vacio(),
+        "warnings": [],
     }
 
 
