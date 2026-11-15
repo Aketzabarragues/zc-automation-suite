@@ -5,6 +5,8 @@
 - ``diferencias.py``  el diff entre TIA y el Excel (funciones puras).
 - ``sincronizacion.py``  las operaciones que hay que aplicar y la edicion
   offline de los ficheros.
+- ``clonacion.py``  el renombrado de una plantilla TIA para crear un
+  proceso nuevo (funciones puras).
 
 El trabajo que exporta y calcula el diff no vive aqui: esta en
 ``../funciones/procesos/generar_prevision.py``.
