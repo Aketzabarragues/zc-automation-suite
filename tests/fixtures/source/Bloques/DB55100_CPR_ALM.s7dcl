@@ -1,0 +1,24 @@
+﻿{
+    S7_Author := "HCR";
+    S7_BlockComment := "MLC_cpr_a";
+    S7_BlockNumber := "55100";
+    S7_BlockTitle := "MLC_cpr_at";
+    S7_Family := "ZeusControl";
+    S7_Optimized := "TRUE";
+    S7_StandardRetain := "FALSE";
+    S7_Version := "1.0"
+}
+DATA_BLOCK DB55100_CPR_ALM
+    VAR RETAIN
+        "ALM" : Array[0..3] of Bool;
+    END_VAR
+
+        { S7_MLC := "MLC_al0" }
+        ALM[0] := FALSE;
+        { S7_MLC := "MLC_al1" }
+        ALM[1] := FALSE;
+        { S7_MLC := "MLC_al2" }
+        ALM[2] := FALSE;
+        { S7_MLC := "MLC_al3" }
+        ALM[3] := FALSE;
+END_DATA_BLOCK
