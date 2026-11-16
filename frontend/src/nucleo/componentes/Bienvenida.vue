@@ -26,7 +26,7 @@ const areas = useAreasStore();
           />
         </div>
 
-        <h1 class="text-4xl md:text-5xl font-bold mb-4 tracking-tight text-white">Zeus Control</h1>
+        <h1 class="text-4xl md:text-5xl font-bold mb-4 tracking-tight text-white">ZC Automation Suite</h1>
         <p class="text-on-shell-muted text-lg max-w-2xl mx-auto mb-2 font-light">
           Plataforma de Ingeniería, Sincronización y Generación de Código TIA Portal.
         </p>
