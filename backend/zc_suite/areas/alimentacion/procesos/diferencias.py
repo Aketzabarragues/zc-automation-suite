@@ -212,6 +212,39 @@ def proc_calcular_arrays(
     return arrays
 
 
+def proc_arrays_vacios(mapa: MapaProceso) -> dict[str, Any]:
+    """Los tres arrays del proceso sin datos: TIA anterior a V21.
+
+    Misma forma que ``proc_calcular_arrays``, pero con el ``slot_map`` vacio:
+    sin SimaticSD no hay comentarios que comparar ni que aplicar, asi que la
+    vista no ensena ningun slot.
+
+    Args:
+        mapa: el mapa del proceso (slot maps del Excel y nombres de DB).
+
+    Returns:
+        ``{"PReal": {...}, "PInt": {...}, "ALM": {...}}`` con la misma forma
+        que ``proc_calcular_arrays`` y los ``slot_map`` vacios.
+    """
+    configuracion = (
+        ("PReal", mapa.preal, mapa.db_param_name),
+        ("PInt", mapa.pint, mapa.db_param_name),
+        ("ALM", mapa.alm, mapa.db_alm_name),
+    )
+    return {
+        nombre: {
+            "db_name": db,
+            "array_name": nombre,
+            "satellite_arrays": list(SATELITES_POR_ARRAY.get(nombre, ())),
+            "current_count": 0,
+            "desired_count": len(slot_map),
+            "slot_map": {},
+            "summary": proc_resumen_array({}),
+        }
+        for nombre, slot_map, db in configuracion
+    }
+
+
 def proc_resumen(arrays: dict[str, Any]) -> dict[str, int]:
     """El resumen agregado de los arrays: suma de sus ``summary``.
 

@@ -23,6 +23,7 @@ from zc_suite.areas.alimentacion.config import ConfigArea
 from zc_suite.areas.alimentacion.excel.almacen import AlmacenExcel
 from zc_suite.areas.alimentacion.procesos import CLAVE_PREVISION
 from zc_suite.areas.alimentacion.procesos.diferencias import (
+    proc_arrays_vacios,
     proc_calcular_arrays,
     proc_calcular_diff_n_max,
     proc_resumen,
@@ -265,12 +266,18 @@ def generar_prevision(
 
     arrays: dict[str, Any] = {}
     with _paso(job, "comentarios", con_pasos) as paso:
-        arrays = proc_calcular_arrays(
-            mapa,
-            texto_dcl_param,
-            texto_res_param,
-            texto_dcl_alm,
-            texto_res_alm,
+        # Sin SimaticSD (V18) no hay comentarios que leer ni que aplicar: la
+        # vista no ensena slots, solo el N_MAX.
+        arrays = (
+            proc_calcular_arrays(
+                mapa,
+                texto_dcl_param,
+                texto_res_param,
+                texto_dcl_alm,
+                texto_res_alm,
+            )
+            if con_simaticsd
+            else proc_arrays_vacios(mapa)
         )
         resumen = proc_resumen(arrays)
         paso["detail"] = (

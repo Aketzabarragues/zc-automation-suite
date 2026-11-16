@@ -10,6 +10,7 @@ from pathlib import Path
 from zc_suite.areas.alimentacion.procesos.diferencias import (
     SATELITES_POR_ARRAY,
     DiffNMax,
+    proc_arrays_vacios,
     proc_calcular_arrays,
     proc_calcular_diff_n_max,
     proc_resumen,
@@ -153,6 +154,28 @@ def test_los_arrays_tienen_la_shape_de_main() -> None:
     assert arrays["PInt"]["db_name"] == "DB53100_CPR_PARAM"
     assert arrays["ALM"]["db_name"] == "DB55100_CPR_ALM"
     assert arrays["ALM"]["satellite_arrays"] == []
+
+
+def test_los_arrays_vacios_tienen_la_misma_shape_y_sin_slots() -> None:
+    """Sin SimaticSD los arrays salen con la misma forma pero sin slots."""
+    arrays = proc_arrays_vacios(_mapa())
+
+    assert set(arrays) == {"PReal", "PInt", "ALM"}
+    for nombre, arr in arrays.items():
+        reales = proc_calcular_arrays(
+            _mapa(), _dcl_param(), _res_param(), _dcl_alm(), _res_alm()
+        )[nombre]
+        assert set(arr) == set(reales)
+        assert arr["slot_map"] == {}
+        assert arr["current_count"] == 0
+        assert arr["desired_count"] == reales["desired_count"]
+        assert arr["summary"] == {
+            "total": 0,
+            "agregados": 0,
+            "renombrados": 0,
+            "eliminados": 0,
+            "sin_cambios": 0,
+        }
 
 
 def test_el_summary_de_cada_array_cuenta_su_slot_map() -> None:

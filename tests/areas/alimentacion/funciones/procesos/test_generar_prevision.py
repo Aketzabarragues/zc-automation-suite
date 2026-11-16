@@ -162,14 +162,13 @@ def test_la_prevision_en_tia_v18_solo_calcula_el_n_max(
 
     assert evento["estado"] == "ok", evento.get("error")
     resultado = evento["resultado"]
-    # Los arrays salen sin datos de TIA: sin SimaticSD no hay bloques que
-    # leer, asi que el estado actual es desconocido (current None) y el
-    # slot_map se infiere del Excel.
+    # Sin SimaticSD no hay comentarios que leer ni que aplicar: los arrays
+    # salen sin slots y el resumen a cero. La vista solo ensena el N_MAX.
     assert set(resultado["arrays"]) == {"PReal", "PInt", "ALM"}
     for nombre in ("PReal", "PInt", "ALM"):
         assert resultado["arrays"][nombre]["current_count"] == 0
-        for entry in resultado["arrays"][nombre]["slot_map"].values():
-            assert entry["current"] is None
+        assert resultado["arrays"][nombre]["slot_map"] == {}
+    assert resultado["summary"]["total"] == 0
     # El N_MAX, en cambio, se calcula igual: la tabla si se exporta.
     assert (
         tmp_path / "procesos" / "preview" / "disp" / f"{TABLA_PROCESO}.xml"

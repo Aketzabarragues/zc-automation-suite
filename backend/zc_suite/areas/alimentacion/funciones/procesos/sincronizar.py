@@ -53,6 +53,7 @@ from zc_suite.areas.alimentacion.funciones.procesos.generar_prevision import (
     leer_par_sd,
 )
 from zc_suite.areas.alimentacion.procesos.diferencias import (
+    proc_arrays_vacios,
     proc_calcular_arrays,
     proc_calcular_diff_n_max,
     proc_resumen,
@@ -266,7 +267,7 @@ def sincronizar(
         # el N_MAX y la tx de comentarios queda no ejecutada.
         sin_comentarios = not soporta_simaticsd(job.tia.version_tia)
         if sin_comentarios:
-            arrays = _arrays_vacios(mapa)
+            arrays = proc_arrays_vacios(mapa)
             arrays_por_db: dict[str, dict[str, dict[int, str]]] = {}
         else:
             dcl_param, res_param = leer_par_sd(
@@ -564,37 +565,6 @@ def _localizar_xml(base: Path, tabla: str) -> Path:
     for encontrado in sorted(base.rglob(f"{tabla}.xml")):
         return encontrado
     return base / f"{tabla}.xml"
-
-
-def _arrays_vacios(mapa: MapaProceso) -> dict[str, Any]:
-    """Los tres arrays del proceso sin datos: TIA anterior a V21.
-
-    Misma forma que ``proc_calcular_arrays``, pero con el slot_map vacio:
-    sin SimaticSD no hay comentarios que comparar.
-    """
-    configuracion = (
-        ("PReal", mapa.preal, mapa.db_param_name),
-        ("PInt", mapa.pint, mapa.db_param_name),
-        ("ALM", mapa.alm, mapa.db_alm_name),
-    )
-    return {
-        nombre: {
-            "db_name": db,
-            "array_name": nombre,
-            "satellite_arrays": list(SATELITES_POR_ARRAY.get(nombre, ())),
-            "current_count": 0,
-            "desired_count": len(slot_map),
-            "slot_map": {},
-            "summary": {
-                "total": 0,
-                "agregados": 0,
-                "renombrados": 0,
-                "eliminados": 0,
-                "sin_cambios": 0,
-            },
-        }
-        for nombre, slot_map, db in configuracion
-    }
 
 
 def _arrays_actuales(
