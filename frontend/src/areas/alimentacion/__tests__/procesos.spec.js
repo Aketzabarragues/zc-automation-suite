@@ -89,8 +89,9 @@ const PREVISION = {
     todos: [
       { name: "100_N_MAX_PREAL", kind: "preal", actual: 3, nuevo: 2, status: "actualizar" },
       { name: "100_N_MAX_ALM", kind: "alm", actual: 2, nuevo: 2, status: "sin_cambios" },
+      { name: "100_N_MAX_ALM_HMI", kind: "alm_hmi", actual: null, nuevo: 4, status: "actualizar" },
     ],
-    summary: { actualizar: 1, sin_cambios: 1, total: 2 },
+    summary: { actualizar: 2, sin_cambios: 1, total: 3 },
     nmax_error: null,
   },
   warnings: [],
@@ -116,6 +117,23 @@ const PREVISION_POST = {
     },
   },
   summary: { total: 3, agregados: 0, renombrados: 0, eliminados: 0, sin_cambios: 3 },
+};
+
+/**
+ * La prevision de TIA V18: los arrays de comentarios salen vacios (no hay
+ * SimaticSD) y lo unico que cambia es el N_MAX.
+ */
+const PREVISION_V18 = {
+  ...PREVISION,
+  arrays: {},
+  summary: { total: 0, agregados: 0, renombrados: 0, eliminados: 0, sin_cambios: 0 },
+  nmax: {
+    current: { "100_N_MAX_PREAL": 3 },
+    desired: { "100_N_MAX_PREAL": 2 },
+    todos: [{ name: "100_N_MAX_PREAL", kind: "preal", actual: 3, nuevo: 2, status: "actualizar" }],
+    summary: { actualizar: 1, sin_cambios: 0, total: 1 },
+    nmax_error: null,
+  },
 };
 
 /** Las transacciones que devuelve el trabajo de sincronizacion. */
@@ -165,9 +183,9 @@ function montarConTodo() {
 }
 
 /** Monta la vista con una prevision vigente del proceso 100. */
-function montarConPrevision() {
+function montarConPrevision(prevision = PREVISION) {
   const montado = montarConTodo();
-  montado.procesos.preview = PREVISION;
+  montado.procesos.preview = prevision;
   montado.procesos.previewPlc = "ZC_PLC_STD";
   return montado;
 }
@@ -253,7 +271,7 @@ describe("Procesos", () => {
       wrapper.find('[data-testid="procesos-tarjeta-comentarios"]').attributes("disabled"),
     ).toBeDefined();
     expect(wrapper.find('[data-testid="procesos-contenido"]').exists()).toBe(false);
-    expect(wrapper.find('[data-testid="procesos-generar"]').exists()).toBe(false);
+    expect(wrapper.find('[data-testid="proc-sync-generate-preview"]').exists()).toBe(false);
   });
 
   it("con proceso elegido el boton de generar se habilita", async () => {
@@ -261,7 +279,9 @@ describe("Procesos", () => {
     await flushPromises();
     await abrirComentarios(wrapper);
 
-    expect(wrapper.find('[data-testid="procesos-generar"]').attributes("disabled")).toBeUndefined();
+    expect(
+      wrapper.find('[data-testid="proc-sync-generate-preview"]').attributes("disabled"),
+    ).toBeUndefined();
   });
 
   it("sin prevision enseña el estado vacio", async () => {
@@ -272,6 +292,9 @@ describe("Procesos", () => {
     expect(wrapper.find('[data-testid="procesos-vacio"]').exists()).toBe(true);
     expect(wrapper.find('[data-testid="procesos-vacio"]').text()).toContain(
       "Sin prevision generada.",
+    );
+    expect(wrapper.find('[data-testid="procesos-vacio"]').text()).toContain(
+      'Pulsa "🔍 Generar Previsión" para ver el diff completo.',
     );
     expect(wrapper.find('[data-testid="procesos-tabla"]').exists()).toBe(false);
   });
@@ -290,6 +313,60 @@ describe("Procesos", () => {
     expect(resumen.text()).toContain("3 sin cambios");
   });
 
+  it("el resumen pone renombrar antes que agregar", async () => {
+    const { wrapper } = montarConPrevision();
+    await flushPromises();
+    await abrirComentarios(wrapper);
+
+    const resumen = wrapper.find('[data-testid="procesos-resumen"]').text();
+    expect(resumen.indexOf("a renombrar")).toBeLessThan(resumen.indexOf("a agregar"));
+    expect(resumen.indexOf("a agregar")).toBeLessThan(resumen.indexOf("a eliminar"));
+    expect(resumen.indexOf("a eliminar")).toBeLessThan(resumen.indexOf("sin cambios"));
+  });
+
+  it("la cabecera ensena el proceso con su nombre, codigo y uid", async () => {
+    const { wrapper } = montarConPrevision();
+    await flushPromises();
+    await abrirComentarios(wrapper);
+
+    const cabecera = wrapper.find('[data-testid="procesos-comentarios"]');
+    expect(cabecera.find("h2").text()).toBe("💬 Actualizar comentarios de DB");
+    const texto = cabecera.text();
+    expect(texto).toContain("Proceso");
+    expect(texto).toContain("CPR");
+    expect(texto).toContain("uid 100");
+  });
+
+  it("los bloques TIA objetivo se listan con sus nombres", async () => {
+    const { wrapper } = montarConPrevision();
+    await flushPromises();
+    await abrirComentarios(wrapper);
+
+    const bloque = wrapper.find('[data-testid="procesos-bloques-tia"]');
+    expect(bloque.exists()).toBe(true);
+    expect(bloque.text()).toContain("Bloques TIA objetivo");
+    expect(bloque.text()).toContain("DB parámetros: DB53100_CPR_PARAM");
+    expect(bloque.text()).toContain("DB alarmas: DB55100_CPR_ALM");
+    expect(bloque.text()).toContain("Tabla de variables: 100_CPR");
+  });
+
+  it("un bloque que falta en el PLC se marca en rojo", async () => {
+    const prevision = {
+      ...PREVISION,
+      db_present: { param: false, alm: true },
+      table_present: false,
+    };
+    const { wrapper } = montarConPrevision(prevision);
+    await flushPromises();
+    await abrirComentarios(wrapper);
+
+    const bloque = wrapper.find('[data-testid="procesos-bloques-tia"]');
+    expect(bloque.text()).toContain("(no existe en PLC)");
+    const filas = bloque.findAll("div.font-mono");
+    expect(filas[0].classes()).toContain("text-red-700");
+    expect(filas[2].classes()).toContain("text-red-700");
+  });
+
   it("las pestanas muestran los tres arrays con su badge de cambios", async () => {
     const { wrapper } = montarConPrevision();
     await flushPromises();
@@ -297,11 +374,11 @@ describe("Procesos", () => {
 
     const pestanas = wrapper.findAll('[data-testid="procesos-pestanas"] button');
     expect(pestanas.length).toBe(3);
-    expect(pestanas[0].text()).toContain("PReal");
-    expect(pestanas[0].text()).toContain("(2)"); // renombrar + agregar
-    expect(pestanas[1].text()).toContain("PInt");
-    expect(pestanas[2].text()).toContain("ALM");
-    expect(pestanas[2].text()).toContain("(2)"); // renombrar + eliminar
+    expect(pestanas[0].text()).toContain("Parámetros reales");
+    expect(pestanas[0].text()).toContain("2"); // renombrar + agregar
+    expect(pestanas[1].text()).toContain("Parámetros Enteros");
+    expect(pestanas[2].text()).toContain("Alarmas");
+    expect(pestanas[2].text()).toContain("2"); // renombrar + eliminar
   });
 
   it("la tabla se ordena por slot y pinta el estado de cada fila", async () => {
@@ -317,6 +394,17 @@ describe("Procesos", () => {
     expect(tabla.text()).toContain("RENOMBRAR");
     expect(tabla.text()).toContain("AGREGAR");
     expect(tabla.text()).toContain("OK");
+    // La columna "Actual (TIA)" con un valor nulo se ensena como raya.
+    expect(tabla.text()).toContain("—");
+  });
+
+  it("cada fila tiene su testid con la pestana y el slot", async () => {
+    const { wrapper } = montarConPrevision();
+    await flushPromises();
+    await abrirComentarios(wrapper);
+
+    expect(wrapper.find('[data-testid="proc-sync-row-PReal-1"]').exists()).toBe(true);
+    expect(wrapper.find('[data-testid="proc-sync-row-PReal-3"]').exists()).toBe(true);
   });
 
   it("cambiar de pestana cambia la tabla", async () => {
@@ -335,17 +423,47 @@ describe("Procesos", () => {
     expect(tabla.text()).toContain("ELIMINAR");
   });
 
+  it("un array sin slots dice que no hay slots", async () => {
+    const prevision = {
+      ...PREVISION,
+      arrays: { ...PREVISION.arrays, PInt: { ...PREVISION.arrays.PInt, slot_map: {} } },
+    };
+    const { wrapper } = montarConPrevision(prevision);
+    await flushPromises();
+    await abrirComentarios(wrapper);
+
+    await wrapper.findAll('[data-testid="procesos-pestanas"] button')[1].trigger("click");
+    await flushPromises();
+
+    expect(wrapper.find('[data-testid="procesos-tabla"]').text()).toContain(
+      "No hay slots en este array.",
+    );
+  });
+
   it("la tarjeta de N_MAX sale con el valor actual y el nuevo", async () => {
     const { wrapper } = montarConPrevision();
     await flushPromises();
     await abrirComentarios(wrapper);
 
-    const bloque = wrapper.find('[data-testid="procesos-nmax"]');
+    const bloque = wrapper.find('[data-testid="proc-sync-nmax-cards"]');
     expect(bloque.exists()).toBe(true);
-    // La etiqueta es el sufijo del N_MAX (kind) y los valores actual → nuevo.
-    expect(bloque.text()).toContain("preal");
-    expect(bloque.text()).toContain("3");
-    expect(bloque.text()).toContain("2");
+    const preal = wrapper.find('[data-testid="proc-sync-nmax-preal"]');
+    expect(preal.text()).toContain("N_MAX PReal");
+    expect(preal.text()).toContain("3");
+    expect(preal.text()).toContain("2");
+  });
+
+  it("las etiquetas de N_MAX: las conocidas y el nombre de la constante", async () => {
+    const { wrapper } = montarConPrevision();
+    await flushPromises();
+    await abrirComentarios(wrapper);
+
+    expect(wrapper.find('[data-testid="proc-sync-nmax-preal"]').text()).toContain("N_MAX PReal");
+    expect(wrapper.find('[data-testid="proc-sync-nmax-alm"]').text()).toContain("N_MAX Alarmas");
+    // Un kind sin etiqueta propia usa el nombre de la constante.
+    expect(wrapper.find('[data-testid="proc-sync-nmax-alm_hmi"]').text()).toContain(
+      "100_N_MAX_ALM_HMI",
+    );
   });
 
   it("el boton de aplicar esta deshabilitado sin prevision", async () => {
@@ -353,20 +471,60 @@ describe("Procesos", () => {
     await flushPromises();
     await abrirComentarios(wrapper);
 
-    const boton = wrapper.find('[data-testid="procesos-aplicar"]');
-    expect(boton.text()).toContain("Aplicar Cambios en TIA Portal");
-    expect(boton.attributes("disabled")).toBeDefined();
+    expect(wrapper.find('[data-testid="procesos-aplicar"]').exists()).toBe(false);
+    expect(wrapper.find('[data-testid="proc-sync-generate-preview"]').exists()).toBe(true);
   });
 
-  it("el boton de aplicar enseña cuantos cambios van a aplicarse", async () => {
+  it("el boton de aplicar se habilita con prevision y esta deshabilitado sin cambios", async () => {
     const { wrapper } = montarConPrevision();
     await flushPromises();
     await abrirComentarios(wrapper);
 
     const boton = wrapper.find('[data-testid="procesos-aplicar"]');
-    // 1 agregado + 2 renombrados + 1 eliminado + 1 N_MAX = 5.
-    expect(boton.text()).toContain("(5 cambios)");
+    expect(boton.text()).toContain("Aplicar al PLC");
     expect(boton.attributes("disabled")).toBeUndefined();
+  });
+
+  it("sin cambios que aplicar el boton queda deshabilitado con el motivo", async () => {
+    const prevision = {
+      ...PREVISION,
+      arrays: {},
+      summary: { total: 0, agregados: 0, renombrados: 0, eliminados: 0, sin_cambios: 0 },
+      nmax: {
+        ...PREVISION.nmax,
+        todos: [{ name: "100_N_MAX_PREAL", kind: "preal", actual: 2, nuevo: 2, status: "sin_cambios" }],
+        summary: { actualizar: 0, sin_cambios: 1, total: 1 },
+      },
+    };
+    const { wrapper } = montarConPrevision(prevision);
+    await flushPromises();
+    await abrirComentarios(wrapper);
+
+    const boton = wrapper.find('[data-testid="procesos-aplicar"]');
+    expect(boton.attributes("disabled")).toBeDefined();
+    expect(boton.attributes("title")).toBe("No hay cambios que aplicar");
+  });
+
+  it("con solo N_MAX a actualizar (TIA V18) el boton se habilita", async () => {
+    const { wrapper } = montarConPrevision(PREVISION_V18);
+    await flushPromises();
+    await abrirComentarios(wrapper);
+
+    const boton = wrapper.find('[data-testid="procesos-aplicar"]');
+    expect(boton.attributes("disabled")).toBeUndefined();
+    expect(boton.attributes("title")).toBe("");
+  });
+
+  it("sin PLC el boton de aplicar dice que hay que elegir uno", async () => {
+    const { wrapper, plc } = montarConPrevision();
+    await flushPromises();
+    await abrirComentarios(wrapper);
+    plc.seleccionado = "";
+    await flushPromises();
+
+    const boton = wrapper.find('[data-testid="procesos-aplicar"]');
+    expect(boton.attributes("disabled")).toBeDefined();
+    expect(boton.attributes("title")).toBe("Selecciona un PLC primero");
   });
 
   it("el dialogo de confirmacion se abre al pulsar y se cierra al cancelar", async () => {
@@ -382,11 +540,11 @@ describe("Procesos", () => {
     expect(dialogo.exists()).toBe(true);
     expect(dialogo.attributes("role")).toBe("dialog");
     expect(dialogo.attributes("aria-modal")).toBe("true");
-    expect(dialogo.text()).toContain("¿Aplicar 5 cambios en TIA Portal?");
+    expect(dialogo.text()).toContain("¿Aplicar 6 cambios en TIA Portal?");
     expect(dialogo.text()).toContain("Comentarios de DB:");
     expect(dialogo.text()).toContain("Agregar: 1");
     expect(dialogo.text()).toContain("N_MAX (dimensiones):");
-    expect(dialogo.text()).toContain("Actualizar: 1");
+    expect(dialogo.text()).toContain("Actualizar: 2");
 
     await wrapper.find('[data-testid="procesos-confirmar-no"]').trigger("click");
 
@@ -439,6 +597,27 @@ describe("Procesos", () => {
     expect(wrapper.find('[data-testid="procesos-resumen"]').text()).toContain("3 sin cambios");
   });
 
+  it("tras aplicar se ve la fecha del apply", async () => {
+    const { wrapper, trabajos } = montarConPrevision();
+    await flushPromises();
+    await abrirComentarios(wrapper);
+
+    await confirmarAplicacion(wrapper);
+
+    trabajos.aplicar({
+      type: "job",
+      job: "j1",
+      estado: "ok",
+      resultado: { prevision: PREVISION_POST, transacciones: TRANSACCIONES },
+      error: null,
+    });
+    await flushPromises();
+
+    const aplicado = wrapper.find('[data-testid="procesos-aplicado"]');
+    expect(aplicado.exists()).toBe(true);
+    expect(aplicado.text()).toContain("✓ Aplicado:");
+  });
+
   it("el estado de cada transaccion se ve al terminar la sincronizacion", async () => {
     const { wrapper, trabajos } = montarConPrevision();
     await flushPromises();
@@ -480,6 +659,22 @@ describe("Procesos", () => {
     expect(wrapper.find('[data-testid="procesos-error"]').text()).toContain(
       "La transaccion de N_MAX se revirtio",
     );
+  });
+
+  it("las precondiciones no cumplidas se avisan", async () => {
+    const prevision = {
+      ...PREVISION,
+      precondiciones_ok: false,
+      missing_blocks: ["DB53100_CPR_PARAM", "100_CPR"],
+    };
+    const { wrapper } = montarConPrevision(prevision);
+    await flushPromises();
+    await abrirComentarios(wrapper);
+
+    const banner = wrapper.find('[data-testid="procesos-precond"]');
+    expect(banner.exists()).toBe(true);
+    expect(banner.text()).toContain("Precondiciones no cumplidas");
+    expect(banner.text()).toContain("DB53100_CPR_PARAM · 100_CPR");
   });
 
   it("la prevision guardada en la sesion se ve tras un F5", async () => {
@@ -638,7 +833,7 @@ describe("Procesos", () => {
       await flushPromises();
 
       expect(wrapper.find('[data-testid="procesos-contenido"]').exists()).toBe(false);
-      expect(wrapper.find('[data-testid="procesos-generar"]').exists()).toBe(false);
+      expect(wrapper.find('[data-testid="proc-sync-generate-preview"]').exists()).toBe(false);
       expect(wrapper.find('[data-testid="crear"]').exists()).toBe(false);
       // Ninguna tarjeta activa.
       expect(wrapper.find('[data-testid="procesos-tarjeta-crear"]').classes()).not.toContain("border-accent");
@@ -651,7 +846,7 @@ describe("Procesos", () => {
       await abrirComentarios(wrapper);
 
       expect(wrapper.find('[data-testid="procesos-contenido"]').exists()).toBe(true);
-      expect(wrapper.find('[data-testid="procesos-generar"]').exists()).toBe(true);
+      expect(wrapper.find('[data-testid="proc-sync-generate-preview"]').exists()).toBe(true);
       expect(wrapper.find('[data-testid="crear"]').exists()).toBe(false);
       expect(wrapper.find('[data-testid="procesos-tarjeta-comentarios"]').classes()).toContain("border-accent");
       expect(wrapper.find('[data-testid="procesos-tarjeta-crear"]').classes()).not.toContain("border-accent");
@@ -664,13 +859,24 @@ describe("Procesos", () => {
       await flushPromises();
 
       expect(wrapper.find('[data-testid="crear"]').exists()).toBe(true);
-      expect(wrapper.find('[data-testid="crear"]').find('h2').text()).toBe(
+      expect(wrapper.find('[data-testid="crear"]').find("h2").text()).toBe(
         "Crear proceso completo desde plantilla",
       );
-      expect(wrapper.find('[data-testid="procesos-contenido"]').exists()).toBe(false);
-      expect(wrapper.find('[data-testid="procesos-generar"]').exists()).toBe(false);
+      expect(wrapper.find('[data-testid="proc-sync-generate-preview"]').exists()).toBe(false);
       expect(wrapper.find('[data-testid="procesos-tarjeta-crear"]').classes()).toContain("border-accent");
       expect(wrapper.find('[data-testid="procesos-tarjeta-comentarios"]').classes()).not.toContain("border-accent");
+    });
+
+    it("el boton Cerrar de los comentarios cierra la vista", async () => {
+      const { wrapper } = montarConTodo();
+      await flushPromises();
+      await abrirComentarios(wrapper);
+      expect(wrapper.find('[data-testid="procesos-contenido"]').exists()).toBe(true);
+
+      await wrapper.find('[data-testid="proc-sync-close"]').trigger("click");
+      await flushPromises();
+
+      expect(wrapper.find('[data-testid="procesos-contenido"]').exists()).toBe(false);
     });
 
     it("el evento cerrar de CrearProceso vuelve al modo inicial", async () => {
