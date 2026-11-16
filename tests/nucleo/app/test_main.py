@@ -274,3 +274,72 @@ def test_el_log_de_arranque_no_avisa_con_el_catalogo_completo(
         )
 
     assert not [registro for registro in caplog.records if registro.levelno >= logging.WARNING]
+
+
+# ── recargar el config ──────────────────────────────────────────────────────
+
+
+def test_recargar_el_config_persiste_y_refresca_el_area(
+    tmp_path: Path,
+) -> None:
+    """El callback del area escribe el config y refresca todo en memoria.
+
+    Cadena completa: el callback registrado por ``montar_app`` (el mismo que
+    usa el PUT de plantillas) -> escritura atomica -> recarga del config, de
+    la seccion del area (``al_arrancar``) y del estado.
+    """
+    import json
+
+    from zc_suite.nucleo.app.config import ConfigEnUso
+    from zc_suite.nucleo.web.app import (
+        CLAVE_CONFIG_EN_USO,
+        CLAVE_RECARGA_CONFIG,
+    )
+
+    # La seccion completa del area del config del repo: el minimo no valdria
+    # el modelo y el area no se montaria.
+    seccion_real = json.loads(
+        (Path(__file__).resolve().parents[3] / "config" / "config.json").read_text(
+            encoding="utf-8"
+        )
+    )["areas"]["alimentacion"]
+    ruta_config = tmp_path / "config.json"
+    ruta_config.write_text(
+        json.dumps({"areas": {"alimentacion": seccion_real}}),
+        encoding="utf-8",
+    )
+    bus_eventos = BusEventos()
+    servicio = ServicioTIA(cargador=lambda: TsFalso())
+    app = montar_app(
+        servicio,
+        bus_eventos,
+        config_en_uso=ConfigEnUso(ruta_config, "prueba"),
+    )
+    # Barrera: si la app no usa el config temporal, no se recarga nada.
+    assert app.config[CLAVE_CONFIG_EN_USO].ruta == ruta_config
+    recargar = app.config[CLAVE_RECARGA_CONFIG]
+
+    escrito = recargar("alimentacion", "plantillas_procesos", "/tmp/plantillas")
+
+    # El config del usuario se escribe atomicamente.
+    assert escrito == ruta_config
+    datos = json.loads(ruta_config.read_text(encoding="utf-8"))
+    assert datos["areas"]["alimentacion"]["plantillas_procesos"] == "/tmp/plantillas"
+    # El config en memoria se recarga.
+    assert (
+        app.config["ZC_CONFIG"].areas["alimentacion"]["plantillas_procesos"]
+        == "/tmp/plantillas"
+    )
+    # La seccion del area se refresca: el almacen del area ve el valor nuevo.
+    from zc_suite.areas.alimentacion import ALMACEN
+
+    assert ALMACEN.config is not None
+    assert ALMACEN.config.plantillas_procesos == "/tmp/plantillas"
+
+    # La app sigue montada y respondiendo tras la recarga.
+    respuesta = app.test_client().get(
+        "/api/v1/areas/alimentacion/procesos/plantillas",
+        base_url="http://localhost:9484",
+    )
+    assert respuesta.status_code == 200
+    assert respuesta.get_json()["plantillas_path"] == "/tmp/plantillas"

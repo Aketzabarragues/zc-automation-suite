@@ -16,6 +16,7 @@ from zc_suite.nucleo.app.config import (
     areas_registradas_faltantes,
     cargar_config,
     config_incompatible,
+    escribir_config,
     estado_config,
     resolve_config_path,
     ruta_plantilla,
@@ -137,7 +138,7 @@ def test_la_plantilla_no_lleva_rutas_de_la_maquina_del_operario() -> None:
 
     assert "excel" not in seccion
     assert "plantillas_path" not in seccion
-    assert seccion["plantillas_procesos"] == "plantillas"
+    assert seccion["plantillas_procesos"] == ""
 
 
 def test_un_config_valido_se_carga(tmp_path: Path) -> None:
@@ -204,6 +205,67 @@ def test_un_config_con_bom_no_tumba_la_app(tmp_path: Path) -> None:
     config = cargar_config(ruta)
 
     assert config.areas["alimentacion"]["tabla_nmax"] == "0_Config"
+
+
+# ── escritura atomica ──────────────────────────────────────────────────────
+
+
+def test_escribir_config_guarda_los_datos_sin_bom(tmp_path: Path) -> None:
+    """El fichero resulta un JSON valido, sin BOM, terminado en salto de linea."""
+    ruta = tmp_path / "config.json"
+    datos = {"areas": {"alimentacion": {"plantillas_procesos": "C:\\plantillas"}}}
+
+    escribir_config(ruta, datos)
+
+    assert ruta.read_bytes()[:3] != b"\xef\xbb\xbf"
+    assert json.loads(ruta.read_text(encoding="utf-8")) == datos
+    assert not (tmp_path / "config.json.tmp").exists()
+
+
+def test_escribir_config_sobre_fichero_existente_lo_sustituye(tmp_path: Path) -> None:
+    """El ``os.replace`` sustituye el fichero: no queda nada suelto."""
+    ruta = tmp_path / "config.json"
+    ruta.write_text(json.dumps({"areas": {}}), encoding="utf-8")
+
+    escribir_config(ruta, {"areas": {"alimentacion": {"a": 1}}})
+
+    assert json.loads(ruta.read_text(encoding="utf-8")) == {
+        "areas": {"alimentacion": {"a": 1}}
+    }
+    assert not (tmp_path / "config.json.tmp").exists()
+
+
+def test_escribir_config_con_carpeta_inexistente_lanza_config_error(
+    tmp_path: Path,
+) -> None:
+    """La carpeta no existe (no escribible): ``ConfigError`` con la ruta,
+    y el ``.tmp`` no queda suelto."""
+    ruta = tmp_path / "no_existe" / "config.json"
+
+    with pytest.raises(ConfigError, match="No se pudo escribir"):
+        escribir_config(ruta, {"areas": {}})
+
+    assert not (tmp_path / "no_existe" / "config.json.tmp").exists()
+
+
+def test_escribir_config_con_error_de_sistema_lanza_config_error(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Un fallo de escritura (permisos, disco lleno): ``ConfigError`` con
+    la causa y el ``.tmp`` se limpia."""
+    ruta = tmp_path / "config.json"
+
+    def _falla(*args: Any, **kwargs: Any) -> None:
+        raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr("zc_suite.nucleo.app.config.os.replace", _falla)
+
+    with pytest.raises(ConfigError, match="No se pudo escribir"):
+        escribir_config(ruta, {"areas": {}})
+
+    assert not (tmp_path / "config.json.tmp").exists()
+    assert not ruta.exists()
 
 
 # ── secciones de area ──────────────────────────────────────────────────────
