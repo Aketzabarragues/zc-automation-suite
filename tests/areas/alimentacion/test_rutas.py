@@ -17,12 +17,19 @@ from typing import Any
 import pytest
 from openpyxl import Workbook
 
+from zc_suite.areas import alimentacion as area_alimentacion
 from zc_suite.areas.alimentacion.config import ConfigArea
 from zc_suite.areas.alimentacion.excel.almacen import AlmacenExcel
 from zc_suite.areas.alimentacion.rutas import CLAVE_ALMACEN, TAMANO_MAXIMO, rutas
+from zc_suite.nucleo.app import config as config_nucleo
 from zc_suite.nucleo.tia.eventos import BusEventos
 from zc_suite.nucleo.tia.servicio import ServicioTIA
-from zc_suite.nucleo.web.app import crear_app
+from zc_suite.nucleo.web.app import (
+    CLAVE_CONFIG,
+    CLAVE_CONFIG_EN_USO,
+    CLAVE_RECARGA_CONFIG,
+    crear_app,
+)
 
 BASE = "http://localhost:9484"
 
@@ -743,16 +750,12 @@ def _plantilla_en(
 def _carpeta_plantillas(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    modelo: ConfigArea,
 ) -> Path:
-    """Una carpeta de plantillas en un temporal, apuntada por ``raiz_datos``."""
-    raiz_datos = tmp_path / "datos"
-    raiz_datos.mkdir()
-    carpeta = raiz_datos / "plantillas"
+    """Una carpeta de plantillas en un temporal, configurada en el area."""
+    carpeta = tmp_path / "plantillas"
     carpeta.mkdir()
-    modulo_crear = importlib.import_module(
-        "zc_suite.areas.alimentacion.funciones.procesos.generar_prevision_crear"
-    )
-    monkeypatch.setattr(modulo_crear, "raiz_datos", lambda: raiz_datos)
+    modelo.plantillas_procesos = str(carpeta)
     return carpeta
 
 
@@ -760,8 +763,9 @@ def test_listar_plantillas_responde_200_con_las_plantillas(
     cliente: Any,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    modelo: ConfigArea,
 ) -> None:
-    carpeta = _carpeta_plantillas(tmp_path, monkeypatch)
+    carpeta = _carpeta_plantillas(tmp_path, monkeypatch, modelo)
     _plantilla_en(
         carpeta,
         "10000_BAS",
@@ -789,18 +793,18 @@ def test_listar_plantillas_responde_200_con_las_plantillas(
     assert cuerpo["plantillas_path"] == str(carpeta)
 
 
-def test_listar_plantillas_sin_carpeta_responde_200_con_aviso(
+def test_listar_plantillas_sin_configurar_responde_200_con_aviso(
     cliente: Any,
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """La carpeta no existe: 200 con lista vacia y el aviso (como main)."""
-    raiz_datos = tmp_path / "datos"
-    raiz_datos.mkdir()
-    modulo_crear = importlib.import_module(
-        "zc_suite.areas.alimentacion.funciones.procesos.generar_prevision_crear"
+    """La ruta esta vacia en el config: "sin configurar", sin tocar el disco."""
+    carpeta = tmp_path / "plantillas"
+    carpeta.mkdir()
+    _plantilla_en(
+        carpeta,
+        "10000_BAS",
+        {"base": 10000, "codigo": "BAS", "nombre": "Basica"},
     )
-    monkeypatch.setattr(modulo_crear, "raiz_datos", lambda: raiz_datos)
 
     respuesta = cliente.get(
         "/api/v1/areas/alimentacion/procesos/plantillas", base_url=BASE
@@ -809,8 +813,8 @@ def test_listar_plantillas_sin_carpeta_responde_200_con_aviso(
     assert respuesta.status_code == 200
     cuerpo = respuesta.get_json()
     assert cuerpo["plantillas"] == []
-    assert "Directorio no existe" in (cuerpo["aviso"] or "")
-    assert cuerpo["plantillas_path"] == str(raiz_datos / "plantillas")
+    assert "no esta configurada" in (cuerpo["aviso"] or "")
+    assert cuerpo["plantillas_path"] == ""
 
 
 def test_listar_plantillas_con_config_invalido_responde_400(
@@ -825,6 +829,323 @@ def test_listar_plantillas_con_config_invalido_responde_400(
 
     assert respuesta.status_code == 400
     assert "config" in respuesta.get_json()["error"]
+
+
+# ── guardar la ruta de plantillas ───────────────────────────────────────────
+
+
+def _callback_recarga(
+    app: Any,
+    ruta_config: Path,
+    modelo: ConfigArea,
+) -> Any:
+    """El callback de recarga del PUT, sin remontar la app.
+
+    Replica ``recargar_config_app`` (``nucleo/app/main.py``) menos el
+    ``_montar_areas``: la blueprint del area ya esta registrada y Flask no
+    permite registrarla dos veces. El refresco del area va directo al modelo
+    compartido (``al_arrancar`` haria lo mismo sobre el ``ALMACEN`` del area,
+    que en la app es el mismo objeto que el fixture del almacen).
+    """
+
+    def recargar(id_area: str, clave_area: str, valor: str) -> Path:
+        datos = config_nucleo.leer_datos(ruta_config)
+        seccion_area = datos.get("areas", {}).get(id_area)
+        if not isinstance(seccion_area, dict):
+            raise config_nucleo.ConfigError(
+                f"El config.json en uso no tiene la seccion del area '{id_area}': "
+                "es de otra version de la app y no se toca."
+            )
+        seccion_area[clave_area] = valor
+        config_nucleo.escribir_config(ruta_config, datos)
+        config_recargado = config_nucleo.cargar_config(ruta_config)
+        app.config[CLAVE_CONFIG] = config_recargado
+        seccion = config_recargado.seccion_area(
+            id_area,
+            area_alimentacion.defaults(config_recargado.areas.get(id_area, {})),
+        )
+        modelo.plantillas_procesos = seccion.get("plantillas_procesos", "")
+        return ruta_config
+
+    return recargar
+
+
+def _seccion_del_repo() -> dict[str, Any]:
+    """La seccion del area del config del repo, con la ruta vacia."""
+    seccion = json.loads(
+        (Path(__file__).resolve().parents[3] / "config" / "config.json").read_text(
+            encoding="utf-8"
+        )
+    )["areas"]["alimentacion"]
+    seccion["plantillas_procesos"] = ""
+    return seccion
+
+
+def _poner_config_de_prueba(
+    app: Any,
+    tmp_path: Path,
+    modelo: ConfigArea,
+) -> Path:
+    """Un ``config.json`` en un temporal y la recarga en memoria."""
+    carpeta_config = tmp_path / "config"
+    carpeta_config.mkdir()
+    ruta_config = carpeta_config / "config.json"
+    ruta_config.write_text(
+        json.dumps(
+            {
+                "paths": {"data": "data"},
+                "areas": {
+                    "alimentacion": {
+                        **_seccion_del_repo(),
+                        "otra_clave": "se conserva",
+                    },
+                    "otra_area": {"clave": "v"},
+                },
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    app.config[CLAVE_CONFIG_EN_USO] = config_nucleo.ConfigEnUso(ruta_config, "prueba")
+    app.config[CLAVE_RECARGA_CONFIG] = _callback_recarga(app, ruta_config, modelo)
+    return ruta_config
+
+
+def _poner_ruta_plantillas(cliente: Any, ruta: str) -> Any:
+    return cliente.put(
+        "/api/v1/areas/alimentacion/procesos/plantillas",
+        json={"plantillas_path": ruta},
+        base_url=BASE,
+        headers={"Origin": BASE},
+    )
+
+
+def test_guardar_ruta_responde_200_y_actualiza_el_config(
+    cliente: Any,
+    tmp_path: Path,
+    modelo: ConfigArea,
+    app: Any,
+) -> None:
+    """El PUT escribe el config atomicamente y el GET lo ve sin reiniciar."""
+    _poner_config_de_prueba(app, tmp_path, modelo)
+    carpeta = tmp_path / "plantillas"
+    carpeta.mkdir()
+    _plantilla_en(carpeta, "10000_BAS", {"base": 10000, "codigo": "BAS", "nombre": "B"})
+
+    respuesta = _poner_ruta_plantillas(cliente, str(carpeta))
+
+    assert respuesta.status_code == 200
+    cuerpo = respuesta.get_json()
+    assert cuerpo["ok"] is True
+    assert cuerpo["plantillas_path"] == str(carpeta)
+    datos = json.loads((tmp_path / "config" / "config.json").read_text(encoding="utf-8"))
+    assert datos["areas"]["alimentacion"]["plantillas_procesos"] == str(carpeta)
+    # El resto del config no se toca.
+    assert datos["areas"]["alimentacion"]["otra_clave"] == "se conserva"
+    assert datos["areas"]["otra_area"] == {"clave": "v"}
+    assert datos["paths"] == {"data": "data"}
+    # La recarga llega hasta el area: el GET siguiente ve la carpeta.
+    assert modelo.plantillas_procesos == str(carpeta)
+    respuesta = cliente.get(
+        "/api/v1/areas/alimentacion/procesos/plantillas", base_url=BASE
+    )
+    cuerpo = respuesta.get_json()
+    assert respuesta.status_code == 200
+    assert [p["carpeta"] for p in cuerpo["plantillas"]] == ["10000_BAS"]
+    assert cuerpo["plantillas_path"] == str(carpeta)
+    assert cuerpo["aviso"] is None
+
+
+def test_guardar_ruta_vacia_resetea_a_sin_configurar(
+    cliente: Any,
+    tmp_path: Path,
+    modelo: ConfigArea,
+    app: Any,
+) -> None:
+    """La cadena vacia es un valor valido: la ruta vuelve a "sin configurar"."""
+    ruta_config = _poner_config_de_prueba(app, tmp_path, modelo)
+    (tmp_path / "plantillas").mkdir()
+    _plantilla_en(
+        tmp_path / "plantillas",
+        "10000_BAS",
+        {"base": 10000, "codigo": "BAS", "nombre": "B"},
+    )
+    _poner_ruta_plantillas(cliente, str(tmp_path / "plantillas"))
+
+    respuesta = _poner_ruta_plantillas(cliente, "")
+
+    assert respuesta.status_code == 200
+    assert respuesta.get_json()["ok"] is True
+    datos = json.loads(ruta_config.read_text(encoding="utf-8"))
+    assert datos["areas"]["alimentacion"]["plantillas_procesos"] == ""
+    assert modelo.plantillas_procesos == ""
+    cuerpo = cliente.get(
+        "/api/v1/areas/alimentacion/procesos/plantillas", base_url=BASE
+    ).get_json()
+    assert cuerpo["plantillas"] == []
+    assert cuerpo["plantillas_path"] == ""
+    assert "no esta configurada" in (cuerpo["aviso"] or "")
+
+
+def test_guardar_ruta_con_body_no_valido_responde_400(
+    cliente: Any,
+    tmp_path: Path,
+    app: Any,
+) -> None:
+    """Ni un body que no es dict ni un ``plantillas_path`` que no es str."""
+    ruta_config = _poner_config_de_prueba(
+        app, tmp_path, ConfigArea.model_construct()
+    )
+
+    sin_json = cliente.put(
+        "/api/v1/areas/alimentacion/procesos/plantillas",
+        data="[1, 2]",
+        content_type="application/json",
+        base_url=BASE,
+        headers={"Origin": BASE},
+    )
+    assert sin_json.status_code == 400
+    assert "JSON" in sin_json.get_json()["error"]
+
+    sin_clave = cliente.put(
+        "/api/v1/areas/alimentacion/procesos/plantillas",
+        json={"otra": "x"},
+        base_url=BASE,
+        headers={"Origin": BASE},
+    )
+    assert sin_clave.status_code == 400
+    assert "plantillas_path" in sin_clave.get_json()["error"]
+
+    no_str = cliente.put(
+        "/api/v1/areas/alimentacion/procesos/plantillas",
+        json={"plantillas_path": 42},
+        base_url=BASE,
+        headers={"Origin": BASE},
+    )
+    assert no_str.status_code == 400
+    assert "plantillas_path" in no_str.get_json()["error"]
+
+    datos = json.loads(ruta_config.read_text(encoding="utf-8"))
+    assert datos["areas"]["alimentacion"]["plantillas_procesos"] == ""
+
+
+def test_guardar_ruta_sin_origen_responde_403(
+    cliente: Any,
+    tmp_path: Path,
+    modelo: ConfigArea,
+    app: Any,
+) -> None:
+    """Como toda la app: sin cabecera ``Origin`` no se modifica nada."""
+    _poner_config_de_prueba(app, tmp_path, modelo)
+    respuesta = cliente.put(
+        "/api/v1/areas/alimentacion/procesos/plantillas",
+        json={"plantillas_path": "x"},
+        base_url=BASE,
+    )
+    assert respuesta.status_code == 403
+    assert "Origin" in respuesta.get_json()["error"]
+
+
+def test_guardar_ruta_sin_app_montada_responde_500(cliente: Any) -> None:
+    """Sin el callback de recarga no hay forma de guardar: 500."""
+    respuesta = _poner_ruta_plantillas(cliente, "x")
+    assert respuesta.status_code == 500
+    assert "no esta montada" in respuesta.get_json()["error"]
+
+
+def test_guardar_ruta_sin_seccion_del_area_responde_500(
+    cliente: Any,
+    tmp_path: Path,
+    modelo: ConfigArea,
+    app: Any,
+) -> None:
+    """El config no tiene la seccion del area (otra version): no se toca."""
+    carpeta_config = tmp_path / "config"
+    carpeta_config.mkdir()
+    ruta_config = carpeta_config / "config.json"
+    ruta_config.write_text(
+        json.dumps({"areas": {"otra_area": {}}}), encoding="utf-8"
+    )
+    app.config[CLAVE_CONFIG_EN_USO] = config_nucleo.ConfigEnUso(ruta_config, "prueba")
+    app.config[CLAVE_RECARGA_CONFIG] = _callback_recarga(app, ruta_config, modelo)
+
+    respuesta = _poner_ruta_plantillas(cliente, "x")
+
+    assert respuesta.status_code == 500
+    assert "no tiene la seccion del area" in respuesta.get_json()["error"]
+    datos = json.loads(ruta_config.read_text(encoding="utf-8"))
+    assert datos["areas"] == {"otra_area": {}}
+
+
+def test_guardar_ruta_con_config_no_legible_responde_500(
+    cliente: Any,
+    tmp_path: Path,
+    modelo: ConfigArea,
+    app: Any,
+) -> None:
+    """El config no se puede leer: 500 y la app sigue respondiendo.
+
+    El config es un directorio (no un fichero): la lectura de los datos
+    crudos falla y no se escribe nada.
+    """
+    carpeta_config = tmp_path / "config"
+    carpeta_config.mkdir()
+    ruta_config = carpeta_config / "config.json"
+    ruta_config.mkdir()
+    app.config[CLAVE_CONFIG_EN_USO] = config_nucleo.ConfigEnUso(ruta_config, "prueba")
+    app.config[CLAVE_RECARGA_CONFIG] = _callback_recarga(app, ruta_config, modelo)
+
+    respuesta = _poner_ruta_plantillas(cliente, str(tmp_path / "plantillas"))
+
+    assert respuesta.status_code == 500
+    assert "no se pudo leer" in respuesta.get_json()["error"].lower()
+    # La app no queda colgada: un GET sigue respondiendo.
+    assert (
+        cliente.get(
+            "/api/v1/areas/alimentacion/procesos/plantillas", base_url=BASE
+        ).status_code
+        == 200
+    )
+
+
+def test_guardar_ruta_con_escritura_fallida_responde_500(
+    cliente: Any,
+    tmp_path: Path,
+    modelo: ConfigArea,
+    app: Any,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """No se puede escribir el ``config.json`` (permisos, disco lleno): 500
+    con el fallo de la escritura, el config previo queda intacto y la app
+    sigue respondiendo (el GET no falla)."""
+    ruta_config = _poner_config_de_prueba(app, tmp_path, modelo)
+    contenido_previo = ruta_config.read_bytes()
+
+    def _falla(*args: Any, **kwargs: Any) -> None:
+        raise OSError(30, "Read-only file system")
+
+    monkeypatch.setattr("zc_suite.nucleo.app.config.os.replace", _falla)
+
+    respuesta = _poner_ruta_plantillas(cliente, str(tmp_path / "plantillas"))
+
+    error = respuesta.get_json()["error"]
+    assert respuesta.status_code == 500
+    # El mensaje es claro para el operario: donde fallaba y por que.
+    assert "No se pudo escribir el config.json" in error
+    assert str(ruta_config) in error
+    assert "Read-only file system" in error
+    # La escritura atomica no daño el config: sigue byte a byte como antes.
+    assert ruta_config.read_bytes() == contenido_previo
+    # El .tmp no queda suelto.
+    assert not (tmp_path / "config" / "config.json.tmp").exists()
+    # La app no queda colgada: un GET sigue respondiendo.
+    assert (
+        cliente.get(
+            "/api/v1/areas/alimentacion/procesos/plantillas", base_url=BASE
+        ).status_code
+        == 200
+    )
 
 
 def test_crear_prevision_responde_202_y_encola_el_trabajo(
