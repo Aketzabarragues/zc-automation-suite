@@ -113,6 +113,53 @@ con PyInstaller.
 - Los tests verdes no sustituyen al smoke en vivo contra un proyecto de
   PRUEBA de TIA (solo el operario lo corre; nunca contra produccion).
 
+## Delegacion a subagentes
+
+El repo tiene sus propios especialistas de dominio en `.opencode/agent/`, y el
+harness tiene los workers genericos. Son ejes distintos, no compiten:
+
+| Agente | Que es | Que sabe |
+|---|---|---|
+| `nucleo` | `backend/zc_suite/nucleo/` y `errores.py` | El hilo unico de TIA, `Job`, `transaccion`, el bus SSE, el workdir |
+| `tia-ops` | `backend/zc_suite/tia_ops/` y `simatic/` | El SDK de Siemens y los ficheros SimaticML / SimaticSD |
+| `areas` | `backend/zc_suite/areas/` y sus tests | Excel maestro, dispositivos, entidades, procesos |
+| `frontend` | `frontend/` | Vistas, componentes, stores, SSE y Vitest |
+| `build-y-tests` | `build_exe.py`, `pyproject.toml`, `tests/`, `scripts/smoke/`, `docs/` | Empaquetado, suite de pruebas y documentacion |
+| `explorer` | Worker generico | Localiza ficheros, rutas y lineas exactas. Sin contexto de dominio |
+| `fixer` | Worker generico | Edita ficheros y ejecuta tests. Sin contexto de dominio |
+| `oracle` | Asesor | Decisiones de arquitectura y bugs criticos |
+| `librarian` | Asesor | Documentacion externa y APIs de terceros |
+| `designer` | UI/UX | Layout, jerarquia, espaciado y movimiento |
+
+Reglas de reparto:
+
+- **Localizar** con `explorer`: pide ficheros, rutas y numeros de linea
+  exactos, no el contenido entero. Si la busqueda es de un area concreta, el
+  especialista de esa area (`nucleo`, `tia-ops`, `areas`, `frontend`) conoce
+  los contratos y la respuesta es mas fiable que una busqueda generica.
+- **Implementar** con `fixer`: implementa y ejecuta los tests. Si el cambio
+  pertenece a un area, delega al especialista de esa area, que conoce los
+  contratos del modulo.
+- **Revisa** el diff o la salida de tests de `fixer` antes de darlo por
+  bueno. Si falta algo, vuelve a invocar a `fixer` con instrucciones
+  precisas.
+- `oracle` es una escalada, no un paso por defecto: decisiones de
+  arquitectura complejas, o un bug que `fixer` no resolvio tras dos intentos.
+- `designer` es el unico que decide sobre UI: no se tocan vistas sin el.
+
+### Restriccion critica de hardware (GPU local unica)
+
+`explorer` y `fixer` corren en el **mismo modelo local** (`llama-local/qwen3.8-27b`)
+sobre una **unica GPU (RTX 5070 Ti)**. Por eso:
+
+- **PROHIBIDO lanzar subagentes locales en paralelo.** Nunca `explorer` y
+  `fixer` a la vez, ni dos `explorer` simultaneos. Espera a que termine uno
+  antes de lanzar el siguiente.
+- Los subagentes de modelo remoto (`oracle`, `librarian`, `designer`) si se
+  pueden lanzar en paralelo entre si.
+- En un prompt a `fixer` o `explorer`, nombra la herramienta `edit` (no
+  `mcp_TZWRpdA`).
+
 ## Comandos
 
 | Tarea | Comando |
