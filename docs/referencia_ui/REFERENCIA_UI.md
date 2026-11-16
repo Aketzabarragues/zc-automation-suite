@@ -235,6 +235,8 @@ Fuente: `areas/alimentacion/frontend/components/DefinicionProgramacion.js`, `Mai
 
 **Tarjeta CARGA EXCEL**
 
+- Título de la tarjeta: `Carga excel`, tal cual en `main` (la `E` de excel va en
+  minúscula).
 - Selector de fichero nativo y, a la derecha, botón `🔄 Volver a seleccionar`.
 - **Al elegir el fichero se sube y se carga solo** (sin botón "Actualizar"; faceplate
   "Parsear y volcar Excel").
