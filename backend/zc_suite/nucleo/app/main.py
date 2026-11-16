@@ -30,15 +30,24 @@ from zc_suite.nucleo.app.bandeja import Bandeja, desconectar_y_parar
 from zc_suite.nucleo.app.config import (
     Config,
     ConfigEnUso,
+    ConfigError,
     cargar_config,
+    escribir_config,
     estado_config,
+    leer_datos,
     resolver_config,
 )
 from zc_suite.nucleo.app.servidor import ServidorWeb
 from zc_suite.nucleo.sesion import CLAVE_SESION, CLAVE_SESION_AREAS, Sesion
 from zc_suite.nucleo.tia.eventos import BusEventos
 from zc_suite.nucleo.tia.servicio import ServicioTIA
-from zc_suite.nucleo.web.app import PUERTO_POR_DEFECTO, crear_app
+from zc_suite.nucleo.web.app import (
+    CLAVE_CONFIG,
+    CLAVE_CONFIG_EN_USO,
+    CLAVE_RECARGA_CONFIG,
+    PUERTO_POR_DEFECTO,
+    crear_app,
+)
 from zc_suite.nucleo.web.rutas import catalogo as rutas_catalogo
 from zc_suite.nucleo.web.rutas import conexion as rutas_conexion
 from zc_suite.nucleo.web.rutas import config as rutas_config
@@ -161,32 +170,72 @@ def montar_app(
         La app lista para servir.
     """
     app = crear_app(servicio, bus, desarrollo=desarrollo, puerto=puerto)
-    if config is None or config_en_uso is None:
+    if config_en_uso is None:
         config_en_uso = resolver_config()
     config_app = config if config is not None else cargar_config(config_en_uso.ruta)
-    app.config["ZC_CONFIG"] = config_app
-    app.config[CLAVE_SESION] = sesion if sesion is not None else Sesion()
     ids_areas = [area.ID for area in AREAS]
-    secciones = {
-        area.ID: config_app.seccion_area(
-            area.ID,
-            area.defaults(config_app.areas.get(area.ID, {})),
+    secciones = _secciones_de(config_app)
+    catalogos: dict[str, Any] = {}
+    session_areas: dict[str, Any] = {}
+    _montar_areas(app, secciones, catalogos, session_areas)
+    app.config[CLAVE_CONFIG] = config_app
+    app.config[CLAVE_CONFIG_EN_USO] = config_en_uso
+    app.config[CLAVE_RECARGA_CONFIG] = lambda id_area, clave_area, valor: recargar_config_app(
+        app, id_area, clave_area, valor
+    )
+    app.config[CLAVE_ESTADO_CONFIG] = _estado_completo(
+        config_app, config_en_uso, secciones, ids_areas
+    )
+    if app.config[CLAVE_ESTADO_CONFIG]["incompatible"]:
+        logger.error(
+            "Config incompatible: %s", app.config[CLAVE_ESTADO_CONFIG]["motivo"]
         )
-        for area in AREAS
-    }
-    estado = estado_config(config_app, config_en_uso, ids_areas)
-    for area in AREAS:
-        _anotar_incompatible(estado, area.valida_config(secciones[area.ID]))
-    app.config[CLAVE_ESTADO_CONFIG] = estado
-    if estado["incompatible"]:
-        logger.error("Config incompatible: %s", estado["motivo"])
+    app.config[CLAVE_SESION] = sesion if sesion is not None else Sesion()
     rutas_conexion.registrar(app)
     rutas_plc.registrar(app)
     rutas_catalogo.registrar(app)
     rutas_config.registrar(app)
     rutas_sesion.registrar(app)
-    catalogos: dict[str, Any] = {}
-    session_areas: dict[str, Any] = {}
+    log_de_arranque(config_en_uso, catalogos)
+    return app
+
+
+def _secciones_de(config: Config) -> dict[str, dict[str, Any]]:
+    """La seccion final de cada area: defaults del area + config del usuario."""
+    return {
+        area.ID: config.seccion_area(
+            area.ID,
+            area.defaults(config.areas.get(area.ID, {})),
+        )
+        for area in AREAS
+    }
+
+
+def _estado_completo(
+    config: Config,
+    config_en_uso: ConfigEnUso,
+    secciones: dict[str, dict[str, Any]],
+    ids_areas: list[str],
+) -> dict[str, Any]:
+    """El estado del config con los problemas que anota cada area."""
+    estado = estado_config(config, config_en_uso, ids_areas)
+    for area in AREAS:
+        _anotar_incompatible(estado, area.valida_config(secciones[area.ID]))
+    return estado
+
+
+def _montar_areas(
+    app: Flask,
+    secciones: dict[str, dict[str, Any]],
+    catalogos: dict[str, Any],
+    session_areas: dict[str, Any],
+) -> None:
+    """Arranca las areas, refresca sus catalogos y registra sus rutas.
+
+    Solo lo llama ``montar_app`` al arrancar: las rutas de un area no
+    cambian con el config, asi que la recarga no las repite (Flask no
+    permite registrar dos veces la misma blueprint).
+    """
     for area in AREAS:
         seccion = secciones[area.ID]
         area.al_arrancar(seccion)
@@ -196,8 +245,100 @@ def montar_app(
         logger.info("Area registrada: %s", area.ID)
     app.config["ZC_CATALOGO"] = catalogos
     app.config[CLAVE_SESION_AREAS] = session_areas
-    log_de_arranque(config_en_uso, catalogos)
-    return app
+
+
+def _refrescar_areas(
+    secciones: dict[str, dict[str, Any]],
+    catalogos: dict[str, Any],
+    session_areas: dict[str, Any],
+) -> None:
+    """Refresca las areas sin tocar las rutas: ``al_arrancar`` + catalogo.
+
+    ``al_arrancar`` es idempotente (vacia el Excel y deja el modelo en el
+    almacen del area) y ``catalogo`` solo lee la seccion.
+    """
+    for area in AREAS:
+        seccion = secciones[area.ID]
+        area.al_arrancar(seccion)
+        catalogos[area.ID] = area.catalogo(seccion)
+        session_areas[area.ID] = area.estado_sesion
+        logger.info("Area refrescada: %s", area.ID)
+
+
+def recargar_config_app(
+    app: Flask,
+    id_area: str,
+    clave_area: str,
+    valor: str,
+) -> Path:
+    """Guarda un ajuste del area en el ``config.json`` del usuario y lo recarga.
+
+    Cadena completa: se leen los datos crudos del ``config.json`` en uso,
+    se cambia ``areas.<id_area>.<clave_area>``, se escribe de forma atomica
+    (``.tmp`` + rename) y se recarga el config en memoria: ``ZC_CONFIG``,
+    la seccion del area en el almacen (via ``al_arrancar``), el estado del
+    config y el catalogo. Sin reiniciar la app.
+
+    Args:
+        app: la app en curso (las dependencias vienen de ``app.config``).
+        id_area: el area cuyo ajuste se cambia.
+        clave_area: la clave de la seccion del area (p. ej.
+            ``"plantillas_procesos"``).
+        valor: el nuevo valor (la cadena vacia es un valor valido).
+
+    Returns:
+        La ruta del ``config.json`` escrito.
+
+    Raises:
+        ConfigError: si el config no se puede leer, no tiene la seccion del
+            area (config de otra version, que no se toca) o no se puede
+            escribir. Si el config recargado no valida, la app se restaura
+            al estado anterior y el error sigue subiendo.
+    """
+    config_en_uso: ConfigEnUso | None = app.config.get(CLAVE_CONFIG_EN_USO)
+    if config_en_uso is None:
+        raise ConfigError("No se registro el config.json en uso en la app.")
+    ruta = config_en_uso.ruta
+    datos = leer_datos(ruta)
+    seccion_area = datos.get("areas", {}).get(id_area)
+    if not isinstance(seccion_area, dict):
+        raise ConfigError(
+            f"El config.json en uso no tiene la seccion del area '{id_area}': "
+            "es de otra version de la app y no se toca."
+        )
+    seccion_area[clave_area] = valor
+    escribir_config(ruta, datos)
+    config_recargado = cargar_config(ruta)
+    ids_areas = [area.ID for area in AREAS]
+    secciones = _secciones_de(config_recargado)
+    anterior = (
+        app.config.get(CLAVE_CONFIG),
+        app.config.get(CLAVE_ESTADO_CONFIG),
+    )
+    try:
+        app.config[CLAVE_CONFIG] = config_recargado
+        _refrescar_areas(
+            secciones,
+            app.config["ZC_CATALOGO"],
+            app.config[CLAVE_SESION_AREAS],
+        )
+        app.config[CLAVE_ESTADO_CONFIG] = _estado_completo(
+            config_recargado, config_en_uso, secciones, ids_areas
+        )
+    except Exception:
+        # La seccion recargada no valida (el area la rechazaria): se restaura
+        # el estado anterior para no dejar la app a medio recargar.
+        logger.exception("No se pudo recargar el config: se restaura el estado.")
+        config_anterior = anterior[0] or Config()
+        app.config[CLAVE_CONFIG] = config_anterior
+        app.config[CLAVE_ESTADO_CONFIG] = anterior[1]
+        _refrescar_areas(
+            _secciones_de(config_anterior),
+            app.config["ZC_CATALOGO"],
+            app.config[CLAVE_SESION_AREAS],
+        )
+        raise
+    return ruta
 
 
 def _anotar_incompatible(estado: dict[str, Any], problema: str | None) -> None:
