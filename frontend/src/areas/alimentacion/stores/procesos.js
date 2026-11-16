@@ -43,6 +43,19 @@ export const PROC_STATUS = Object.freeze({
 /** Los arrays del proceso, en el orden de las pestanas. */
 export const ARRAYS = Object.freeze(["PReal", "PInt", "ALM"]);
 
+/**
+ * Las etiquetas legibles de los N_MAX, por kind.
+ *
+ * La constante de TIA se llama `100_N_MAX_PREAL` (kind + uid): al operario
+ * le interesa el sufijo humano. Un kind que no esta aqui usa el `name` de
+ * la constante.
+ */
+export const ETIQUETAS_NMAX = Object.freeze({
+  preal: "N_MAX PReal",
+  pint: "N_MAX PInt",
+  alm: "N_MAX Alarmas",
+});
+
 /** El orden de las pestanas cuando el operario no ha elegido ninguna. */
 export const useProcesosStore = defineStore("procesos", {
   state: () => ({
@@ -62,6 +75,8 @@ export const useProcesosStore = defineStore("procesos", {
     transacciones: [],
     /** Ultimo error de la vista. */
     error: null,
+    /** Momento del ultimo apply terminado bien, en ISO. */
+    aplicadoEn: null,
   }),
 
   getters: {
@@ -101,6 +116,17 @@ export const useProcesosStore = defineStore("procesos", {
       const preview = this.vigente;
       if (!preview || !preview.nmax) return { actualizar: 0, sin_cambios: 0, total: 0 };
       return preview.nmax.summary || { actualizar: 0, sin_cambios: 0, total: 0 };
+    },
+
+    /**
+     * La etiqueta legible de una tarjeta de N_MAX: la del kind conocido
+     * (`preal`, `pint`, `alm`) o, si no, el nombre de la constante.
+     *
+     * @param {object} tarjeta la tarjeta de N_MAX del backend.
+     */
+    etiquetaNMax: () => (tarjeta) => {
+      if (!tarjeta) return "";
+      return ETIQUETAS_NMAX[tarjeta.kind] || tarjeta.name || tarjeta.kind || "";
     },
 
     /**
@@ -189,6 +215,7 @@ export const useProcesosStore = defineStore("procesos", {
       this.preview = null;
       this.previewPlc = "";
       this.transacciones = [];
+      this.aplicadoEn = null;
       this.error = null;
     },
 
@@ -271,6 +298,7 @@ export const useProcesosStore = defineStore("procesos", {
           this.previewPlc = plc;
           this.procUid = procUid;
           this.transacciones = resultado.transacciones || [];
+          this.aplicadoEn = new Date().toISOString();
           this.hidratado = true;
           return true;
         }
@@ -289,6 +317,7 @@ export const useProcesosStore = defineStore("procesos", {
       this.preview = null;
       this.previewPlc = "";
       this.transacciones = [];
+      this.aplicadoEn = null;
       this.error = null;
     },
   },
