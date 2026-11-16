@@ -82,18 +82,26 @@ def workdir_crear() -> Any:
 def carpeta_plantillas(
     plantillas_dir: Path | None,
     config: ConfigArea,
-) -> Path:
-    """La carpeta con las plantillas.
+) -> Path | None:
+    """La carpeta con las plantillas, o ``None`` si no esta configurada.
 
-    Si el llamador pasa ``plantillas_dir`` (los tests y el router), se usa.
-    Si no, ``config.plantillas_procesos`` resuelto contra la carpeta de datos
-    de la app (``raiz_datos``): en el modo empaquetado, la carpeta del
-    ``.exe``; en desarrollo, el repo. Si la ruta del config ya es absoluta,
-    ``Path`` la respeta como esta.
+    Si el llamador pasa ``plantillas_dir`` (los tests y el router), se usa
+    tal cual. Si no, ``config.plantillas_procesos``: la cadena vacia es
+    "sin configurar" y **no** se resuelve contra la carpeta de datos (no
+    puede dar ``raiz_datos()``); una ruta relativa se resuelve contra
+    ``raiz_datos`` (empaquetado: la carpeta del ``.exe``; desarrollo: el
+    repo) y una absoluta se respeta como esta.
+
+    Returns:
+        La carpeta de plantillas, o ``None`` si ``config.plantillas_procesos``
+        esta vacia.
     """
     if plantillas_dir is not None:
         return plantillas_dir
-    return raiz_datos() / config.plantillas_procesos
+    valor = config.plantillas_procesos
+    if not valor:
+        return None
+    return raiz_datos() / valor
 
 
 def _respuesta(
@@ -236,10 +244,14 @@ def generar_prevision_crear(
                 f"No hay un proceso con uid={proc_uid} en el Excel: el dominio "
                 "'Procesos' no lo tiene."
             )
-        dir_plantilla = proc_resolver_plantilla(
-            carpeta_plantillas(plantillas_dir, config),
-            dir_plantilla_nombre,
-        )
+        carpeta = carpeta_plantillas(plantillas_dir, config)
+        if carpeta is None:
+            raise OperacionError(
+                "La carpeta de plantillas no esta configurada: indica la "
+                "ruta de las plantillas en la vista de crear procesos "
+                "antes de lanzar la prevision."
+            )
+        dir_plantilla = proc_resolver_plantilla(carpeta, dir_plantilla_nombre)
         escaneo = modulo_prevision.escaneo_de(sesion, plc)
         if escaneo is None:
             # Como main y como la 4.5: sin escaneo fresco no se copia ni se

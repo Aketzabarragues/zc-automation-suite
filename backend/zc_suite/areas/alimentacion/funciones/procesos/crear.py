@@ -170,10 +170,14 @@ def crear(
                 f"No hay un proceso con uid={proc_uid} en el Excel: el dominio "
                 "'Procesos' no lo tiene."
             )
-        dir_plantilla = proc_resolver_plantilla(
-            carpeta_plantillas(plantillas_dir, config),
-            dir_plantilla_nombre,
-        )
+        carpeta = carpeta_plantillas(plantillas_dir, config)
+        if carpeta is None:
+            raise OperacionError(
+                "La carpeta de plantillas no esta configurada: indica la "
+                "ruta de las plantillas en la vista de crear procesos "
+                "antes de aplicar."
+            )
+        dir_plantilla = proc_resolver_plantilla(carpeta, dir_plantilla_nombre)
         escaneo = modulo_prevision.escaneo_de(sesion, plc)
         if escaneo is None:
             raise OperacionError(
