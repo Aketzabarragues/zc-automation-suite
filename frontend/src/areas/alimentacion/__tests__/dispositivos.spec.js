@@ -380,7 +380,7 @@ describe("Dispositivos", () => {
     expect(dialogo.attributes("role")).toBe("dialog");
     expect(dialogo.attributes("aria-modal")).toBe("true");
     expect(dialogo.text()).toContain("¿Aplicar 4 cambios en TIA Portal?");
-    expect(dialogo.text()).toContain("Devices:");
+    expect(dialogo.text()).toContain("Dispositivos:");
     expect(dialogo.text()).toContain("Agregar: 1");
     expect(dialogo.text()).toContain("Renombrar: 1");
     expect(dialogo.text()).toContain("Eliminar: 1");

@@ -78,7 +78,7 @@ const dialogoAbierto = ref(false);
 const textoConfirmacion = computed(
   () =>
     `¿Aplicar ${dispositivos.numeroDeCambios} cambios en TIA Portal?\n\n` +
-    `Devices:\n` +
+    `Dispositivos:\n` +
     `  Agregar: ${dispositivos.resumen.agregados}\n` +
     `  Renombrar: ${dispositivos.resumen.renombrados}\n` +
     `  Eliminar: ${dispositivos.resumen.eliminados}\n\n` +

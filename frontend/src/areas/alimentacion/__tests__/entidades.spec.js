@@ -337,7 +337,7 @@ describe("Entidades", () => {
     expect(dialogo.attributes("role")).toBe("dialog");
     expect(dialogo.attributes("aria-modal")).toBe("true");
     expect(dialogo.text()).toContain("¿Aplicar 5 cambios en TIA Portal?");
-    expect(dialogo.text()).toContain("Entities:");
+    expect(dialogo.text()).toContain("Entidades:");
     expect(dialogo.text()).toContain("Agregar: 1");
     expect(dialogo.text()).toContain("Renombrar: 2");
     expect(dialogo.text()).toContain("Eliminar: 1");
