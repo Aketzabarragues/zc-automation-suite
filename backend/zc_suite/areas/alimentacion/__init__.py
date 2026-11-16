@@ -11,6 +11,8 @@ Contrato del area:
 - ``catalogo(config)``  lo que la SPA necesita del backend.
 - ``defaults(config)``  valores por defecto que el area aporta a la config.
 - ``al_arrancar(config)``  deja el area lista para la sesion.
+- ``al_recargar_config(config)``  aplica una seccion nueva del config sin
+  tocar lo que el area tiene en la sesion.
 - ``estado_sesion()``  lo que el area tiene en la sesion: el Excel cargado.
 - ``valida_config(config)``  el motivo por el que su seccion del
   ``config.json`` no vale, o ``None`` si vale.
@@ -38,6 +40,7 @@ __all__ = [
     "ID",
     "NOMBRE",
     "al_arrancar",
+    "al_recargar_config",
     "catalogo",
     "defaults",
     "estado_sesion",
@@ -120,6 +123,19 @@ def al_arrancar(config: dict[str, Any]) -> None:
         config: la seccion del area en el ``config.json``.
     """
     ALMACEN.vaciar()
+    ALMACEN.config = _modelo(config)
+
+
+def al_recargar_config(config: dict[str, Any]) -> None:
+    """Aplica una seccion nueva del config sin tocar la sesion.
+
+    Se llama cuando el operario cambia un ajuste desde la web (p. ej. la
+    carpeta de plantillas). A diferencia de ``al_arrancar``, NO vacia el
+    almacen: el Excel que el operario ya cargo sigue ahi.
+
+    Args:
+        config: la seccion del area en el ``config.json`` recargado.
+    """
     ALMACEN.config = _modelo(config)
 
 

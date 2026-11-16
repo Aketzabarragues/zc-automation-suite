@@ -252,14 +252,14 @@ def _refrescar_areas(
     catalogos: dict[str, Any],
     session_areas: dict[str, Any],
 ) -> None:
-    """Refresca las areas sin tocar las rutas: ``al_arrancar`` + catalogo.
+    """Refresca las areas sin tocar las rutas ni la sesion.
 
-    ``al_arrancar`` es idempotente (vacia el Excel y deja el modelo en el
-    almacen del area) y ``catalogo`` solo lee la seccion.
+    ``al_recargar_config`` deja el modelo nuevo en el area sin vaciar lo que
+    el operario ya cargo (el Excel) y ``catalogo`` solo lee la seccion.
     """
     for area in AREAS:
         seccion = secciones[area.ID]
-        area.al_arrancar(seccion)
+        area.al_recargar_config(seccion)
         catalogos[area.ID] = area.catalogo(seccion)
         session_areas[area.ID] = area.estado_sesion
         logger.info("Area refrescada: %s", area.ID)
@@ -276,7 +276,8 @@ def recargar_config_app(
     Cadena completa: se leen los datos crudos del ``config.json`` en uso,
     se cambia ``areas.<id_area>.<clave_area>``, se escribe de forma atomica
     (``.tmp`` + rename) y se recarga el config en memoria: ``ZC_CONFIG``,
-    la seccion del area en el almacen (via ``al_arrancar``), el estado del
+    la seccion del area en el almacen (via ``al_recargar_config``, que no
+    vacia la sesion), el estado del
     config y el catalogo. Sin reiniciar la app.
 
     Args:

@@ -48,3 +48,16 @@ def test_el_estado_de_la_sesion_devuelve_el_excel() -> None:
     assert "excel" in estado
     assert "cargado" in estado["excel"]
     assert "archivo" in estado["excel"]
+
+
+def test_al_recargar_config_conserva_el_excel() -> None:
+    """Cambiar un ajuste del config no descarta el Excel ya cargado."""
+    almacen = alimentacion.ALMACEN
+    almacen._datos = {"plcs": [{"plc": "PLC1", "uid": 1}]}
+    almacen._archivo = "maestro.xlsm"
+
+    alimentacion.al_recargar_config({})
+
+    assert almacen.cargado is True
+    assert almacen.archivo == "maestro.xlsm"
+    almacen.vaciar()

@@ -319,6 +319,10 @@ def test_recargar_el_config_persiste_y_refresca_el_area(
     assert app.config[CLAVE_CONFIG_EN_USO].ruta == ruta_config
     recargar = app.config[CLAVE_RECARGA_CONFIG]
 
+    from zc_suite.areas.alimentacion import ALMACEN as ALMACEN_AREA
+
+    ALMACEN_AREA._datos = {"plcs": [{"plc": "PLC1", "uid": 1}]}
+    ALMACEN_AREA._archivo = "maestro.xlsm"
     escrito = recargar("alimentacion", "plantillas_procesos", "/tmp/plantillas")
 
     # El config del usuario se escribe atomicamente.
@@ -335,6 +339,10 @@ def test_recargar_el_config_persiste_y_refresca_el_area(
 
     assert ALMACEN.config is not None
     assert ALMACEN.config.plantillas_procesos == "/tmp/plantillas"
+    # Recargar el config NO descarta el Excel que el operario ya cargo.
+    assert ALMACEN.cargado is True
+    assert ALMACEN.archivo == "maestro.xlsm"
+    ALMACEN.vaciar()
 
     # La app sigue montada y respondiendo tras la recarga.
     respuesta = app.test_client().get(
