@@ -136,7 +136,7 @@ def test_el_db_se_compila_entre_transacciones(
     compilados = _db_compilados(entorno_sync)
     assert compilados[DB_PARAM] == 1
     assert compilados[DB_ALM] == 1
-    assert evento["resultado"]["compilacion"]["ok"] is True
+    assert evento["resultado"]["compilacion"].startswith("compile=OK")
 
 
 def test_con_n_max_y_sin_cambios_de_comentarios_compila_antes_de_reexportar(
@@ -461,11 +461,7 @@ def test_el_dict_completo_fija_claves_y_valores(entorno_sync: Any) -> None:
     }
     # Sin cambios de N_MAX la compilacion seria un no-op; aqui hay dos, pero
     # los bloques del doble se quedan consistentes y no se recompilan.
-    assert resultado["compilacion"] == {
-        "ok": True,
-        "error": None,
-        "detalle": "compile=OK (0 compilados, 2 sin cambios)",
-    }
+    assert resultado["compilacion"] == "compile=OK (0 compilados, 2 sin cambios)"
     assert resultado["prevision"] is not None
     assert "total" in resultado["prevision"]["summary"]
     # El numero de operaciones suma N_MAX mas las operaciones de comentarios.
@@ -478,10 +474,11 @@ def test_el_dict_completo_fija_claves_y_valores(entorno_sync: Any) -> None:
 def test_la_compilacion_con_errores_no_tumba_y_fija_su_dict(
     entorno_sync: Any,
     monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     """Un DB que sigue inconsistente deja ``compile=WARN``: el sync termina en
-    ok y el aviso lista el bloque con el mensaje de TIA recortado (sin la ruta
-    del bloque)."""
+    ok y el aviso del log lista el bloque con el mensaje de TIA recortado
+    (sin la ruta del bloque)."""
     from tests.tia_ops.test_compilar import ResultadoFalso
 
     for bloque in entorno_sync.plc.get_program_blocks():
@@ -491,32 +488,43 @@ def test_la_compilacion_con_errores_no_tumba_y_fija_su_dict(
             bloque, "compile", lambda nombre=nombre: ResultadoFalso(nombre, tiene_errores=True)
         )
 
-    evento = entorno_sync.sincronizar(PROC_UID)
+    with caplog.at_level("WARNING"):
+        evento = entorno_sync.sincronizar(PROC_UID)
 
     assert evento["estado"] == "ok", evento.get("error")
-    compilacion = evento["resultado"]["compilacion"]
-    assert compilacion["ok"] is False
-    assert compilacion["detalle"] == "compile=WARN"
-    error = compilacion["error"]
-    assert error.startswith("TIA reporta errores de compilacion: ")
-    nombre = entorno_sync.plc.get_program_blocks()[0].get_name()
-    assert f"{nombre} (Interface > Data type Boo is unknown.)" in error
-    assert error.endswith(
-        " Revisa ese bloque en TIA Portal: puede haber quedado con "
-        "un tamano inconsistente tras el cambio de N_MAX."
-    )
+    assert evento["resultado"]["compilacion"] == "compile=WARN"
     # El fallo de compilacion no revierte las transacciones.
     for transaccion in evento["resultado"]["transacciones"]:
         assert transaccion["estado"] == CONFIRMADA, transaccion
+    # El aviso lleva el cuerpo exacto: el bloque con el mensaje recortado y
+    # la cola final de los procesos (singular: ese bloque).
+    avisos = [
+        record.getMessage()
+        for record in caplog.records
+        if record.levelname == "WARNING"
+        and record.getMessage().startswith("Compilacion con errores")
+    ]
+    assert len(avisos) == 1, avisos
+    aviso = avisos[0]
+    assert aviso.startswith(
+        "Compilacion con errores (los cambios ya estan aplicados): "
+        "TIA reporta errores de compilacion: "
+    )
+    nombre = entorno_sync.plc.get_program_blocks()[0].get_name()
+    assert f"{nombre} (Interface > Data type Boo is unknown.)" in aviso
+    assert aviso.endswith(
+        " Revisa ese bloque en TIA Portal: puede haber quedado con "
+        "un tamano inconsistente tras el cambio de N_MAX."
+    )
 
 
 def test_si_la_compilacion_lanza_los_cambios_se_quedan(
     entorno_sync: Any,
     monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     """``compilar_bloques`` lanza: el sync termina en ok con ``compile=WARN``
-    y el error de compilacion lleva la excepcion (los cambios ya estan
-    aplicados)."""
+    y el log lleva la excepcion (los cambios ya estan aplicados)."""
     import zc_suite.areas.alimentacion.funciones.procesos.sincronizar as mod
 
     def _compilar_falla(*_args: Any, **_kwargs: Any) -> dict[str, Any]:
@@ -524,13 +532,21 @@ def test_si_la_compilacion_lanza_los_cambios_se_quedan(
 
     monkeypatch.setattr(mod, "compilar_bloques", _compilar_falla)
 
-    evento = entorno_sync.sincronizar(PROC_UID)
+    with caplog.at_level("WARNING"):
+        evento = entorno_sync.sincronizar(PROC_UID)
 
     assert evento["estado"] == "ok", evento.get("error")
-    compilacion = evento["resultado"]["compilacion"]
-    assert compilacion["ok"] is False
-    assert compilacion["error"] == "TIA no deja compilar"
-    assert compilacion["detalle"] == "compile=WARN"
+    # El detalle del paso es un string; la excepcion solo va al log.
+    assert evento["resultado"]["compilacion"] == "compile=WARN"
+    avisos = [
+        record.getMessage()
+        for record in caplog.records
+        if record.levelname == "WARNING"
+        and record.getMessage().startswith("La compilacion fallo")
+    ]
+    assert avisos == [
+        "La compilacion fallo (los cambios ya estan aplicados): TIA no deja compilar"
+    ]
     # El sync se quedo: las transacciones siguen confirmadas.
     for transaccion in evento["resultado"]["transacciones"]:
         assert transaccion["estado"] == CONFIRMADA, transaccion
@@ -581,12 +597,8 @@ def test_en_v18_el_dict_fija_el_estado_de_cada_transaccion(
     assert transacciones["Comentarios"]["detalle"] == (
         "los comentarios por instancia necesitan TIA Portal V21 o superior"
     )
-    # Sin comentarios no hay compilacion (``_compilar`` no se llama).
-    assert resultado["compilacion"] == {
-        "ok": True,
-        "error": None,
-        "detalle": "compile=no-op",
-    }
+    # Sin comentarios no hay compilacion: el no-op se conserva como string.
+    assert resultado["compilacion"] == "compile=no-op"
     # El N_MAX, en cambio, si se aplico: no depende de SimaticSD.
     assert _n_max(entorno_sync_v18)[f"{PROC_UID}_N_MAX_PREAL"] == "2"
     assert _n_max(entorno_sync_v18)[f"{PROC_UID}_N_MAX_ALM_HMI"] == "2"
