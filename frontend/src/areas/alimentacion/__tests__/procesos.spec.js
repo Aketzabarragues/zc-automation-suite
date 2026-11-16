@@ -912,6 +912,21 @@ describe("Procesos", () => {
       expect(wrapper.find('[data-testid="procesos-contenido"]').exists()).toBe(true);
     });
 
+    it("al cambiar de proceso la vista abierta muestra el proceso nuevo", async () => {
+      const { wrapper, procesos } = montarConTodo();
+      await flushPromises();
+      await abrirComentarios(wrapper);
+
+      expect(wrapper.find('[data-testid="procesos-comentarios"]').text()).toContain("uid 100");
+
+      procesos.elegir(200);
+      await flushPromises();
+
+      const cabecera = wrapper.find('[data-testid="procesos-comentarios"]');
+      expect(cabecera.text()).toContain("uid 200");
+      expect(cabecera.text()).toContain("PUM");
+    });
+
     it("pulsar la tarjeta activa no la cierra", async () => {
       const { wrapper } = montarConTodo();
       await flushPromises();
