@@ -72,6 +72,13 @@ from zc_suite.areas.alimentacion.procesos.plantillas import (
     proc_validar_dependencias,
     proc_validar_minimos,
 )
+from zc_suite.areas.alimentacion.sincronizacion_comun import (
+    datos_compilacion,
+    estado_confirmada,
+    estado_revertida,
+    estados_iniciales,
+    resumen_transacciones,
+)
 from zc_suite.errores import OperacionError
 from zc_suite.nucleo.sesion import Sesion
 from zc_suite.nucleo.tia.errores import CanceladoError
@@ -93,14 +100,13 @@ CARPETA_VARIABLES = "Variables PLC"
 #: aceptar un segundo import.
 TIA_CONSOLIDATION_SLEEP_S = 2.0
 
-#: La transaccion se confirmo: TIA guardo los cambios.
-CONFIRMADA = "confirmada"
+#: El nombre de la unica transaccion del apply: el nombre que se ve en el
+#: faceplate y en el mensaje de fallo.
+NOMBRE_TX_IMPORTAR = "Importar proceso"
 
-#: La transaccion fallo y se revirtio: TIA no guardo nada.
-REVIRTIDA = "revertida"
-
-#: La transaccion no llego a ejecutarse.
-NO_EJECUTADA = "no ejecutada"
+#: La cola final del aviso de una compilacion con errores del crear.
+#: Plural (``bloques``): se compilan todos los bloques del proceso nuevo.
+COLA_COMPILACION = " Revisa los bloques en TIA Portal."
 
 
 def crear(
@@ -156,196 +162,82 @@ def crear(
         ],
     )
 
-    datos = almacen.estado()["procesos"]
-    filas = modulo_prevision.filas_de(datos, "Procesos")
-    proceso = modulo_prevision.fila_de_proceso(filas, proc_uid)
-    codigo_nuevo = str(proceso.get("codigo", "") or "") if proceso else ""
-    nombre_nuevo = str(proceso.get("nombre", "") or "") if proceso else ""
+    # ── 1. Validar el proceso, la plantilla, el escaneo y la version ──
+    proceso, carpeta, escaneo, codigo_nuevo, nombre_nuevo = _validar(
+        job,
+        proc_uid,
+        plc,
+        almacen,
+        config,
+        sesion,
+        plantillas_dir,
+    )
 
-    manifest_plantilla: dict[str, Any] | None = None
+    # ── 2. Leer el manifiesto de la plantilla ──────────────────────────
+    (
+        manifest_plantilla,
+        base_vieja,
+        codigo_viejo,
+        nombre_viejo,
+        dependencias,
+        dir_plantilla,
+    ) = _leer_manifest(job, carpeta, dir_plantilla_nombre)
 
-    with job.paso("validar") as paso:
-        if proceso is None:
-            raise OperacionError(
-                f"No hay un proceso con uid={proc_uid} en el Excel: el dominio "
-                "'Procesos' no lo tiene."
-            )
-        carpeta = carpeta_plantillas(plantillas_dir, config)
-        if carpeta is None:
-            raise OperacionError(
-                "La carpeta de plantillas no esta configurada: indica la "
-                "ruta de las plantillas en la vista de crear procesos "
-                "antes de aplicar."
-            )
-        dir_plantilla = proc_resolver_plantilla(carpeta, dir_plantilla_nombre)
-        escaneo = modulo_prevision.escaneo_de(sesion, plc)
-        if escaneo is None:
-            raise OperacionError(
-                "No hay un escaneo fresco del PLC: escanea el PLC antes de "
-                "crear el proceso."
-            )
-        if not soporta_simaticsd(job.tia.version_tia):
-            raise OperacionError(
-                "Crear un proceso necesita TIA Portal V21 o superior."
-            )
-        paso["detail"] = f"proceso {proc_uid}, plantilla y escaneo de {plc}"
+    # ── 3. Validar los minimos del operario contra los de la plantilla ──
+    minimos_usuario = _validar_minimos(job, manifest_plantilla, proceso)
 
-    with job.paso("manifest") as paso:
-        manifest_plantilla = proc_leer_manifest(dir_plantilla)
-        base_vieja = int(manifest_plantilla["base"])
-        codigo_viejo = str(manifest_plantilla["codigo"]).strip()
-        nombre_viejo = str(manifest_plantilla.get("nombre", "") or "")
-        dependencias = [str(d).strip() for d in manifest_plantilla["dependencias"]]
-        paso["detail"] = f"base={base_vieja} codigo={codigo_viejo}"
+    # ── 4. Copiar la plantilla al workdir ───────────────────────────────
+    dir_plantilla_copia = _copiar_plantilla(job, dir_plantilla)
 
-    with job.paso("minimos") as paso:
-        minimos_usuario = proc_minimos_de_proceso(proceso)
-        proc_validar_minimos(manifest_plantilla, minimos_usuario)
-        paso["detail"] = "los N_MAX del proceso cubren los de la plantilla"
+    # ── 5. Construir los diccionarios de la clonacion ───────────────────
+    dicc_bloques, dicc_xml = _construir_diccionarios(
+        job,
+        dir_plantilla_copia,
+        base_vieja,
+        proc_uid,
+        codigo_viejo,
+        codigo_nuevo,
+        nombre_viejo,
+        nombre_nuevo,
+    )
 
-    carpeta = workdir_crear()
-    dir_plantilla_copia = carpeta.carpeta(CARPETA_PLANTILLA)
-    dir_nuevo = carpeta.carpeta(CARPETA_NUEVO)
+    # ── 6. Detectar colisiones con el escaneo del PLC ──────────────────
+    _validar_colisiones(job, dicc_bloques, escaneo)
 
-    with job.paso("copiar") as paso:
-        # Cada apply parte limpio: se borra la copia anterior de la plantilla.
-        if dir_plantilla_copia.exists():
-            shutil.rmtree(dir_plantilla_copia)
-        shutil.copytree(dir_plantilla, dir_plantilla_copia)
-        paso["detail"] = f"plantilla copiada a {dir_plantilla_copia}"
+    # ── 7. Validar las dependencias declaradas de la plantilla ──────────
+    _validar_dependencias(job, dependencias, escaneo)
 
-    with job.paso("diccionarios") as paso:
-        dicc_bloques, dicc_xml = proc_construir_diccionarios(
-            dir_plantilla_copia,
-            base_vieja,
-            proc_uid,
-            codigo_viejo,
-            codigo_nuevo,
-            nombre_viejo,
-            nombre_nuevo,
-        )
-        paso["detail"] = (
-            f"{len(dicc_bloques)} reglas bloques + {len(dicc_xml)} reglas XML"
-        )
+    # ── 8. Generar el proceso nuevo en el workdir ───────────────────────
+    archivos_generados = _generar_proceso(
+        job,
+        dir_plantilla_copia,
+        dicc_bloques,
+        dicc_xml,
+        proc_uid,
+        minimos_usuario,
+    )
 
-    with job.paso("colisiones") as paso:
-        colisiones, colisiones_con = proc_detectar_colisiones(
-            dicc_bloques, escaneo.bloques
-        )
-        if colisiones:
-            bloques_plc = ", ".join(sorted(colisiones_con.values()))
-            raise OperacionError(
-                "No se puede crear el proceso: hay colisiones con bloques "
-                f"que ya existen en el PLC: {', '.join(colisiones)}. "
-                f"Los bloques del PLC implicados: {bloques_plc}. "
-                "Resuelve las colisiones antes de aplicar."
-            )
-        paso["detail"] = f"{len(colisiones)} colision(es)"
+    # ── 9. Escribir el manifiesto del proceso nuevo ─────────────────────
+    _escribir_manifest(
+        job,
+        manifest_plantilla,
+        proc_uid,
+        codigo_nuevo,
+        nombre_nuevo,
+        dependencias,
+        minimos_usuario,
+        archivos_generados,
+    )
 
-    with job.paso("dependencias") as paso:
-        dependencias_faltantes = list(
-            proc_validar_dependencias(dependencias, escaneo.bloques)
-        )
-        if dependencias_faltantes:
-            raise OperacionError(
-                "No se puede crear el proceso: faltan dependencias que la "
-                "plantilla declara y que no existen en el PLC: "
-                f"{', '.join(dependencias_faltantes)}. "
-                "Importa esos bloques en el PLC antes de crear el proceso."
-            )
-        paso["detail"] = f"{len(dependencias)} dependencias OK"
+    # ── 10. Importar tablas y bloques en una transaccion unica ──────────
+    transacciones = estados_iniciales({"importar": NOMBRE_TX_IMPORTAR})
+    _importar(job, transacciones, plc)
 
-    with job.paso("generar") as paso:
-        # El proceso nuevo se materializa copiando la plantilla al workdir
-        # ``Nuevo`` (sin el ``manifest.json``) y renombrando con los
-        # diccionarios. Si ya hay un ``Nuevo`` de un apply anterior, se
-        # borra para partir limpio.
-        if dir_nuevo.exists():
-            shutil.rmtree(dir_nuevo)
-        shutil.copytree(dir_plantilla_copia, dir_nuevo)
-        # El manifest.json de la plantilla no viaja al proceso nuevo: el del
-        # nuevo se escribe en el paso siguiente con los datos del proceso
-        # nuevo.
-        (dir_nuevo / "manifest.json").unlink(missing_ok=True)
-        archivos_generados = proc_aplicar_clonacion(
-            dir_nuevo,
-            dicc_bloques,
-            dicc_xml,
-            base_nueva=proc_uid,
-            minimos_usuario=minimos_usuario,
-        )
-        paso["detail"] = f"{len(archivos_generados)} archivos generados"
+    # ── 11. Compilar los bloques, fuera de la transaccion ───────────────
+    compilacion = _compilar(job, plc, archivos_generados)
 
-    with job.paso("manifest_nuevo") as paso:
-        # El manifest.json del proceso nuevo: la plantilla como base, con
-        # override de base/codigo/nombre/minimos del proceso nuevo.
-        manifest_path = dir_nuevo / "manifest.json"
-        payload = {
-            "base": proc_uid,
-            "codigo": codigo_nuevo,
-            "nombre": nombre_nuevo,
-            "descripcion": str(manifest_plantilla.get("descripcion", "") or "").strip(),
-            "dependencias": list(dependencias),
-            "minimos": dict(minimos_usuario),
-        }
-        manifest_path.write_text(
-            json.dumps(payload, indent=2, ensure_ascii=False),
-            encoding="utf-8",
-        )
-        archivos_generados.append("manifest.json")
-        paso["detail"] = "manifest del proceso nuevo escrito"
-
-    transacciones = _transacciones_iniciales()
-
-    with job.paso("importar") as paso:
-        _transaccion_importar(
-            job,
-            transacciones,
-            plc,
-            dir_nuevo,
-        )
-        paso["detail"] = (
-            f"{transacciones['importar']['estado']}: tablas y bloques "
-            "del proceso nuevo"
-        )
-
-    with job.paso("compilar") as paso:
-        compilacion = _compilar(job, plc, archivos_generados)
-        paso["detail"] = compilacion["detalle"]
-
-    escaneo_actualizado = False
-    with job.paso("escaneo") as paso:
-        if sesion is None:
-            paso["detail"] = "sin sesion: el escaneo no se actualiza"
-        else:
-            # La prevision de crear ya no vale: el proceso existe. Se borra
-            # aqui (y no al final) para que un fallo del refresco del
-            # escaneo no la deje en la sesion.
-            sesion.borrar_dato_area(AREA, CLAVE_PREVISION_CREAR)
-            # El import ya esta confirmado en TIA: un fallo aqui solo deja el
-            # escaneo viejo, no tumba el trabajo.
-            try:
-                bloques = escanear_bloques(job.tia.portal, plc)
-                tablas = escanear_tablas_tags(job.tia.portal, plc)
-                sesion.actualizar_bloques(plc, bloques)
-                sesion.actualizar_tablas(plc, tablas)
-                escaneo_actualizado = True
-                paso["detail"] = (
-                    f"{len(bloques)} bloques y {len(tablas)} tablas en el "
-                    "escaneo"
-                )
-            except Exception as exc:  # no tumba el apply: ver el comentario
-                logger.warning(
-                    "El proceso se creo pero no se pudo refrescar el "
-                    "escaneo: %s. Vuelve a escanear el PLC.",
-                    exc,
-                )
-                job.log(
-                    f"El proceso se creo pero no se pudo refrescar el "
-                    f"escaneo: {exc}. Vuelve a escanear el PLC.",
-                    nivel="warning",
-                )
-                paso["detail"] = "no se pudo refrescar"
+    # ── 12. Actualizar el escaneo de la sesion ──────────────────────────
+    escaneo_actualizado = _actualizar_escaneo(job, sesion, plc)
 
     process_label = f"{proc_uid}_{codigo_nuevo}"
     logger.info(
@@ -367,25 +259,236 @@ def crear(
     }
 
 
-# ── los helpers privados del FB ─────────────────────────────────────────────
+# ── los pasos del apply, en helpers privados ───────────────────────────────
 
 
-def _transacciones_iniciales() -> dict[str, dict[str, Any]]:
-    """Las transacciones del apply, todas sin ejecutar."""
-    return {
-        "importar": {
-            "nombre": "Importar proceso",
-            "estado": NO_EJECUTADA,
-            "detalle": "",
-        },
-    }
-
-
-def _transaccion_importar(
+def _validar(
     job: Job,
-    transacciones: dict[str, dict[str, Any]],
+    proc_uid: int,
     plc: str,
-    dir_nuevo: Path,
+    almacen: AlmacenExcel,
+    config: ConfigArea,
+    sesion: Sesion | None,
+    plantillas_dir: Path | None,
+) -> tuple[dict[str, Any], Any, Any, str, str]:
+    """El proceso del Excel, la carpeta de plantillas, el escaneo fresco y
+    la version de TIA, con sus errores esperados.
+    """
+    datos = almacen.estado()["procesos"]
+    filas = modulo_prevision.filas_de(datos, "Procesos")
+    proceso = modulo_prevision.fila_de_proceso(filas, proc_uid)
+    codigo_nuevo = str(proceso.get("codigo", "") or "") if proceso else ""
+    nombre_nuevo = str(proceso.get("nombre", "") or "") if proceso else ""
+    with job.paso("validar") as paso:
+        if proceso is None:
+            raise OperacionError(
+                f"No hay un proceso con uid={proc_uid} en el Excel: el dominio "
+                "'Procesos' no lo tiene."
+            )
+        carpeta = carpeta_plantillas(plantillas_dir, config)
+        if carpeta is None:
+            raise OperacionError(
+                "La carpeta de plantillas no esta configurada: indica la "
+                "ruta de las plantillas en la vista de crear procesos "
+                "antes de aplicar."
+            )
+        escaneo = modulo_prevision.escaneo_de(sesion, plc)
+        if escaneo is None:
+            raise OperacionError(
+                "No hay un escaneo fresco del PLC: escanea el PLC antes de "
+                "crear el proceso."
+            )
+        if not soporta_simaticsd(job.tia.version_tia):
+            raise OperacionError(
+                "Crear un proceso necesita TIA Portal V21 o superior."
+            )
+        paso["detail"] = f"proceso {proc_uid}, plantilla y escaneo de {plc}"
+    return proceso, carpeta, escaneo, codigo_nuevo, nombre_nuevo
+
+
+def _leer_manifest(
+    job: Job,
+    carpeta: Path,
+    dir_plantilla_nombre: str,
+) -> tuple[dict[str, Any], int, str, str, list[str], Path]:
+    """El manifiesto de la plantilla, su carpeta y los campos que la
+    clonacion renombra."""
+    with job.paso("manifest") as paso:
+        dir_plantilla = proc_resolver_plantilla(carpeta, dir_plantilla_nombre)
+        manifest = proc_leer_manifest(dir_plantilla)
+        base_vieja = int(manifest["base"])
+        codigo_viejo = str(manifest["codigo"]).strip()
+        nombre_viejo = str(manifest.get("nombre", "") or "")
+        dependencias = [str(d).strip() for d in manifest["dependencias"]]
+        paso["detail"] = f"base={base_vieja} codigo={codigo_viejo}"
+    return (
+        manifest,
+        base_vieja,
+        codigo_viejo,
+        nombre_viejo,
+        dependencias,
+        dir_plantilla,
+    )
+
+
+def _validar_minimos(
+    job: Job,
+    manifest_plantilla: dict[str, Any],
+    proceso: dict[str, Any],
+) -> dict[str, int]:
+    """Los N_MAX del proceso cubren los de la plantilla."""
+    minimos_usuario = proc_minimos_de_proceso(proceso)
+    with job.paso("minimos") as paso:
+        proc_validar_minimos(manifest_plantilla, minimos_usuario)
+        paso["detail"] = "los N_MAX del proceso cubren los de la plantilla"
+    return minimos_usuario
+
+
+def _copiar_plantilla(job: Job, dir_plantilla: Path) -> Path:
+    """Copia la plantilla al workdir, partiendo limpio de cada apply."""
+    workdir = workdir_crear()
+    dir_copia = workdir.carpeta(CARPETA_PLANTILLA)
+    with job.paso("copiar") as paso:
+        # Cada apply parte limpio: se borra la copia anterior de la plantilla.
+        if dir_copia.exists():
+            shutil.rmtree(dir_copia)
+        shutil.copytree(dir_plantilla, dir_copia)
+        paso["detail"] = f"plantilla copiada a {dir_copia}"
+    return dir_copia
+
+
+def _construir_diccionarios(
+    job: Job,
+    dir_plantilla_copia: Path,
+    base_vieja: int,
+    proc_uid: int,
+    codigo_viejo: str,
+    codigo_nuevo: str,
+    nombre_viejo: str,
+    nombre_nuevo: str,
+) -> tuple[dict[str, str], dict[str, str]]:
+    """Los diccionarios de bloques y de XML de la clonacion."""
+    with job.paso("diccionarios") as paso:
+        dicc_bloques, dicc_xml = proc_construir_diccionarios(
+            dir_plantilla_copia,
+            base_vieja,
+            proc_uid,
+            codigo_viejo,
+            codigo_nuevo,
+            nombre_viejo,
+            nombre_nuevo,
+        )
+        paso["detail"] = (
+            f"{len(dicc_bloques)} reglas bloques + {len(dicc_xml)} reglas XML"
+        )
+    return dicc_bloques, dicc_xml
+
+
+def _validar_colisiones(job: Job, dicc_bloques: dict[str, str], escaneo: Any) -> None:
+    """Los nombres post-rename no pueden existir ya en el PLC."""
+    with job.paso("colisiones") as paso:
+        colisiones, colisiones_con = proc_detectar_colisiones(
+            dicc_bloques, escaneo.bloques
+        )
+        if colisiones:
+            bloques_plc = ", ".join(sorted(colisiones_con.values()))
+            raise OperacionError(
+                "No se puede crear el proceso: hay colisiones con bloques "
+                f"que ya existen en el PLC: {', '.join(colisiones)}. "
+                f"Los bloques del PLC implicados: {bloques_plc}. "
+                "Resuelve las colisiones antes de aplicar."
+            )
+        paso["detail"] = f"{len(colisiones)} colision(es)"
+
+
+def _validar_dependencias(job: Job, dependencias: list[str], escaneo: Any) -> None:
+    """Las dependencias declaradas de la plantilla existen en el PLC."""
+    with job.paso("dependencias") as paso:
+        dependencias_faltantes = list(
+            proc_validar_dependencias(dependencias, escaneo.bloques)
+        )
+        if dependencias_faltantes:
+            raise OperacionError(
+                "No se puede crear el proceso: faltan dependencias que la "
+                "plantilla declara y que no existen en el PLC: "
+                f"{', '.join(dependencias_faltantes)}. "
+                "Importa esos bloques en el PLC antes de crear el proceso."
+            )
+        paso["detail"] = f"{len(dependencias)} dependencias OK"
+
+
+def _generar_proceso(
+    job: Job,
+    dir_plantilla_copia: Path,
+    dicc_bloques: dict[str, str],
+    dicc_xml: dict[str, str],
+    proc_uid: int,
+    minimos_usuario: dict[str, int],
+) -> list[str]:
+    """Materializa el proceso nuevo en el workdir ``Nuevo`` y lo renombra."""
+    workdir = workdir_crear()
+    dir_nuevo = workdir.carpeta(CARPETA_NUEVO)
+    with job.paso("generar") as paso:
+        # El proceso nuevo se materializa copiando la plantilla al workdir
+        # ``Nuevo`` (sin el ``manifest.json``) y renombrando con los
+        # diccionarios. Si ya hay un ``Nuevo`` de un apply anterior, se
+        # borra para partir limpio.
+        if dir_nuevo.exists():
+            shutil.rmtree(dir_nuevo)
+        shutil.copytree(dir_plantilla_copia, dir_nuevo)
+        # El manifest.json de la plantilla no viaja al proceso nuevo: el del
+        # nuevo se escribe en el paso siguiente con los datos del proceso
+        # nuevo.
+        (dir_nuevo / "manifest.json").unlink(missing_ok=True)
+        archivos_generados = proc_aplicar_clonacion(
+            dir_nuevo,
+            dicc_bloques,
+            dicc_xml,
+            base_nueva=proc_uid,
+            minimos_usuario=minimos_usuario,
+        )
+        paso["detail"] = f"{len(archivos_generados)} archivos generados"
+    return archivos_generados
+
+
+def _escribir_manifest(
+    job: Job,
+    manifest_plantilla: dict[str, Any],
+    proc_uid: int,
+    codigo_nuevo: str,
+    nombre_nuevo: str,
+    dependencias: list[str],
+    minimos_usuario: dict[str, int],
+    archivos_generados: list[str],
+) -> None:
+    """El manifest.json del proceso nuevo, con los datos del proceso."""
+    with job.paso("manifest_nuevo") as paso:
+        # El manifest.json del proceso nuevo: la plantilla como base, con
+        # override de base/codigo/nombre/minimos del proceso nuevo.
+        workdir = workdir_crear()
+        manifest_path = workdir.carpeta(CARPETA_NUEVO) / "manifest.json"
+        payload = {
+            "base": proc_uid,
+            "codigo": codigo_nuevo,
+            "nombre": nombre_nuevo,
+            "descripcion": str(
+                manifest_plantilla.get("descripcion", "") or ""
+            ).strip(),
+            "dependencias": list(dependencias),
+            "minimos": dict(minimos_usuario),
+        }
+        manifest_path.write_text(
+            json.dumps(payload, indent=2, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        archivos_generados.append("manifest.json")
+        paso["detail"] = "manifest del proceso nuevo escrito"
+
+
+def _importar(
+    job: Job,
+    transacciones: dict[str, dict[str, str]],
+    plc: str,
 ) -> None:
     """Importa tablas y bloques del proceso nuevo en una transaccion unica.
 
@@ -402,45 +505,45 @@ def _transaccion_importar(
         OperacionError: si el import falla, con el estado de las
             transacciones anadido al mensaje.
     """
-    try:
-        with transaccion(job, f"Importar proceso {plc}"):
-            # 1. Las tablas de tags, primero.
-            importar_tablas(
-                job.tia.portal,
-                plc,
-                dir_nuevo / CARPETA_VARIABLES,
-            )
-            # 2. Pausa de consolidacion de TIA.
-            time.sleep(TIA_CONSOLIDATION_SLEEP_S)
-            # 3. Los bloques de programa, despues.
-            importar_bloques(
-                job.tia.portal,
-                plc,
-                dir_nuevo / CARPETA_BLOQUES,
-            )
-    except CanceladoError:
-        # La cancelacion del operario no es un fallo: sale tal cual para que
-        # el trabajo termine como cancelado y no como error.
-        transacciones["importar"]["estado"] = REVIRTIDA
-        transacciones["importar"]["detalle"] = "el trabajo fue cancelado"
-        raise
-    except Exception as exc:
-        transacciones["importar"]["estado"] = REVIRTIDA
-        transacciones["importar"]["detalle"] = str(exc)
-        raise OperacionError(
-            f"Importar proceso: revertida. {exc}. "
-            f"{_resumen_de_transacciones(transacciones)}"
-        ) from exc
-    transacciones["importar"]["estado"] = CONFIRMADA
-    transacciones["importar"]["detalle"] = "tablas y bloques del proceso nuevo"
-
-
-def _resumen_de_transacciones(transacciones: dict[str, dict[str, Any]]) -> str:
-    """El estado de las transacciones, en una frase."""
-    partes = [
-        f"{datos['nombre']}: {datos['estado']}" for datos in transacciones.values()
-    ]
-    return "Transacciones: " + "; ".join(partes) + "."
+    workdir = workdir_crear()
+    dir_nuevo = workdir.carpeta(CARPETA_NUEVO)
+    with job.paso("importar") as paso:
+        try:
+            with transaccion(job, f"Importar proceso {plc}"):
+                # 1. Las tablas de tags, primero.
+                importar_tablas(
+                    job.tia.portal,
+                    plc,
+                    dir_nuevo / CARPETA_VARIABLES,
+                )
+                # 2. Pausa de consolidacion de TIA.
+                time.sleep(TIA_CONSOLIDATION_SLEEP_S)
+                # 3. Los bloques de programa, despues.
+                importar_bloques(
+                    job.tia.portal,
+                    plc,
+                    dir_nuevo / CARPETA_BLOQUES,
+                )
+        except CanceladoError:
+            # La cancelacion del operario no es un fallo: sale tal cual para
+            # que el trabajo termine como cancelado y no como error.
+            estado_revertida(transacciones, "importar", "el trabajo fue cancelado")
+            raise
+        except Exception as exc:
+            estado_revertida(transacciones, "importar", str(exc))
+            raise OperacionError(
+                f"Importar proceso: revertida. {exc}. "
+                f"{resumen_transacciones(transacciones)}"
+            ) from exc
+        estado_confirmada(
+            transacciones,
+            "importar",
+            "tablas y bloques del proceso nuevo",
+        )
+        paso["detail"] = (
+            f"{transacciones['importar']['estado']}: tablas y bloques "
+            "del proceso nuevo"
+        )
 
 
 def _compilar(job: Job, plc: str, archivos_generados: list[str]) -> dict[str, Any]:
@@ -448,79 +551,69 @@ def _compilar(job: Job, plc: str, archivos_generados: list[str]) -> dict[str, An
 
     Los errores de compilacion **no** tumban el apply: el import ya esta
     confirmado y el operario tiene que ver el error, no perder el trabajo.
+    Devuelve el shape observable ``{ok, error, detalle}`` que lee la SPA.
     """
     # Los nombres de los bloques a compilar: los stems de los ficheros
     # ``.s7dcl`` de la carpeta de bloques (cada bloque TIA vive en un par
     # ``.s7dcl``/``.s7res`` de mismo stem).
-    nombres: list[str] = []
-    for archivo in archivos_generados:
-        ruta = Path(archivo)
-        if ruta.suffix == ".s7dcl":
-            nombres.append(ruta.stem)
+    nombres = [
+        Path(archivo).stem
+        for archivo in archivos_generados
+        if Path(archivo).suffix == ".s7dcl"
+    ]
     if not nombres:
         return {"ok": True, "error": None, "detalle": "compile=no-op"}
-    try:
-        resultado = compilar_bloques(job.tia.portal, plc, nombres)
-    except Exception as exc:
-        aviso = f"La compilacion fallo (los cambios ya estan aplicados): {exc}"
-        logger.warning(aviso)
-        return {"ok": False, "error": str(exc), "detalle": "compile=WARN"}
-    if resultado["n_compilados_error"] or resultado["n_errores"]:
-        partes = []
-        if resultado["con_errores"]:
-            detalles = []
-            for compilado in resultado["compilados"]:
-                if not compilado["tiene_errores"]:
-                    continue
-                mensajes = compilado.get("mensajes") or []
-                if mensajes:
-                    detalles.append(
-                        f"{compilado['nombre']} ({_mensaje_corto(mensajes[0])})"
-                    )
-                else:
-                    detalles.append(compilado["nombre"])
-            partes.append(
-                f"{len(resultado['con_errores'])} bloque(s) con errores: "
-                + ", ".join(detalles)
-            )
-        if resultado["errores"]:
-            partes.append(
-                f"{len(resultado['errores'])} no se pudieron compilar: "
-                + ", ".join(e["nombre"] for e in resultado["errores"])
-            )
-        if resultado["no_encontrados"]:
-            partes.append(
-                f"{len(resultado['no_encontrados'])} no encontrado(s): "
-                + ", ".join(resultado["no_encontrados"])
-            )
-        error = (
-            "TIA reporta errores de compilacion: "
-            + "; ".join(partes)
-            + ". Revisa los bloques en TIA Portal."
+    with job.paso("compilar") as paso:
+        # El callable invoca la ``compilar_bloques`` del modulo (los tests
+        # la parchean ahi), como en los demas FB de sync.
+        compilacion = datos_compilacion(
+            compilador=lambda: compilar_bloques(job.tia.portal, plc, nombres),
+            cola=COLA_COMPILACION,
+            logger=logger,
         )
-        logger.warning(
-            "Compilacion con errores (los cambios ya estan aplicados): %s", error
-        )
-        return {"ok": False, "error": error, "detalle": "compile=WARN"}
-    return {
-        "ok": True,
-        "error": None,
-        "detalle": (
-            f"compile=OK ({resultado['n_compilados_ok']} compilados, "
-            f"{resultado['n_sin_cambios']} sin cambios)"
-        ),
-    }
+        paso["detail"] = compilacion["detalle"]
+    return compilacion
 
 
-def _mensaje_corto(mensaje: str) -> str:
-    """El mensaje de TIA sin la ruta del bloque.
+def _actualizar_escaneo(
+    job: Job,
+    sesion: Sesion | None,
+    plc: str,
+) -> bool:
+    """Refresca el escaneo de la sesion con los bloques importados.
 
-    ``"ZC_PLC_STD > Program blocks > DB6_ENT (DB6) > Interface > Data type
-    Boo is unknown."`` queda en ``"Interface > Data type Boo is unknown."``.
+    Un fallo aqui **no** tumba el apply: el import ya esta confirmado en
+    TIA y solo deja el escaneo viejo.
     """
-    partes = [parte.strip() for parte in mensaje.split(" > ")]
-    for indice, parte in enumerate(partes):
-        if parte.endswith(")") and "(" in parte:
-            resto = partes[indice + 1 :]
-            return " > ".join(resto) if resto else mensaje
-    return mensaje
+    if sesion is None:
+        with job.paso("escaneo") as paso:
+            paso["detail"] = "sin sesion: el escaneo no se actualiza"
+        return False
+    # La prevision de crear ya no vale: el proceso existe. Se borra aqui (y
+    # no al final) para que un fallo del refresco del escaneo no la deje en
+    # la sesion.
+    sesion.borrar_dato_area(AREA, CLAVE_PREVISION_CREAR)
+    with job.paso("escaneo") as paso:
+        try:
+            bloques = escanear_bloques(job.tia.portal, plc)
+            tablas = escanear_tablas_tags(job.tia.portal, plc)
+            sesion.actualizar_bloques(plc, bloques)
+            sesion.actualizar_tablas(plc, tablas)
+            paso["detail"] = (
+                f"{len(bloques)} bloques y {len(tablas)} tablas en el "
+                "escaneo"
+            )
+            return True
+        except Exception as exc:  # no tumba el apply: ver el comentario
+            logger.warning(
+                "El proceso se creo pero no se pudo refrescar el "
+                "escaneo: %s. Vuelve a escanear el PLC.",
+                exc,
+            )
+            job.log(
+                f"El proceso se creo pero no se pudo refrescar el "
+                f"escaneo: {exc}. Vuelve a escanear el PLC.",
+                nivel="warning",
+            )
+            paso["detail"] = "no se pudo refrescar"
+            return False

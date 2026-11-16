@@ -6,11 +6,13 @@ crear) se copian entre si, en un solo sitio:
 - **El estado de las transacciones**: los tres estados (confirmada, revertida
   y no ejecutada), el estado inicial data-driven por nombres y el resumen
   exacto que va al final del mensaje de fallo.
-- **La compilacion fuera de transaccion**: :func:`compilar_con_aviso` hace
+- **La compilacion fuera de transaccion**: :func:`datos_compilacion` hace
   todo el flujo: llama al compilador (los FB lo lanzan fuera de la
   transaccion, porque TIA no la admite dentro), registra los avisos en el
-  log y devuelve **solo el detalle** (``compile=OK (...)`` o
-  ``compile=WARN``). Un fallo **no** tumba el trabajo.
+  log y devuelve los **datos** de la compilacion (``ok``, ``error`` y
+  ``detalle``). Un fallo **no** tumba el trabajo.
+  :func:`compilar_con_aviso` es su envoltorio que solo devuelve el detalle,
+  para los FB que no necesitan mas.
 - **Los helpers de texto y rutas** que los FB de sync se repiten:
   :func:`mensaje_corto` (el mensaje de TIA sin la ruta del bloque) y
   :func:`localizar_xml` (el XML de una tabla dentro de un export de TIA).
@@ -98,14 +100,33 @@ def compilar_con_aviso(
     cola: str,
     logger: logging.Logger,
 ) -> str:
-    """La compilacion fuera de la transaccion, con aviso, en un solo sitio.
+    """El detalle de la compilacion fuera de transaccion, en un solo sitio.
 
-    Llama a ``compilador`` (el FB decide cuando y desde donde; el callable
-    debe invocar **su** ``compilar_bloques`` local para que los tests puedan
-    parchearlo) y convierte cualquier fallo en el aviso ``compile=WARN``:
-    la compilacion la lanza el FB fuera de la transaccion (TIA no la admite
-    dentro) y un fallo **no** tumba el trabajo: los cambios ya estan
-    aplicados y el operario tiene que ver el aviso, no perder el sync.
+    Llama a :func:`datos_compilacion` y devuelve solo la clave ``detalle``
+    (``compile=OK (...)`` o ``compile=WARN``). El callable debe invocar
+    **su** ``compilar_bloques`` local para que los tests puedan parchearlo.
+    """
+    return datos_compilacion(
+        compilador=compilador,
+        cola=cola,
+        logger=logger,
+    )["detalle"]
+
+
+def datos_compilacion(
+    *,
+    compilador: Callable[[], dict[str, object]],
+    cola: str,
+    logger: logging.Logger,
+) -> dict[str, bool | str | None]:
+    """La compilacion fuera de transaccion, con aviso, devolviendo sus datos.
+
+    Misma logica que :func:`compilar_con_aviso`, pero devuelve los **datos**
+    que el llamador necesita para armar su shape observable, no solo el
+    detalle: la clave ``ok`` (``True``/``False``), ``error`` (``str`` o
+    ``None``) y ``detalle`` (``compile=OK (...)`` o ``compile=WARN``). Un
+    fallo **no** tumba el trabajo: los cambios ya estan aplicados y el
+    operario tiene que ver el aviso, no perder el sync.
 
     Args:
         compilador: lo que compila: devuelve el resultado de
@@ -114,24 +135,28 @@ def compilar_con_aviso(
         logger: donde se registran los avisos (el logger del FB).
 
     Returns:
-        Solo el detalle del paso: ``compile=OK (N compilados, M sin cambios)``
-        o ``compile=WARN``.
+        Los datos de la compilacion, con las claves ``ok``, ``error`` y
+        ``detalle``.
     """
     try:
         resultado = compilador()
     except Exception as exc:
         logger.warning("La compilacion fallo (los cambios ya estan aplicados): %s", exc)
-        return "compile=WARN"
+        return {"ok": False, "error": str(exc), "detalle": "compile=WARN"}
     if resultado["n_compilados_error"] or resultado["n_errores"]:
+        error = texto_errores_compilacion(resultado) + cola
         logger.warning(
-            "Compilacion con errores (los cambios ya estan aplicados): %s",
-            texto_errores_compilacion(resultado) + cola,
+            "Compilacion con errores (los cambios ya estan aplicados): %s", error
         )
-        return "compile=WARN"
-    return (
-        f"compile=OK ({resultado['n_compilados_ok']} compilados, "
-        f"{resultado['n_sin_cambios']} sin cambios)"
-    )
+        return {"ok": False, "error": error, "detalle": "compile=WARN"}
+    return {
+        "ok": True,
+        "error": None,
+        "detalle": (
+            f"compile=OK ({resultado['n_compilados_ok']} compilados, "
+            f"{resultado['n_sin_cambios']} sin cambios)"
+        ),
+    }
 
 
 def texto_errores_compilacion(resultado: dict[str, object]) -> str:
