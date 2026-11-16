@@ -36,7 +36,9 @@ Peculiaridades conservadas:
 """
 from __future__ import annotations
 
+import logging
 import re
+import time
 from typing import Any
 
 from zc_suite.errores import OperacionError
@@ -47,6 +49,8 @@ from zc_suite.tia_ops._resolver import (
     nombre_bloque,
     tipos_de_datos_del_plc,
 )
+
+logger = logging.getLogger(__name__)
 
 #: Propiedades que TIA deja cambiar con ``set_property``.
 PROPIEDADES_EDITABLES: frozenset[str] = frozenset({"Name", "Number"})
@@ -61,14 +65,22 @@ _LENGUAJES_CODIGO = frozenset({"SCL", "LAD", "FBD", "STL", "GRAPH", "CFC"})
 #: Texto que el SDK devuelve cuando una propiedad no tiene valor.
 SIN_VALOR = "no value"
 
-#: Propiedades extendidas que se leen de cada bloque: nombre de TIA y clave
-#: del DTO.
+#: Propiedades extendidas que se leen de cada bloque en el bucle de
+#: ``_extendidas``: nombre de TIA y clave del DTO. ``ProgrammingLanguage`` no
+#: va en la tupla: se lee una sola vez por bloque (``_dto``) y se comparte
+#: entre la familia y ``extended``, pero sigue siendo clave del DTO.
 _PROPIEDADES_EXTENDIDAS: tuple[tuple[str, str], ...] = (
     ("HeaderName", "title"),
     ("HeaderAuthor", "author"),
     ("HeaderVersion", "version"),
-    ("ProgrammingLanguage", "programming_language"),
     ("MemoryLayout", "memory_layout"),
+)
+
+#: Claves completas del DTO ``extended``: las de la tupla mas
+#: ``programming_language``. Es la unica lista de claves del DTO.
+CLAVES_EXTENDIDAS: tuple[str, ...] = (
+    *(clave for _, clave in _PROPIEDADES_EXTENDIDAS),
+    "programming_language",
 )
 
 
@@ -99,11 +111,20 @@ def escanear_bloques(portal: Any, plc: str) -> list[dict[str, Any]]:
         OperacionError: si el PLC no existe.
     """
     objetivo = buscar_plc(portal, plc)
+    inicio = time.perf_counter()
     bloques: list[dict[str, Any]] = []
     for bloque in bloques_del_plc(objetivo):
         dto = _dto(bloque, plc)
         if dto is not None:
             bloques.append(dto)
+    segundos = time.perf_counter() - inicio
+    promedio = segundos / len(bloques) if bloques else 0.0
+    logger.debug(
+        "Escaneo de bloques: %d bloques en %.2f s (media %.3f s por bloque)",
+        len(bloques),
+        segundos,
+        promedio,
+    )
     return bloques
 
 
@@ -155,11 +176,20 @@ def escanear_tipos_de_usuario(portal: Any, plc: str) -> list[dict[str, Any]]:
         OperacionError: si el PLC no existe.
     """
     objetivo = buscar_plc(portal, plc)
+    inicio = time.perf_counter()
     tipos: list[dict[str, Any]] = []
     for tipo in tipos_de_datos_del_plc(objetivo):
         dto = _dto(tipo, plc)
         if dto is not None:
             tipos.append(dto)
+    segundos = time.perf_counter() - inicio
+    promedio = segundos / len(tipos) if tipos else 0.0
+    logger.debug(
+        "Escaneo de tipos de usuario: %d tipos en %.2f s (media %.3f s por tipo)",
+        len(tipos),
+        segundos,
+        promedio,
+    )
     return tipos
 
 
@@ -272,16 +302,22 @@ def aplicar_cambios(
 
 
 def _dto(bloque: Any, plc: str) -> dict[str, Any] | None:
-    """El bloque como DTO. ``None`` si su nombre no se puede leer."""
+    """El bloque como DTO. ``None`` si su nombre no se puede leer.
+
+    ``ProgrammingLanguage`` se lee una sola vez por bloque, UDT incluidos, y
+    se comparte entre la familia y ``extended``. Si la lectura falla,
+    ``extended`` lo rellena con su valor por defecto sin reintentar.
+    """
     nombre = nombre_bloque(bloque)
     if not nombre:
         return None
+    lenguaje = _propiedad(bloque, "ProgrammingLanguage")
     return {
         "nombre": str(nombre),
         "numero": _numero(bloque, str(nombre)),
-        "tipo": _tipo(bloque, str(nombre)),
+        "tipo": _tipo(bloque, str(nombre), lenguaje),
         "ruta": _ruta(bloque, plc),
-        "extended": _extendidas(bloque),
+        "extended": _extendidas(bloque, lenguaje),
     }
 
 
@@ -369,9 +405,12 @@ def _ruta(bloque: Any, plc: str) -> str:
     TIA da dos caminos: ``get_path()`` llega hasta la carpeta de sistema del
     padre y ``get_path_full()`` hasta el proyecto. En los tipos de datos de
     usuario el primero se queda corto, asi que se usa el segundo cuando
-    aporta mas.
+    aporta mas. Los bloques de programa se quedan con ``get_path()``:
+    ``get_path_full()`` es una llamada al SDK de mas por bloque.
     """
     corta = _ruta_corta(bloque)
+    if not _es_tipo_de_usuario(bloque):
+        return corta
     completa = _ruta_completa(bloque, plc, corta)
     return completa if len(completa) > len(corta) else corta
 
@@ -416,22 +455,30 @@ def _ruta_completa(bloque: Any, plc: str, corta: str) -> str:
     return ""
 
 
-def _extendidas(bloque: Any) -> dict[str, str | None]:
+def _extendidas(bloque: Any, lenguaje: Any) -> dict[str, str | None]:
     """Las propiedades extendidas del bloque.
 
     El comentario no sale de aqui: no existe en ``get_property`` en ninguna
     version de TIA, solo en el XML exportado. Por eso el DTO no lo lleva.
+
+    ``lenguaje`` ya viene leido: es la lectura unica de
+    ``ProgrammingLanguage`` que comparte con la familia.
+
+    El DTO lleva exactamente las claves de ``CLAVES_EXTENDIDAS``: las de la
+    tupla mas ``programming_language``, que no se recorre porque ya esta leida.
     """
-    extendidas: dict[str, str | None] = {
-        clave: None for _, clave in _PROPIEDADES_EXTENDIDAS
-    }
+    extendidas: dict[str, str | None] = dict.fromkeys(CLAVES_EXTENDIDAS)
     for nombre, clave in _PROPIEDADES_EXTENDIDAS:
         extendidas[clave] = _texto(_propiedad(bloque, nombre))
+    extendidas["programming_language"] = _texto(lenguaje)
     return extendidas
 
 
-def _tipo(bloque: Any, nombre: str) -> str:
+def _tipo(bloque: Any, nombre: str, lenguaje: Any) -> str:
     """La familia del bloque.
+
+    El lenguaje ya viene leido: ``ProgrammingLanguage`` se lee una sola vez
+    por bloque y se comparte entre la familia y ``extended``.
 
     TIA no expone el tipo del bloque como propiedad, asi que se deduce:
 
@@ -444,7 +491,6 @@ def _tipo(bloque: Any, nombre: str) -> str:
     """
     if _es_tipo_de_usuario(bloque):
         return "UDT"
-    lenguaje = _propiedad(bloque, "ProgrammingLanguage")
     if lenguaje is not None and str(lenguaje).upper() == "DB":
         return "DB"
     return _clasificar(lenguaje, _propiedades(bloque), nombre)
