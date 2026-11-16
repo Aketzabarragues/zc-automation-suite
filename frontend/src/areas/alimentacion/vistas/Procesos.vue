@@ -14,7 +14,7 @@
  */
 import { computed, onMounted, ref } from "vue";
 import { useProcesosStore } from "../stores/procesos.js";
-import ComentariosProceso from "./ComentariosProceso.vue";
+import ComentariosProceso from "./comentariosProceso.vue";
 import CrearProceso from "./CrearProceso.vue";
 import { useExcelStore } from "../stores/excel.js";
 import { usePlcStore } from "../../../nucleo/stores/plc.js";
