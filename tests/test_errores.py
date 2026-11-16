@@ -81,6 +81,14 @@ def test_los_errores_de_tia_son_de_tia() -> None:
         assert issubclass(error, TIAError)
 
 
+def test_el_error_de_config_es_un_fallo_esperado() -> None:
+    """``ConfigError`` cuelga de ``ZCError``: fallo esperado, no traceback."""
+    from zc_suite.nucleo.app.config import ConfigError
+
+    assert issubclass(ConfigError, ZCError)
+    assert not issubclass(ConfigError, TIAError)
+
+
 # ── el nivel del log ───────────────────────────────────────────────────────
 
 

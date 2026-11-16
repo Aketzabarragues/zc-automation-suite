@@ -29,6 +29,8 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
+from zc_suite.errores import ZCError
+
 logger = logging.getLogger(__name__)
 
 #: Nombre del fichero de configuracion.
@@ -56,7 +58,7 @@ ORIGEN_COPIA = "copia"
 ORIGEN_PLANTILLA = "plantilla"
 
 
-class ConfigError(Exception):
+class ConfigError(ZCError):
     """El ``config.json`` no se puede leer o no es valido."""
 
 

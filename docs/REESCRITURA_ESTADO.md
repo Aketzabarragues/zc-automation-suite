@@ -56,6 +56,7 @@ revisiones y la forma de trabajar.
 | 4.4 Entidades | Hecha. Paridad con main verificada con TIA simulado. Falta la prueba en V21 |
 | 4.5 Procesos: comentarios de DB (proc_db) | Hecha. Paridad con main verificada con TIA simulado. Falta la prueba en V21 |
 | 4.6 Crear proceso desde plantilla | Hecha. Paridad con main verificada con TIA simulado. Falta la prueba en V21 |
+| 7 Resto (limites de tamano, ConfigError, "ok": False) | Hecha. Sin cambios de comportamiento; suite completa en verde |
 
 Datos de la prueba real de 4.3 en V21: prevision con 116 altas, 83 bajas,
 3 renombres y 10 N_MAX; sincronizacion completa en unos 47 s; prevision
@@ -189,6 +190,47 @@ El TIA simulado y los scripts de comparacion no estan en el repo.
   4.5 y 4.6 (SimaticSD).
 - Rendimiento del escaneo: quitadas dos llamadas al SDK por bloque, falta
   medir el tiempo real en el proyecto.
+
+## Fase 7: resto (limites de tamano y errores)
+
+### Los FB de sync se quedaron por debajo de 100 lineas
+
+Cada orquestador se partio en helpers privados por paso; los pasos se
+declaran en una constante `PASOS` de modulo. Ninguna funcion de los cuatro
+FB sobrepasa las 100 lineas (medidas por AST, incluida la docstring):
+
+- `funciones/dispositivos/sincronizar.py`: `sincronizar` 90 lineas.
+- `funciones/entidades/sincronizar.py`: `sincronizar` 92 lineas.
+- `funciones/procesos/sincronizar.py`: `sincronizar` 94 lineas.
+- `funciones/procesos/crear.py`: `crear` 81 lineas.
+
+Las diferencias que se quedaron **sin unificar** (no son duplicados: la
+semantica no es la misma):
+
+- `_transaccion` se repite identico en los tres sync, pero **no** puede
+  vivir en `sincronizacion_comun.py`: el modulo comun es puro respecto a TIA
+  y no recibe el `job` (lo exigen `test_fronteras_dominio.py` y el contrato
+  de que solo `funciones/` recibe el job).
+- `_recalcular_prevision` llama a la `generar_prevision` de **su** dominio
+  y el detalle del paso no es el mismo ("entradas en la vista unificada"
+  contra "cambios en la vista").
+- `_armar_resultado` arma shapes distintos por dominio (dispositivos:
+  `tablas`/`agregados`/`eliminados`; entidades: `constantes`/`comentarios`;
+  procesos: `operaciones`).
+
+### `ConfigError` es un fallo esperado
+
+`ConfigError` (el config.json no se puede leer ni validar) ahora hereda de
+`ZCError`: es un fallo esperado, sin traceback. El router de plantillas no
+cambia: sigue sirviendo `200` en el OK, `400` por body invalido y `500`
+cuando el config no se puede escribir ni recargar (`except ConfigError`).
+
+### El `{"ok": False}` que queda es el shape observable del crear
+
+`rg '"ok": False'` sobre `areas/` y `nucleo/funciones/` solo devuelve las
+dos devoluciones de `datos_compilacion` en `sincronizacion_comun.py`: son
+los **datos** del shape observable `{ok, error, detalle}` que lee la SPA
+(compile=WARN), no un diccionario de control de flujo.
 
 ## Ruta de plantillas editable
 

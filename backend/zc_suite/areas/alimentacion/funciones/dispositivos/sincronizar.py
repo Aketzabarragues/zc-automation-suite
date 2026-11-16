@@ -108,6 +108,21 @@ COLA_COMPILACION = (
     "un tamano inconsistente tras el cambio de N_MAX."
 )
 
+#: Los pasos del sync, declarados al inicio del trabajo.
+PASOS = (
+    ("exportar", "Exportar etiquetas"),
+    ("diferencias", "Calcular diferencias de dispositivos"),
+    ("preparar", "Preparar operaciones"),
+    ("tx_n_max", "Aplicar N_MAX y renombres"),
+    ("consolidacion", "Esperar consolidación TIA"),
+    ("reexportar", "Re-exportar etiquetas"),
+    ("editar", "Editar archivos XML"),
+    ("tx_dispositivos", "Aplicar dispositivos"),
+    ("compilar", "Compilar bloques"),
+    ("tx_comentarios", "Aplicar comentarios"),
+    ("prevision", "Recalcular la prevision"),
+)
+
 
 def sincronizar(
     job: Job,
@@ -123,33 +138,17 @@ def sincronizar(
         plc: el PLC cuyos dispositivos se sincronizan.
         almacen: la cache del Excel maestro.
         config: el modelo del area.
-        sesion: la sesion del backend. Al terminar se recalcula la prevision
-            y se guarda en ella.
+        sesion: la sesion del backend; al terminar se recalcula la prevision.
 
     Returns:
         El resumen del sync: que se aplico, como quedo cada transaccion y la
         prevision posterior.
 
     Raises:
-        OperacionError: si falla alguna transaccion. El mensaje dice que se
+        OperacionError: si falla alguna transaccion; el mensaje dice que se
             confirmo y que no.
     """
-    job.empezar(
-        "Sincronizar dispositivos",
-        [
-            ("exportar", "Exportar etiquetas"),
-            ("diferencias", "Calcular diferencias de dispositivos"),
-            ("preparar", "Preparar operaciones"),
-            ("tx_n_max", "Aplicar N_MAX y renombres"),
-            ("consolidacion", "Esperar consolidación TIA"),
-            ("reexportar", "Re-exportar etiquetas"),
-            ("editar", "Editar archivos XML"),
-            ("tx_dispositivos", "Aplicar dispositivos"),
-            ("compilar", "Compilar bloques"),
-            ("tx_comentarios", "Aplicar comentarios"),
-            ("prevision", "Recalcular la prevision"),
-        ],
-    )
+    job.empezar("Sincronizar dispositivos", list(PASOS))
 
     transacciones = estados_iniciales(
         {
@@ -162,33 +161,16 @@ def sincronizar(
 
     # ── 1. Exportar etiquetas ───────────────────────────────────────────
     with job.paso("exportar") as paso:
-        carpeta.limpiar_sincronizar()
-        tablas = _tablas_selectivas(config)
-        exportar_tablas(
-            job.tia.portal,
-            plc,
-            carpeta.variables_export,
-            tablas,
-            mantener_estructura=True,
-        )
-        paso["detail"] = f"{len(tablas)} tablas exportadas"
+        _exportar_etiquetas(job, plc, config, carpeta, paso)
 
     # ── 2. Calcular diferencias de dispositivos ──────────────────────────
     with job.paso("diferencias") as paso:
-        diffs = _calcular_diffs(almacen, config, plc, carpeta.variables_export)
-        diff_n_max = _calcular_diff_n_max(almacen, config, plc, carpeta.variables_export)
-        agregados = sum(len(d.agregados) for d in diffs.values())
-        eliminados = sum(len(d.eliminados) for d in diffs.values())
-        renombrados = sum(len(d.renombrados) for d in diffs.values())
-        paso["detail"] = (
-            f"{agregados} agregados, {eliminados} eliminados, {renombrados} renombrados"
-        )
+        diffs, diff_n_max = _calcular_diferencias(almacen, config, plc, carpeta)
+        paso["detail"] = _resumen_diferencias(diffs)
 
     # ── 3. Preparar operaciones ─────────────────────────────────────────
     with job.paso("preparar") as paso:
-        ops_n_max = disp_calcular_operaciones_n_max(config.tabla_nmax, diff_n_max)
-        renombres = disp_calcular_renombres(diffs)
-        cambios = disp_calcular_cambios_dispositivos(diffs)
+        ops_n_max, renombres, cambios = _preparar_operaciones(config, diffs, diff_n_max)
         paso["detail"] = (
             f"{len(ops_n_max)} N_MAX, {len(renombres)} renombres, "
             f"{len(cambios)} tablas con cambios"
@@ -196,26 +178,7 @@ def sincronizar(
 
     # ── 4. Tx A: N_MAX y renombres (en linea) ───────────────────────────
     with job.paso("tx_n_max") as paso:
-        if not ops_n_max and not renombres:
-            estado_no_ejecutada(
-                transacciones, "n_max", "no habia nada que aplicar"
-            )
-            paso["detail"] = "sin cambios de N_MAX ni renombres"
-        else:
-            _transaccion(
-                job,
-                transacciones,
-                "n_max",
-                "Actualizando N_MAX y renombrando dispositivos",
-                lambda: _aplicar_n_max_y_renombres(
-                    job, plc, ops_n_max, renombres
-                ),
-                f"{len(ops_n_max)} N_MAX y {len(renombres)} renombres",
-            )
-            paso["detail"] = (
-                f"{transacciones['n_max']['estado']}: "
-                f"{len(ops_n_max)} N_MAX y {len(renombres)} renombres"
-            )
+        _paso_n_max_y_renombres(job, plc, transacciones, ops_n_max, renombres, paso)
 
     # ── 5. Esperar la consolidacion de TIA ──────────────────────────────
     with job.paso("consolidacion") as paso:
@@ -224,104 +187,33 @@ def sincronizar(
 
     # ── 6. Re-exportar etiquetas ────────────────────────────────────────
     with job.paso("reexportar") as paso:
-        tablas_con_cambios = [str(cambio["tabla"]) for cambio in cambios]
-        if tablas_con_cambios:
-            exportar_tablas(
-                job.tia.portal,
-                plc,
-                carpeta.variables_export,
-                tablas_con_cambios,
-                mantener_estructura=True,
-            )
-        paso["detail"] = f"{len(tablas_con_cambios)} tablas releidas"
+        _reexportar_etiquetas(job, plc, carpeta, cambios, paso)
 
     # ── 7. Editar los XML en disco ──────────────────────────────────────
     with job.paso("editar") as paso:
-        edicion = disp_copiar_y_editar(
-            carpeta.variables_export,
-            carpeta.variables_modified,
-            cambios,
-        )
-        paso["detail"] = (
-            f"{edicion['escritos']} tags anadidos y {edicion['eliminados']} "
-            f"eliminados"
-        )
+        _editar_xml(carpeta, cambios, paso)
 
     # ── 8. Tx B: los dispositivos (offline) ─────────────────────────────
     with job.paso("tx_dispositivos") as paso:
-        if not cambios:
-            estado_no_ejecutada(
-                transacciones, "dispositivos", "no habia dispositivos que aplicar"
-            )
-            paso["detail"] = "sin cambios de dispositivos"
-        else:
-            _transaccion(
-                job,
-                transacciones,
-                "dispositivos",
-                "Sincronizando dispositivos",
-                lambda: _aplicar_dispositivos(job, plc, carpeta.variables_modified),
-                f"{len(cambios)} tablas",
-            )
-            paso["detail"] = (
-                f"{transacciones['dispositivos']['estado']}: {len(cambios)} tablas"
-            )
+        _paso_dispositivos(job, plc, carpeta, transacciones, cambios, paso)
 
     # ── 9. Compilar los bloques ─────────────────────────────────────────
     with job.paso("compilar") as paso:
-        dbs = [dispositivo.db for dispositivo in config.dispositivos.values()]
-        if not dbs:
-            detalle_compilacion = "sin DBs que compilar"
-        else:
-            detalle_compilacion = compilar_con_aviso(
-                compilador=lambda: compilar_bloques(job.tia.portal, plc, dbs),
-                cola=COLA_COMPILACION,
-                logger=logger,
-            )
-        paso["detail"] = detalle_compilacion
+        detalle_compilacion = _compilar_dispositivos(job, plc, config, paso)
 
     # ── 10. Tx C: los comentarios (offline, solo V21+) ──────────────────
     with job.paso("tx_comentarios") as paso:
-        comentarios = _aplicar_comentarios(job, plc, almacen, config, carpeta, transacciones)
-        paso["detail"] = comentarios
+        paso["detail"] = _aplicar_comentarios(
+            job, plc, almacen, config, carpeta, transacciones
+        )
 
     # ── 11. Recalcular la prevision ─────────────────────────────────────
-    prevision: dict[str, Any] | None = None
     with job.paso("prevision") as paso:
-        try:
-            prevision = generar_prevision(
-                job,
-                plc,
-                almacen,
-                config,
-                sesion,
-                con_pasos=False,
-            )
-            paso["detail"] = f"{prevision['summary']['total']} entradas en la vista unificada"
-        except Exception as exc:
-            # Lo anterior ya esta confirmado: el fallo se avisa, pero no
-            # tumba el trabajo.
-            aviso = (
-                f"No se pudo recalcular la prevision tras el sync: {exc}. "
-                "Los cambios ya estan aplicados en TIA."
-            )
-            logger.warning(aviso)
-            job.log(aviso, nivel="warning")
-            paso["detail"] = "no se pudo recalcular la prevision"
+        prevision = _recalcular_prevision(job, plc, almacen, config, sesion, paso)
 
-    return {
-        "plc": plc,
-        "operaciones": _numero_de_operaciones(ops_n_max, renombres, cambios),
-        "n_max": {"actualizados": len(ops_n_max), "renombres": len(renombres)},
-        "dispositivos": {
-            "tablas": len(cambios),
-            "agregados": sum(len(cambio["agregados"]) for cambio in cambios),
-            "eliminados": sum(len(cambio["eliminados"]) for cambio in cambios),
-        },
-        "transacciones": list(transacciones.values()),
-        "compilacion": detalle_compilacion,
-        "prevision": prevision,
-    }
+    return _armar_resultado(
+        plc, ops_n_max, renombres, cambios, transacciones, detalle_compilacion, prevision
+    )
 
 
 # ── las transacciones ───────────────────────────────────────────────────────
@@ -366,6 +258,242 @@ def _transaccion(
 
 
 # ── los pasos, en helpers privados ─────────────────────────────────────────
+
+
+def _exportar_etiquetas(
+    job: Job,
+    plc: str,
+    config: ConfigArea,
+    carpeta: Workdir,
+    paso: dict[str, Any],
+) -> None:
+    """Exporta las tablas que toca el sync, partiendo de la carpeta limpia."""
+    carpeta.limpiar_sincronizar()
+    tablas = _tablas_selectivas(config)
+    exportar_tablas(
+        job.tia.portal,
+        plc,
+        carpeta.variables_export,
+        tablas,
+        mantener_estructura=True,
+    )
+    paso["detail"] = f"{len(tablas)} tablas exportadas"
+
+
+def _calcular_diferencias(
+    almacen: AlmacenExcel,
+    config: ConfigArea,
+    plc: str,
+    carpeta: Workdir,
+) -> tuple[dict[str, DiffTabla], DiffNMax]:
+    """El diff de cada tabla de dispositivos y el de los N_MAX."""
+    return (
+        _calcular_diffs(almacen, config, plc, carpeta.variables_export),
+        _calcular_diff_n_max(almacen, config, plc, carpeta.variables_export),
+    )
+
+
+def _resumen_diferencias(diffs: dict[str, DiffTabla]) -> str:
+    """El detalle del paso de diferencias: agregados, eliminados, renombrados."""
+    agregados = sum(len(d.agregados) for d in diffs.values())
+    eliminados = sum(len(d.eliminados) for d in diffs.values())
+    renombrados = sum(len(d.renombrados) for d in diffs.values())
+    return (
+        f"{agregados} agregados, {eliminados} eliminados, {renombrados} renombrados"
+    )
+
+
+def _preparar_operaciones(
+    config: ConfigArea,
+    diffs: dict[str, DiffTabla],
+    diff_n_max: DiffNMax,
+) -> tuple[list[dict[str, Any]], list[dict[str, str]], list[dict[str, Any]]]:
+    """Las operaciones del sync: N_MAX, renombres y cambios de tablas."""
+    return (
+        disp_calcular_operaciones_n_max(config.tabla_nmax, diff_n_max),
+        disp_calcular_renombres(diffs),
+        disp_calcular_cambios_dispositivos(diffs),
+    )
+
+
+def _paso_n_max_y_renombres(
+    job: Job,
+    plc: str,
+    transacciones: dict[str, dict[str, Any]],
+    ops_n_max: list[dict[str, Any]],
+    renombres: list[dict[str, str]],
+    paso: dict[str, Any],
+) -> None:
+    """La transaccion de N_MAX y renombres (en linea), con su estado."""
+    if not ops_n_max and not renombres:
+        estado_no_ejecutada(
+            transacciones, "n_max", "no habia nada que aplicar"
+        )
+        paso["detail"] = "sin cambios de N_MAX ni renombres"
+        return
+    _transaccion(
+        job,
+        transacciones,
+        "n_max",
+        "Actualizando N_MAX y renombrando dispositivos",
+        lambda: _aplicar_n_max_y_renombres(job, plc, ops_n_max, renombres),
+        f"{len(ops_n_max)} N_MAX y {len(renombres)} renombres",
+    )
+    paso["detail"] = (
+        f"{transacciones['n_max']['estado']}: "
+        f"{len(ops_n_max)} N_MAX y {len(renombres)} renombres"
+    )
+
+
+def _reexportar_etiquetas(
+    job: Job,
+    plc: str,
+    carpeta: Workdir,
+    cambios: list[dict[str, Any]],
+    paso: dict[str, Any],
+) -> None:
+    """Re-exporta las tablas con cambios, para editarlas sobre lo actual."""
+    tablas_con_cambios = [str(cambio["tabla"]) for cambio in cambios]
+    if tablas_con_cambios:
+        exportar_tablas(
+            job.tia.portal,
+            plc,
+            carpeta.variables_export,
+            tablas_con_cambios,
+            mantener_estructura=True,
+        )
+    paso["detail"] = f"{len(tablas_con_cambios)} tablas releidas"
+
+
+def _editar_xml(
+    carpeta: Workdir,
+    cambios: list[dict[str, Any]],
+    paso: dict[str, Any],
+) -> None:
+    """Copia los XML exportados a ``modified`` y aplica los cambios."""
+    edicion = disp_copiar_y_editar(
+        carpeta.variables_export,
+        carpeta.variables_modified,
+        cambios,
+    )
+    paso["detail"] = (
+        f"{edicion['escritos']} tags anadidos y {edicion['eliminados']} eliminados"
+    )
+
+
+def _paso_dispositivos(
+    job: Job,
+    plc: str,
+    carpeta: Workdir,
+    transacciones: dict[str, dict[str, Any]],
+    cambios: list[dict[str, Any]],
+    paso: dict[str, Any],
+) -> None:
+    """La transaccion de los dispositivos (offline), con su estado."""
+    if not cambios:
+        estado_no_ejecutada(
+            transacciones, "dispositivos", "no habia dispositivos que aplicar"
+        )
+        paso["detail"] = "sin cambios de dispositivos"
+        return
+    _transaccion(
+        job,
+        transacciones,
+        "dispositivos",
+        "Sincronizando dispositivos",
+        lambda: _aplicar_dispositivos(job, plc, carpeta.variables_modified),
+        f"{len(cambios)} tablas",
+    )
+    paso["detail"] = (
+        f"{transacciones['dispositivos']['estado']}: {len(cambios)} tablas"
+    )
+
+
+def _compilar_dispositivos(
+    job: Job,
+    plc: str,
+    config: ConfigArea,
+    paso: dict[str, Any],
+) -> str:
+    """Compila los DBs de dispositivos, fuera de la transaccion.
+
+    Returns:
+        El detalle de la compilacion para el paso y el resultado.
+    """
+    dbs = [dispositivo.db for dispositivo in config.dispositivos.values()]
+    if not dbs:
+        detalle_compilacion = "sin DBs que compilar"
+    else:
+        detalle_compilacion = compilar_con_aviso(
+            compilador=lambda: compilar_bloques(job.tia.portal, plc, dbs),
+            cola=COLA_COMPILACION,
+            logger=logger,
+        )
+    paso["detail"] = detalle_compilacion
+    return detalle_compilacion
+
+
+def _recalcular_prevision(
+    job: Job,
+    plc: str,
+    almacen: AlmacenExcel,
+    config: ConfigArea,
+    sesion: Sesion | None,
+    paso: dict[str, Any],
+) -> dict[str, Any] | None:
+    """Recalcula la prevision con la misma funcion que la genera.
+
+    Lo anterior ya esta confirmado: si el recuento falla, se avisa pero no
+    se tumba el trabajo (devuelve ``None``).
+    """
+    try:
+        prevision = generar_prevision(
+            job,
+            plc,
+            almacen,
+            config,
+            sesion,
+            con_pasos=False,
+        )
+        paso["detail"] = f"{prevision['summary']['total']} entradas en la vista unificada"
+    except Exception as exc:
+        # Lo anterior ya esta confirmado: el fallo se avisa, pero no
+        # tumba el trabajo.
+        aviso = (
+            f"No se pudo recalcular la prevision tras el sync: {exc}. "
+            "Los cambios ya estan aplicados en TIA."
+        )
+        logger.warning(aviso)
+        job.log(aviso, nivel="warning")
+        paso["detail"] = "no se pudo recalcular la prevision"
+        return None
+    return prevision
+
+
+def _armar_resultado(
+    plc: str,
+    ops_n_max: list[dict[str, Any]],
+    renombres: list[dict[str, str]],
+    cambios: list[dict[str, Any]],
+    transacciones: dict[str, dict[str, Any]],
+    detalle_compilacion: str,
+    prevision: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """El resumen del sync: que se aplico, como quedo cada transaccion y la
+    prevision posterior."""
+    return {
+        "plc": plc,
+        "operaciones": _numero_de_operaciones(ops_n_max, renombres, cambios),
+        "n_max": {"actualizados": len(ops_n_max), "renombres": len(renombres)},
+        "dispositivos": {
+            "tablas": len(cambios),
+            "agregados": sum(len(cambio["agregados"]) for cambio in cambios),
+            "eliminados": sum(len(cambio["eliminados"]) for cambio in cambios),
+        },
+        "transacciones": list(transacciones.values()),
+        "compilacion": detalle_compilacion,
+        "prevision": prevision,
+    }
 
 
 def _tablas_selectivas(config: ConfigArea) -> list[str]:

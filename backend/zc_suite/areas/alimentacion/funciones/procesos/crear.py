@@ -108,6 +108,22 @@ NOMBRE_TX_IMPORTAR = "Importar proceso"
 #: Plural (``bloques``): se compilan todos los bloques del proceso nuevo.
 COLA_COMPILACION = " Revisa los bloques en TIA Portal."
 
+#: Los pasos del apply, declarados al inicio del trabajo.
+PASOS = (
+    ("validar", "Validar proceso, plantilla y TIA"),
+    ("manifest", "Leer el manifiesto"),
+    ("minimos", "Validar los minimos"),
+    ("copiar", "Copiar la plantilla"),
+    ("diccionarios", "Construir los diccionarios"),
+    ("colisiones", "Detectar colisiones"),
+    ("dependencias", "Validar dependencias"),
+    ("generar", "Generar el proceso nuevo"),
+    ("manifest_nuevo", "Escribir el manifiesto del nuevo"),
+    ("importar", "Importar el proceso"),
+    ("compilar", "Compilar los bloques"),
+    ("escaneo", "Actualizar el escaneo"),
+)
+
 
 def crear(
     job: Job,
@@ -125,15 +141,13 @@ def crear(
         job: el trabajo en curso.
         proc_uid: el ``uid`` del proceso nuevo (su base numerica).
         plc: el PLC destino.
-        dir_plantilla_nombre: el nombre de la subcarpeta de la plantilla
-            dentro de ``plantillas_dir`` (sin separadores).
+        dir_plantilla_nombre: la subcarpeta de la plantilla en
+            ``plantillas_dir`` (sin separadores).
         almacen: la cache del Excel maestro.
         config: el modelo del area.
-        sesion: la sesion del backend. De su escaneo del PLC salen los
-            bloques con los que se cruzan colisiones y dependencias, y al
-            terminar se actualiza con los bloques nuevos.
-        plantillas_dir: la carpeta con las plantillas. ``None`` para usar la
-            ruta relativa del config.
+        sesion: la sesion del backend; de su escaneo salen los bloques con
+            los que se cruzan colisiones y dependencias.
+        plantillas_dir: la carpeta de plantillas; ``None`` usa la del config.
 
     Returns:
         El resumen del apply: que se genero, como quedo la transaccion de
@@ -144,36 +158,12 @@ def crear(
             fresco, si TIA no soporta SimaticSD, si hay colisiones, si faltan
             dependencias, o si falla la transaccion de import.
     """
-    job.empezar(
-        "Crear proceso desde plantilla",
-        [
-            ("validar", "Validar proceso, plantilla y TIA"),
-            ("manifest", "Leer el manifiesto"),
-            ("minimos", "Validar los minimos"),
-            ("copiar", "Copiar la plantilla"),
-            ("diccionarios", "Construir los diccionarios"),
-            ("colisiones", "Detectar colisiones"),
-            ("dependencias", "Validar dependencias"),
-            ("generar", "Generar el proceso nuevo"),
-            ("manifest_nuevo", "Escribir el manifiesto del nuevo"),
-            ("importar", "Importar el proceso"),
-            ("compilar", "Compilar los bloques"),
-            ("escaneo", "Actualizar el escaneo"),
-        ],
-    )
-
-    # ── 1. Validar el proceso, la plantilla, el escaneo y la version ──
+    job.empezar("Crear proceso desde plantilla", list(PASOS))
+    # 1. Validar el proceso, la plantilla, el escaneo y la version de TIA.
     proceso, carpeta, escaneo, codigo_nuevo, nombre_nuevo = _validar(
-        job,
-        proc_uid,
-        plc,
-        almacen,
-        config,
-        sesion,
-        plantillas_dir,
+        job, proc_uid, plc, almacen, config, sesion, plantillas_dir,
     )
-
-    # ── 2. Leer el manifiesto de la plantilla ──────────────────────────
+    # 2. Leer el manifiesto de la plantilla.
     (
         manifest_plantilla,
         base_vieja,
@@ -182,63 +172,55 @@ def crear(
         dependencias,
         dir_plantilla,
     ) = _leer_manifest(job, carpeta, dir_plantilla_nombre)
-
-    # ── 3. Validar los minimos del operario contra los de la plantilla ──
+    # 3. Validar los minimos del operario contra los de la plantilla.
     minimos_usuario = _validar_minimos(job, manifest_plantilla, proceso)
-
-    # ── 4. Copiar la plantilla al workdir ───────────────────────────────
+    # 4. Copiar la plantilla al workdir.
     dir_plantilla_copia = _copiar_plantilla(job, dir_plantilla)
-
-    # ── 5. Construir los diccionarios de la clonacion ───────────────────
+    # 5. Construir los diccionarios de la clonacion.
     dicc_bloques, dicc_xml = _construir_diccionarios(
-        job,
-        dir_plantilla_copia,
-        base_vieja,
-        proc_uid,
-        codigo_viejo,
-        codigo_nuevo,
-        nombre_viejo,
-        nombre_nuevo,
+        job, dir_plantilla_copia, base_vieja, proc_uid,
+        codigo_viejo, codigo_nuevo, nombre_viejo, nombre_nuevo,
     )
-
-    # ── 6. Detectar colisiones con el escaneo del PLC ──────────────────
+    # 6. Detectar colisiones con el escaneo del PLC.
     _validar_colisiones(job, dicc_bloques, escaneo)
-
-    # ── 7. Validar las dependencias declaradas de la plantilla ──────────
+    # 7. Validar las dependencias declaradas de la plantilla.
     _validar_dependencias(job, dependencias, escaneo)
-
-    # ── 8. Generar el proceso nuevo en el workdir ───────────────────────
+    # 8. Generar el proceso nuevo en el workdir.
     archivos_generados = _generar_proceso(
-        job,
-        dir_plantilla_copia,
-        dicc_bloques,
-        dicc_xml,
-        proc_uid,
+        job, dir_plantilla_copia, dicc_bloques, dicc_xml, proc_uid,
         minimos_usuario,
     )
-
-    # ── 9. Escribir el manifiesto del proceso nuevo ─────────────────────
+    # 9. Escribir el manifiesto del proceso nuevo.
     _escribir_manifest(
-        job,
-        manifest_plantilla,
-        proc_uid,
-        codigo_nuevo,
-        nombre_nuevo,
-        dependencias,
-        minimos_usuario,
-        archivos_generados,
+        job, manifest_plantilla, proc_uid, codigo_nuevo, nombre_nuevo,
+        dependencias, minimos_usuario, archivos_generados,
     )
-
-    # ── 10. Importar tablas y bloques en una transaccion unica ──────────
+    # 10. Importar tablas y bloques en una transaccion unica.
     transacciones = estados_iniciales({"importar": NOMBRE_TX_IMPORTAR})
     _importar(job, transacciones, plc)
-
-    # ── 11. Compilar los bloques, fuera de la transaccion ───────────────
+    # 11. Compilar los bloques, fuera de la transaccion.
     compilacion = _compilar(job, plc, archivos_generados)
-
-    # ── 12. Actualizar el escaneo de la sesion ──────────────────────────
+    # 12. Actualizar el escaneo de la sesion.
     escaneo_actualizado = _actualizar_escaneo(job, sesion, plc)
+    return _armar_resultado(
+        plc, proc_uid, codigo_nuevo, archivos_generados,
+        transacciones, compilacion, escaneo_actualizado,
+    )
 
+
+# ── los pasos del apply, en helpers privados ───────────────────────────────
+
+
+def _armar_resultado(
+    plc: str,
+    proc_uid: int,
+    codigo_nuevo: str,
+    archivos_generados: list[str],
+    transacciones: dict[str, dict[str, str]],
+    compilacion: dict[str, Any],
+    escaneo_actualizado: bool,
+) -> dict[str, Any]:
+    """El resumen observable del apply: generado, transacciones y compilacion."""
     process_label = f"{proc_uid}_{codigo_nuevo}"
     logger.info(
         "Proceso %s creado en '%s': %d archivos generados.",
@@ -257,9 +239,6 @@ def crear(
         "escaneo_actualizado": escaneo_actualizado,
         "success": True,
     }
-
-
-# ── los pasos del apply, en helpers privados ───────────────────────────────
 
 
 def _validar(

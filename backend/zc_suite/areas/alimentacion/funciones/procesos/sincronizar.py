@@ -129,6 +129,21 @@ COLA_COMPILACION = (
     "un tamano inconsistente tras el cambio de N_MAX."
 )
 
+#: Los pasos del sync, declarados al inicio del trabajo.
+PASOS = (
+    ("mapa", "Construir mapa de slots"),
+    ("exportar", "Exportar tabla y DBs"),
+    ("preparar", "Preparar operaciones"),
+    ("tx_n_max", "Aplicar N_MAX"),
+    ("consolidacion", "Esperar consolidación TIA"),
+    ("compilar", "Compilar bloques"),
+    ("reexportar", "Re-exportar tabla y DBs"),
+    ("copiar", "Copiar bloques a modified"),
+    ("editar", "Editar comentarios offline"),
+    ("tx_comentarios", "Aplicar comentarios"),
+    ("prevision", "Recalcular la prevision"),
+)
+
 
 def sincronizar(
     job: Job,
@@ -146,9 +161,7 @@ def sincronizar(
         plc: el PLC cuyo proceso se sincroniza.
         almacen: la cache del Excel maestro.
         config: el modelo del area.
-        sesion: la sesion del backend. Del escaneo fresco de su PLC salen
-            los nombres de los bloques en TIA, y al terminar se recalcula
-            la prevision y se guarda en ella.
+        sesion: la sesion del backend; al terminar se recalcula la prevision.
 
     Returns:
         El resumen del sync: que se aplico, como quedo cada transaccion y la
@@ -156,188 +169,75 @@ def sincronizar(
 
     Raises:
         OperacionError: si no hay escaneo fresco, si falta la tabla o los
-            dos DBs, o si falla alguna transaccion. El mensaje dice que se
-            confirmo y que no.
+            dos DBs, o si falla alguna transaccion.
     """
-    job.empezar(
-        "Sincronizar proceso",
-        [
-            ("mapa", "Construir mapa de slots"),
-            ("exportar", "Exportar tabla y DBs"),
-            ("preparar", "Preparar operaciones"),
-            ("tx_n_max", "Aplicar N_MAX"),
-            ("consolidacion", "Esperar consolidación TIA"),
-            ("compilar", "Compilar bloques"),
-            ("reexportar", "Re-exportar tabla y DBs"),
-            ("copiar", "Copiar bloques a modified"),
-            ("editar", "Editar comentarios offline"),
-            ("tx_comentarios", "Aplicar comentarios"),
-            ("prevision", "Recalcular la prevision"),
-        ],
-    )
-
+    job.empezar("Sincronizar proceso", list(PASOS))
     datos, proceso, escaneo = _validar_previos(almacen, proc_uid, sesion, plc)
-
-    transacciones = estados_iniciales(
-        {
-            "n_max": "N_MAX",
-            "comentarios": "Comentarios",
-        }
-    )
+    transacciones = estados_iniciales({"n_max": "N_MAX", "comentarios": "Comentarios"})
     carpeta = workdir(AREA, CONTEXTO)
     # En TIA anterior a V21 no se exporta SimaticSD: el sync solo toca el
     # N_MAX y la tx de comentarios queda no ejecutada.
     sin_comentarios = not soporta_simaticsd(job.tia.version_tia)
 
-    # ── 1. Preparar: el mapa de slots ───────────────────────────────────
+    # 1. Preparar: el mapa de slots.
     with job.paso("mapa") as paso:
-        mapa = _preparar_mapa(job, datos, proceso, config, escaneo)
-        paso["detail"] = (
-            f"PReal={len(mapa.preal)}, PInt={len(mapa.pint)}, "
-            f"ALM={len(mapa.alm)} slots"
-        )
-
-    # ── 2. Exportar tabla y DBs ──────────────────────────────────────────
-    db_a_exportar: list[str] = []
-    rutas_db: dict[str, Path | None] = {}
+        mapa = _paso_mapa(job, datos, proceso, config, escaneo, paso)
+    # 2. Exportar tabla y DBs.
     with job.paso("exportar") as paso:
-        db_a_exportar, rutas_db = _exportar_tabla_y_dbs(
-            job, plc, mapa, carpeta, sin_comentarios
+        db_a_exportar, rutas_db = _paso_exportar(
+            job, plc, mapa, carpeta, sin_comentarios, paso
         )
-        paso["detail"] = (
-            f"tabla {mapa.table_name} exportada (sin DBs)"
-            if sin_comentarios
-            else f"tabla {mapa.table_name} y {len(db_a_exportar)} DBs exportados"
-        )
-
-    # ── 3. Preparar las operaciones ──────────────────────────────────────
+    # 3. Preparar las operaciones.
     with job.paso("preparar") as paso:
-        ops_n_max, arrays, arrays_por_db = _preparar_operaciones(
-            mapa, carpeta, sin_comentarios
+        ops_n_max, arrays, arrays_por_db = _paso_preparar(
+            mapa, carpeta, sin_comentarios, paso
         )
-        paso["detail"] = _detalle_operaciones(
-            mapa, ops_n_max, arrays_por_db
-        )
-
-    # ── 4. Tx A: los N_MAX (en linea) ────────────────────────────────────
+    # 4. Tx A: los N_MAX (en linea).
     with job.paso("tx_n_max") as paso:
-        paso["detail"] = _paso_n_max(
-            job, plc, mapa, ops_n_max, transacciones
-        )
-
-    # ── 5. Esperar la consolidacion de TIA ───────────────────────────────
+        paso["detail"] = _paso_n_max(job, plc, mapa, ops_n_max, transacciones)
+    # 5. Esperar la consolidacion de TIA.
     with job.paso("consolidacion") as paso:
         time.sleep(PAUSA_CONSOLIDACION_S)
         paso["detail"] = f"TIA consolida ({PAUSA_CONSOLIDACION_S:g} s)"
-
-    # ── 6. Compilar los bloques (siempre que hubo N_MAX) ────────────────
-    # Como main: se compila antes de re-exportar, porque TIA no exporta
-    # bloques inconsistentes. No depende de si los comentarios cambian.
+    # 6. Compilar los bloques (siempre que hubo N_MAX). Como main: se compila
+    # antes de re-exportar, porque TIA no exporta bloques inconsistentes.
+    # No depende de si los comentarios cambian.
     with job.paso("compilar") as paso:
         detalle_compilacion = _compilar_proceso(
             job, plc, mapa, bool(ops_n_max), sin_comentarios
         )
         paso["detail"] = detalle_compilacion
-
-    # ── 7. Re-exportar tabla y DBs (solo si hubo N_MAX) ─────────────────
-    # Los textos SD se leen de la re-export cuando hay DBs que releer: el
-    # N_MAX pudo redimensionar los arrays y los comentarios actuales son
-    # los que van a la edicion offline.
-    textos_sd: tuple[str, str, str, str] = ("", "", "", "")
+    # 7. Re-exportar tabla y DBs (solo si hubo N_MAX). Los textos SD se leen
+    # de la re-export cuando hay DBs que releer: el N_MAX pudo redimensionar
+    # los arrays y los comentarios actuales son los que van a la edicion.
     with job.paso("reexportar") as paso:
-        arrays, textos_sd = _reexportar(
-            job,
-            plc,
-            mapa,
-            carpeta,
-            db_a_exportar,
-            bool(ops_n_max),
-            sin_comentarios,
-            arrays,
+        arrays, textos_sd = _paso_reexportar(
+            job, plc, mapa, carpeta, db_a_exportar,
+            bool(ops_n_max), sin_comentarios, arrays, paso,
         )
-        if not ops_n_max:
-            paso["detail"] = "no hacia falta releer"
-        elif sin_comentarios:
-            # V18: no se re-exportan bloques (no hay SimaticSD).
-            paso["detail"] = "tabla releida (los DBs no se re-exportan)"
-        else:
-            paso["detail"] = "tabla y DBs releidos"
-
-    # ── 8. Copiar los DBs a modified ──────────────────────────────────────
+    # 8. Copiar los DBs a modified.
     with job.paso("copiar") as paso:
-        if sin_comentarios:
-            paso["detail"] = "no hay que copiar (sin comentarios en esta version)"
-        else:
-            _copiar_bloques(
-                carpeta.bloques_export, carpeta.bloques_modified, rutas_db
-            )
-            paso["detail"] = f"{len(rutas_db)} DBs copiados a modified"
-
-    # ── 9. Editar los comentarios offline ────────────────────────────────
-    con_cambios = False
-    dbs_con_cambios: list[str] = []
+        _copiar_bloques_paso(sin_comentarios, carpeta, rutas_db, paso)
+    # 9. Editar los comentarios offline.
     with job.paso("editar") as paso:
-        if sin_comentarios:
-            estado_no_ejecutada(
-                transacciones,
-                "comentarios",
-                "los comentarios por instancia necesitan TIA Portal V21 o superior",
-            )
-            paso["detail"] = "no ejecutada: TIA Portal anterior a V21"
-        else:
-            dbs_con_cambios, con_cambios = _editar_comentarios(
-                mapa,
-                textos_sd,
-                carpeta,
-                arrays_por_db,
-                transacciones,
-            )
-            paso["detail"] = (
-                f"{len(dbs_con_cambios)} DBs con cambios"
-                if con_cambios
-                else "sin cambios"
-            )
-
-    # ── 10. Tx B: los comentarios (offline, solo V21+) ──────────────────
-    with job.paso("tx_comentarios") as paso:
-        if con_cambios:
-            _transaccion(
-                job,
-                transacciones,
-                "comentarios",
-                "Sincronizando los comentarios del proceso",
-                lambda: importar_bloques(
-                    job.tia.portal,
-                    plc,
-                    carpeta.bloques_modified,
-                    "",
-                ),
-                "DBs del proceso",
-            )
-            paso["detail"] = (
-                f"{transacciones['comentarios']['estado']}: DBs del proceso"
-            )
-        else:
-            paso["detail"] = transacciones["comentarios"]["detalle"]
-
-    # ── 11. Recalcular la prevision ──────────────────────────────────────
-    with job.paso("prevision") as paso:
-        prevision = _recalcular_prevision(
-            job, proc_uid, plc, almacen, config, sesion
+        con_cambios = _paso_editar(
+            sin_comentarios, transacciones, mapa, textos_sd,
+            carpeta, arrays_por_db, paso,
         )
-        if prevision is None:
-            paso["detail"] = "no se pudo recalcular la prevision"
-        else:
-            paso["detail"] = f"{prevision['summary']['total']} cambios en la vista"
+    # 10. Tx B: los comentarios (offline, solo V21+).
+    with job.paso("tx_comentarios") as paso:
+        _paso_tx_comentarios(
+            job, plc, carpeta, transacciones, con_cambios, paso
+        )
+    # 11. Recalcular la prevision.
+    with job.paso("prevision") as paso:
+        prevision = _paso_prevision(
+            job, proc_uid, plc, almacen, config, sesion, paso
+        )
 
     return _armar_resultado(
-        plc,
-        proc_uid,
-        ops_n_max,
-        arrays,
-        transacciones,
-        detalle_compilacion,
-        prevision,
+        plc, proc_uid, ops_n_max, arrays,
+        transacciones, detalle_compilacion, prevision,
     )
 
 
@@ -383,6 +283,100 @@ def _transaccion(
 
 
 # ── los pasos, en helpers privados ─────────────────────────────────────────
+
+
+def _paso_mapa(
+    job: Job,
+    datos: dict[str, Any],
+    proceso: dict[str, Any],
+    config: ConfigArea,
+    escaneo: Any,
+    paso: dict[str, Any],
+) -> MapaProceso:
+    """El paso del mapa de slots, con su detalle de slots."""
+    mapa = _preparar_mapa(job, datos, proceso, config, escaneo)
+    paso["detail"] = (
+        f"PReal={len(mapa.preal)}, PInt={len(mapa.pint)}, "
+        f"ALM={len(mapa.alm)} slots"
+    )
+    return mapa
+
+
+def _paso_exportar(
+    job: Job,
+    plc: str,
+    mapa: MapaProceso,
+    carpeta: Any,
+    sin_comentarios: bool,
+    paso: dict[str, Any],
+) -> tuple[list[str], dict[str, Path | None]]:
+    """El paso de exportacion de la tabla y los DBs."""
+    db_a_exportar, rutas_db = _exportar_tabla_y_dbs(
+        job, plc, mapa, carpeta, sin_comentarios
+    )
+    paso["detail"] = _detalle_exportar(mapa, db_a_exportar, sin_comentarios)
+    return db_a_exportar, rutas_db
+
+
+def _paso_preparar(
+    mapa: MapaProceso,
+    carpeta: Any,
+    sin_comentarios: bool,
+    paso: dict[str, Any],
+) -> tuple[
+    list[dict[str, Any]],
+    dict[str, dict[str, dict[int, str | None]]],
+    dict[str, dict[str, dict[int, str]]],
+]:
+    """El paso de preparacion de las operaciones, con su detalle."""
+    ops_n_max, arrays, arrays_por_db = _preparar_operaciones(
+        mapa, carpeta, sin_comentarios
+    )
+    paso["detail"] = _detalle_operaciones(mapa, ops_n_max, arrays_por_db)
+    return ops_n_max, arrays, arrays_por_db
+
+
+def _paso_reexportar(
+    job: Job,
+    plc: str,
+    mapa: MapaProceso,
+    carpeta: Any,
+    db_a_exportar: list[str],
+    hubo_n_max: bool,
+    sin_comentarios: bool,
+    arrays: dict[str, dict[str, dict[int, str | None]]],
+    paso: dict[str, Any],
+) -> tuple[
+    dict[str, dict[str, dict[int, str | None]]],
+    tuple[str, str, str, str],
+]:
+    """El paso de re-exportacion de la tabla y los DBs."""
+    arrays, textos_sd = _reexportar(
+        job, plc, mapa, carpeta, db_a_exportar,
+        hubo_n_max, sin_comentarios, arrays,
+    )
+    paso["detail"] = _detalle_reexportar(hubo_n_max, sin_comentarios)
+    return arrays, textos_sd
+
+
+def _paso_prevision(
+    job: Job,
+    proc_uid: int,
+    plc: str,
+    almacen: AlmacenExcel,
+    config: ConfigArea,
+    sesion: Sesion | None,
+    paso: dict[str, Any],
+) -> dict[str, Any] | None:
+    """El paso de recalcular la prevision, con su detalle."""
+    prevision = _recalcular_prevision(
+        job, proc_uid, plc, almacen, config, sesion
+    )
+    if prevision is None:
+        paso["detail"] = "no se pudo recalcular la prevision"
+    else:
+        paso["detail"] = f"{prevision['summary']['total']} cambios en la vista"
+    return prevision
 
 
 def _validar_previos(
@@ -461,6 +455,46 @@ def _exportar_tabla_y_dbs(
         for db in db_a_exportar
     }
     return db_a_exportar, rutas_db
+
+
+def _detalle_exportar(
+    mapa: MapaProceso,
+    db_a_exportar: list[str],
+    sin_comentarios: bool,
+) -> str:
+    """El detalle del paso de exportacion, con y sin DBs (V18)."""
+    if sin_comentarios:
+        return f"tabla {mapa.table_name} exportada (sin DBs)"
+    return f"tabla {mapa.table_name} y {len(db_a_exportar)} DBs exportados"
+
+
+def _detalle_reexportar(
+    ops_n_max: list[dict[str, Any]],
+    sin_comentarios: bool,
+) -> str:
+    """El detalle del paso de re-exportacion, segun si hubo N_MAX y la version."""
+    if not ops_n_max:
+        return "no hacia falta releer"
+    # V18: no se re-exportan bloques (no hay SimaticSD).
+    if sin_comentarios:
+        return "tabla releida (los DBs no se re-exportan)"
+    return "tabla y DBs releidos"
+
+
+def _copiar_bloques_paso(
+    sin_comentarios: bool,
+    carpeta: Any,
+    rutas_db: dict[str, Path | None],
+    paso: dict[str, Any],
+) -> None:
+    """El paso de copia de los DBs exportados a ``modified``."""
+    if sin_comentarios:
+        paso["detail"] = "no hay que copiar (sin comentarios en esta version)"
+        return
+    _copiar_bloques(
+        carpeta.bloques_export, carpeta.bloques_modified, rutas_db
+    )
+    paso["detail"] = f"{len(rutas_db)} DBs copiados a modified"
 
 
 def _detalle_operaciones(
@@ -705,6 +739,67 @@ def _reexportar(
         res_alm,
     )
     return arrays, (dcl_param, res_param, dcl_alm, res_alm)
+
+
+def _paso_editar(
+    sin_comentarios: bool,
+    transacciones: dict[str, dict[str, Any]],
+    mapa: MapaProceso,
+    textos_sd: tuple[str, str, str, str],
+    carpeta: Any,
+    arrays_por_db: dict[str, dict[str, dict[int, str]]],
+    paso: dict[str, Any],
+) -> bool:
+    """El paso de edicion offline de los comentarios.
+
+    En V18 no se edita nada: la tx de comentarios queda no ejecutada y el
+    detalle del paso lo dice.
+    """
+    if sin_comentarios:
+        estado_no_ejecutada(
+            transacciones,
+            "comentarios",
+            "los comentarios por instancia necesitan TIA Portal V21 o superior",
+        )
+        paso["detail"] = "no ejecutada: TIA Portal anterior a V21"
+        return False
+    dbs_con_cambios, con_cambios = _editar_comentarios(
+        mapa, textos_sd, carpeta, arrays_por_db, transacciones
+    )
+    paso["detail"] = (
+        f"{len(dbs_con_cambios)} DBs con cambios" if con_cambios else "sin cambios"
+    )
+    return con_cambios
+
+
+def _paso_tx_comentarios(
+    job: Job,
+    plc: str,
+    carpeta: Any,
+    transacciones: dict[str, dict[str, Any]],
+    con_cambios: bool,
+    paso: dict[str, Any],
+) -> None:
+    """La transaccion de los comentarios del proceso (offline, solo V21+)."""
+    if not con_cambios:
+        paso["detail"] = transacciones["comentarios"]["detalle"]
+        return
+    _transaccion(
+        job,
+        transacciones,
+        "comentarios",
+        "Sincronizando los comentarios del proceso",
+        lambda: importar_bloques(
+            job.tia.portal,
+            plc,
+            carpeta.bloques_modified,
+            "",
+        ),
+        "DBs del proceso",
+    )
+    paso["detail"] = (
+        f"{transacciones['comentarios']['estado']}: DBs del proceso"
+    )
 
 
 def _editar_comentarios(

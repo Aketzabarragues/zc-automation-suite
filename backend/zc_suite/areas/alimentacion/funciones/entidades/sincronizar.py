@@ -104,6 +104,21 @@ COLA_COMPILACION = (
     "un tamano inconsistente tras el cambio de N_MAX."
 )
 
+#: Los pasos del sync, declarados al inicio del trabajo.
+PASOS = (
+    ("exportar", "Exportar etiquetas y DB"),
+    ("diferencias", "Calcular diferencias"),
+    ("preparar", "Preparar operaciones"),
+    ("tx_n_max", "Aplicar N_MAX"),
+    ("consolidacion", "Esperar consolidación TIA"),
+    ("reexportar", "Re-exportar etiquetas y DB"),
+    ("editar", "Editar archivos offline"),
+    ("tx_constantes", "Aplicar constantes"),
+    ("compilar", "Compilar bloques"),
+    ("tx_comentarios", "Aplicar comentarios"),
+    ("prevision", "Recalcular la prevision"),
+)
+
 
 def sincronizar(
     job: Job,
@@ -119,123 +134,34 @@ def sincronizar(
         plc: el PLC cuyas entidades se sincronizan.
         almacen: la cache del Excel maestro.
         config: el modelo del area.
-        sesion: la sesion del backend. Al terminar se recalcula la prevision
-            y se guarda en ella.
+        sesion: la sesion del backend; al terminar se recalcula la prevision.
 
     Returns:
         El resumen del sync: que se aplico, como quedo cada transaccion y la
         prevision posterior.
 
     Raises:
-        OperacionError: si falla alguna transaccion. El mensaje dice que se
+        OperacionError: si falla alguna transaccion; el mensaje dice que se
             confirmo y que no.
     """
-    job.empezar(
-        "Sincronizar entidades",
-        [
-            ("exportar", "Exportar etiquetas y DB"),
-            ("diferencias", "Calcular diferencias"),
-            ("preparar", "Preparar operaciones"),
-            ("tx_n_max", "Aplicar N_MAX"),
-            ("consolidacion", "Esperar consolidación TIA"),
-            ("reexportar", "Re-exportar etiquetas y DB"),
-            ("editar", "Editar archivos offline"),
-            ("tx_constantes", "Aplicar constantes"),
-            ("compilar", "Compilar bloques"),
-            ("tx_comentarios", "Aplicar comentarios"),
-            ("prevision", "Recalcular la prevision"),
-        ],
-    )
-
-    entidades = config.entidades
-    db = entidades.db
-    array = entidades.array
-    tabla_tags = entidades.tabla_tags
-    tabla_config = entidades.tabla_config
-    carpeta_tia = config.carpetas_tia.entidades
-
+    job.empezar("Sincronizar entidades", list(PASOS))
     transacciones = estados_iniciales(
-        {
-            "n_max": "N_MAX",
-            "constantes": "Constantes",
-            "comentarios": "Comentarios",
-        }
+        {"n_max": "N_MAX", "constantes": "Constantes", "comentarios": "Comentarios"}
     )
     carpeta = workdir(AREA, CONTEXTO, preview=("disp", "bloques"))
 
     # ── 1. Exportar etiquetas y DB ──────────────────────────────────────
     with job.paso("exportar") as paso:
-        carpeta.limpiar_sincronizar()
-        exportar_tablas(
-            job.tia.portal,
-            plc,
-            carpeta.variables_export,
-            [tabla_config, tabla_tags],
-            mantener_estructura=True,
-        )
-        exportar_bloques(
-            job.tia.portal,
-            plc,
-            carpeta.bloques_export,
-            [db],
-            mantener_estructura=True,
-            version_tia=job.tia.version_tia,
-        )
-        paso["detail"] = f"2 tablas y {db} exportados"
+        _exportar(job, plc, config, carpeta, paso)
 
-    # ── 2. Calcular diferencias ─────────────────────────────────────────
-    with job.paso("diferencias") as paso:
-        filas = almacen.entidades_de(plc)
-        diff_constantes = ent_calcular_diff_constantes(
-            tabla_tags,
-            filas,
-            localizar_xml(carpeta.variables_export, tabla_tags),
-        )
-        diff_n_max = ent_calcular_diff_n_max(
-            tabla_config,
-            almacen.n_max_de_entidades(plc),
-            localizar_xml(carpeta.variables_export, tabla_config),
-        )
-        diff_comentarios = ent_calcular_diff_comentarios(
-            db,
-            array,
-            filas,
-            *ent_leer_par_sd(carpeta.bloques_export, db),
-        )
-        paso["detail"] = (
-            f"{len(diff_constantes.agregados)} agregadas, "
-            f"{len(diff_constantes.eliminados)} eliminadas, "
-            f"{len(diff_comentarios.actualizados)} comentarios"
-        )
-
-    # ── 3. Preparar operaciones ─────────────────────────────────────────
-    with job.paso("preparar") as paso:
-        ops_n_max = ent_calcular_operaciones_n_max(tabla_config, diff_n_max)
-        ops_constantes = ent_calcular_operaciones_constantes(diff_constantes)
-        ops_comentarios = ent_calcular_operaciones_comentarios(filas)
-        paso["detail"] = (
-            f"{len(ops_n_max)} N_MAX, {len(ops_constantes)} operaciones de constantes, "
-            f"{len(ops_comentarios)} comentarios"
-        )
+    # ── 2 y 3. Diferencias y operaciones ────────────────────────────────
+    ops_n_max, ops_constantes, ops_comentarios = _calcular_y_preparar(
+        job, almacen, config, carpeta, plc
+    )
 
     # ── 4. Tx A: el N_MAX (en linea) ────────────────────────────────────
     with job.paso("tx_n_max") as paso:
-        if not ops_n_max:
-            estado_no_ejecutada(transacciones, "n_max", "no habia nada que aplicar")
-            paso["detail"] = "sin cambios de N_MAX"
-        else:
-            _transaccion(
-                job,
-                transacciones,
-                "n_max",
-                "Actualizando el N_MAX de las entidades",
-                lambda: _aplicar_n_max(job, plc, ops_n_max),
-                f"{len(ops_n_max)} N_MAX",
-            )
-            paso["detail"] = (
-                f"{transacciones['n_max']['estado']}: {len(ops_n_max)} N_MAX"
-            )
-            _compilacion_defensiva(job, plc, db)
+        _paso_n_max(job, plc, config, transacciones, ops_n_max, paso)
 
     # ── 5. Esperar la consolidacion de TIA ──────────────────────────────
     with job.paso("consolidacion") as paso:
@@ -244,39 +170,11 @@ def sincronizar(
 
     # ── 6. Re-exportar etiquetas y DB ───────────────────────────────────
     with job.paso("reexportar") as paso:
-        if ops_n_max:
-            exportar_tablas(
-                job.tia.portal,
-                plc,
-                carpeta.variables_export,
-                [tabla_config, tabla_tags],
-                mantener_estructura=True,
-            )
-            exportar_bloques(
-                job.tia.portal,
-                plc,
-                carpeta.bloques_export,
-                [db],
-                mantener_estructura=True,
-                version_tia=job.tia.version_tia,
-            )
-        paso["detail"] = "tablas y DB releidos" if ops_n_max else "no hacia falta releer"
+        _reexportar(job, plc, config, carpeta, ops_n_max, paso)
 
     # ── 7. Editar los ficheros offline ──────────────────────────────────
     with job.paso("editar") as paso:
-        edicion = ent_copiar_y_editar(
-            carpeta.variables_export,
-            carpeta.variables_modified,
-            carpeta.bloques_export,
-            carpeta.bloques_modified,
-            tabla_config,
-            tabla_tags,
-            carpeta_tia,
-            db,
-            array,
-            ops_constantes,
-            ops_comentarios,
-        )
+        edicion = _editar_ficheros(config, carpeta, ops_constantes, ops_comentarios)
         for aviso in edicion["avisos"]:
             job.log(aviso, nivel="warning")
         paso["detail"] = (
@@ -287,72 +185,33 @@ def sincronizar(
 
     # ── 8. Tx B: las constantes (offline) ───────────────────────────────
     with job.paso("tx_constantes") as paso:
-        if not ops_constantes:
-            estado_no_ejecutada(
-                transacciones, "constantes", "no habia constantes que aplicar"
-            )
-            paso["detail"] = "sin cambios de constantes"
-        else:
-            _transaccion(
-                job,
-                transacciones,
-                "constantes",
-                "Sincronizando las constantes de las entidades",
-                lambda: _aplicar_constantes(job, plc, carpeta.variables_modified),
-                f"{len(ops_constantes)} operaciones",
-            )
-            paso["detail"] = (
-                f"{transacciones['constantes']['estado']}: {len(ops_constantes)} operaciones"
-            )
+        _paso_constantes(job, plc, carpeta, transacciones, ops_constantes, paso)
 
     # ── 9. Compilar los bloques ─────────────────────────────────────────
     with job.paso("compilar") as paso:
-        detalle_compilacion = compilar_con_aviso(
-            compilador=lambda: compilar_bloques(job.tia.portal, plc, [db]),
-            cola=COLA_COMPILACION,
-            logger=logger,
-        )
-        paso["detail"] = detalle_compilacion
+        detalle_compilacion = _compilar(job, plc, config, paso)
 
     # ── 10. Tx C: los comentarios (offline, solo V21+) ──────────────────
     with job.paso("tx_comentarios") as paso:
-        comentarios = _aplicar_comentarios(job, plc, carpeta, transacciones, edicion)
-        paso["detail"] = comentarios
+        paso["detail"] = _aplicar_comentarios(
+            job, plc, carpeta, transacciones, edicion
+        )
 
     # ── 11. Recalcular la prevision ─────────────────────────────────────
-    prevision: dict[str, Any] | None = None
     with job.paso("prevision") as paso:
-        try:
-            prevision = generar_prevision(
-                job,
-                plc,
-                almacen,
-                config,
-                sesion,
-                con_pasos=False,
-            )
-            paso["detail"] = f"{prevision['summary']['total']} cambios en la vista"
-        except Exception as exc:
-            # Lo anterior ya esta confirmado: el fallo se avisa, pero no
-            # tumba el trabajo.
-            aviso = (
-                f"No se pudo recalcular la prevision tras el sync: {exc}. "
-                "Los cambios ya estan aplicados en TIA."
-            )
-            logger.warning(aviso)
-            job.log(aviso, nivel="warning")
-            paso["detail"] = "no se pudo recalcular la prevision"
+        prevision = _recalcular_prevision(
+            job, plc, almacen, config, sesion, paso
+        )
 
-    return {
-        "plc": plc,
-        "operaciones": len(ops_n_max) + len(ops_constantes) + len(ops_comentarios),
-        "n_max": {"actualizados": len(ops_n_max)},
-        "constantes": {"operaciones": len(ops_constantes)},
-        "comentarios": {"operaciones": len(ops_comentarios)},
-        "transacciones": list(transacciones.values()),
-        "compilacion": detalle_compilacion,
-        "prevision": prevision,
-    }
+    return _armar_resultado(
+        plc,
+        ops_n_max,
+        ops_constantes,
+        ops_comentarios,
+        transacciones,
+        detalle_compilacion,
+        prevision,
+    )
 
 
 # ── las transacciones ───────────────────────────────────────────────────────
@@ -397,6 +256,297 @@ def _transaccion(
 
 
 # ── los pasos, en helpers privados ─────────────────────────────────────────
+
+
+def _exportar(
+    job: Job,
+    plc: str,
+    config: ConfigArea,
+    carpeta: Workdir,
+    paso: dict[str, Any],
+) -> None:
+    """Exporta las tablas de las entidades y su DB, partiendo limpio."""
+    entidades = config.entidades
+    carpeta.limpiar_sincronizar()
+    exportar_tablas(
+        job.tia.portal,
+        plc,
+        carpeta.variables_export,
+        [entidades.tabla_config, entidades.tabla_tags],
+        mantener_estructura=True,
+    )
+    exportar_bloques(
+        job.tia.portal,
+        plc,
+        carpeta.bloques_export,
+        [entidades.db],
+        mantener_estructura=True,
+        version_tia=job.tia.version_tia,
+    )
+    paso["detail"] = f"2 tablas y {entidades.db} exportados"
+
+
+def _calcular_y_preparar(
+    job: Job,
+    almacen: AlmacenExcel,
+    config: ConfigArea,
+    carpeta: Workdir,
+    plc: str,
+) -> tuple[
+    list[dict[str, Any]],
+    list[dict[str, Any]],
+    list[dict[str, Any]],
+]:
+    """Los dos pasos previos a las transacciones, en su orden.
+
+    Abre el paso ``diferencias`` (los diffs contra el export) y el paso
+    ``preparar`` (las operaciones a aplicar), cada uno con su detalle.
+    """
+    with job.paso("diferencias") as paso:
+        filas = almacen.entidades_de(plc)
+        diff_constantes, diff_n_max, diff_comentarios = _calcular_diferencias(
+            almacen, filas, config, carpeta, plc
+        )
+        paso["detail"] = (
+            f"{len(diff_constantes.agregados)} agregadas, "
+            f"{len(diff_constantes.eliminados)} eliminadas, "
+            f"{len(diff_comentarios.actualizados)} comentarios"
+        )
+    with job.paso("preparar") as paso:
+        ops_n_max, ops_constantes, ops_comentarios = _preparar_operaciones(
+            config, filas, diff_n_max, diff_constantes
+        )
+        paso["detail"] = (
+            f"{len(ops_n_max)} N_MAX, {len(ops_constantes)} operaciones de constantes, "
+            f"{len(ops_comentarios)} comentarios"
+        )
+    return ops_n_max, ops_constantes, ops_comentarios
+
+
+def _calcular_diferencias(
+    almacen: AlmacenExcel,
+    filas: list[dict[str, Any]],
+    config: ConfigArea,
+    carpeta: Workdir,
+    plc: str,
+) -> tuple[Any, Any, Any]:
+    """Los diffs de constantes, N_MAX y comentarios, contra el export."""
+    entidades = config.entidades
+    diff_constantes = ent_calcular_diff_constantes(
+        entidades.tabla_tags,
+        filas,
+        localizar_xml(carpeta.variables_export, entidades.tabla_tags),
+    )
+    diff_n_max = ent_calcular_diff_n_max(
+        entidades.tabla_config,
+        almacen.n_max_de_entidades(plc),
+        localizar_xml(carpeta.variables_export, entidades.tabla_config),
+    )
+    diff_comentarios = ent_calcular_diff_comentarios(
+        entidades.db,
+        entidades.array,
+        filas,
+        *ent_leer_par_sd(carpeta.bloques_export, entidades.db),
+    )
+    return diff_constantes, diff_n_max, diff_comentarios
+
+
+def _preparar_operaciones(
+    config: ConfigArea,
+    filas: list[dict[str, Any]],
+    diff_n_max: Any,
+    diff_constantes: Any,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
+    """Las operaciones del sync: N_MAX, constantes y comentarios."""
+    return (
+        ent_calcular_operaciones_n_max(config.entidades.tabla_config, diff_n_max),
+        ent_calcular_operaciones_constantes(diff_constantes),
+        ent_calcular_operaciones_comentarios(filas),
+    )
+
+
+def _paso_n_max(
+    job: Job,
+    plc: str,
+    config: ConfigArea,
+    transacciones: dict[str, dict[str, Any]],
+    ops_n_max: list[dict[str, Any]],
+    paso: dict[str, Any],
+) -> None:
+    """La transaccion del N_MAX (en linea), con su compilacion defensiva."""
+    if not ops_n_max:
+        estado_no_ejecutada(transacciones, "n_max", "no habia nada que aplicar")
+        paso["detail"] = "sin cambios de N_MAX"
+        return
+    _transaccion(
+        job,
+        transacciones,
+        "n_max",
+        "Actualizando el N_MAX de las entidades",
+        lambda: _aplicar_n_max(job, plc, ops_n_max),
+        f"{len(ops_n_max)} N_MAX",
+    )
+    paso["detail"] = (
+        f"{transacciones['n_max']['estado']}: {len(ops_n_max)} N_MAX"
+    )
+    _compilacion_defensiva(job, plc, config.entidades.db)
+
+
+def _reexportar(
+    job: Job,
+    plc: str,
+    config: ConfigArea,
+    carpeta: Workdir,
+    ops_n_max: list[dict[str, Any]],
+    paso: dict[str, Any],
+) -> None:
+    """Re-exporta tablas y DB cuando hubo N_MAX (pudo redimensionar)."""
+    if not ops_n_max:
+        paso["detail"] = "no hacia falta releer"
+        return
+    entidades = config.entidades
+    exportar_tablas(
+        job.tia.portal,
+        plc,
+        carpeta.variables_export,
+        [entidades.tabla_config, entidades.tabla_tags],
+        mantener_estructura=True,
+    )
+    exportar_bloques(
+        job.tia.portal,
+        plc,
+        carpeta.bloques_export,
+        [entidades.db],
+        mantener_estructura=True,
+        version_tia=job.tia.version_tia,
+    )
+    paso["detail"] = "tablas y DB releidos"
+
+
+def _editar_ficheros(
+    config: ConfigArea,
+    carpeta: Workdir,
+    ops_constantes: list[dict[str, Any]],
+    ops_comentarios: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Copia los ficheros a ``modified`` y aplica las ediciones offline."""
+    entidades = config.entidades
+    return ent_copiar_y_editar(
+        carpeta.variables_export,
+        carpeta.variables_modified,
+        carpeta.bloques_export,
+        carpeta.bloques_modified,
+        entidades.tabla_config,
+        entidades.tabla_tags,
+        config.carpetas_tia.entidades,
+        entidades.db,
+        entidades.array,
+        ops_constantes,
+        ops_comentarios,
+    )
+
+
+def _paso_constantes(
+    job: Job,
+    plc: str,
+    carpeta: Workdir,
+    transacciones: dict[str, dict[str, Any]],
+    ops_constantes: list[dict[str, Any]],
+    paso: dict[str, Any],
+) -> None:
+    """La transaccion de las constantes (offline), con su estado."""
+    if not ops_constantes:
+        estado_no_ejecutada(
+            transacciones, "constantes", "no habia constantes que aplicar"
+        )
+        paso["detail"] = "sin cambios de constantes"
+        return
+    _transaccion(
+        job,
+        transacciones,
+        "constantes",
+        "Sincronizando las constantes de las entidades",
+        lambda: _aplicar_constantes(job, plc, carpeta.variables_modified),
+        f"{len(ops_constantes)} operaciones",
+    )
+    paso["detail"] = (
+        f"{transacciones['constantes']['estado']}: {len(ops_constantes)} operaciones"
+    )
+
+
+def _compilar(job: Job, plc: str, config: ConfigArea, paso: dict[str, Any]) -> str:
+    """Compila el DB de entidades, fuera de la transaccion.
+
+    Returns:
+        El detalle de la compilacion para el paso y el resultado.
+    """
+    detalle_compilacion = compilar_con_aviso(
+        compilador=lambda: compilar_bloques(job.tia.portal, plc, [config.entidades.db]),
+        cola=COLA_COMPILACION,
+        logger=logger,
+    )
+    paso["detail"] = detalle_compilacion
+    return detalle_compilacion
+
+
+def _recalcular_prevision(
+    job: Job,
+    plc: str,
+    almacen: AlmacenExcel,
+    config: ConfigArea,
+    sesion: Sesion | None,
+    paso: dict[str, Any],
+) -> dict[str, Any] | None:
+    """Recalcula la prevision con la misma funcion que la genera.
+
+    Lo anterior ya esta confirmado: si el recuento falla, se avisa pero no
+    se tumba el trabajo (devuelve ``None``).
+    """
+    try:
+        prevision = generar_prevision(
+            job,
+            plc,
+            almacen,
+            config,
+            sesion,
+            con_pasos=False,
+        )
+        paso["detail"] = f"{prevision['summary']['total']} cambios en la vista"
+    except Exception as exc:
+        # Lo anterior ya esta confirmado: el fallo se avisa, pero no
+        # tumba el trabajo.
+        aviso = (
+            f"No se pudo recalcular la prevision tras el sync: {exc}. "
+            "Los cambios ya estan aplicados en TIA."
+        )
+        logger.warning(aviso)
+        job.log(aviso, nivel="warning")
+        paso["detail"] = "no se pudo recalcular la prevision"
+        return None
+    return prevision
+
+
+def _armar_resultado(
+    plc: str,
+    ops_n_max: list[dict[str, Any]],
+    ops_constantes: list[dict[str, Any]],
+    ops_comentarios: list[dict[str, Any]],
+    transacciones: dict[str, dict[str, Any]],
+    detalle_compilacion: str,
+    prevision: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """El resumen del sync: que se aplico, como quedo cada transaccion y la
+    prevision posterior."""
+    return {
+        "plc": plc,
+        "operaciones": len(ops_n_max) + len(ops_constantes) + len(ops_comentarios),
+        "n_max": {"actualizados": len(ops_n_max)},
+        "constantes": {"operaciones": len(ops_constantes)},
+        "comentarios": {"operaciones": len(ops_comentarios)},
+        "transacciones": list(transacciones.values()),
+        "compilacion": detalle_compilacion,
+        "prevision": prevision,
+    }
 
 
 def _aplicar_n_max(job: Job, plc: str, ops_n_max: list[dict[str, Any]]) -> None:
