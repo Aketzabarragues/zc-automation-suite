@@ -176,12 +176,10 @@ def test_los_errores_de_compilacion_no_tumban_el_sync(
 ) -> None:
     """La compilacion se avisa, pero lo que ya esta aplicado se queda.
 
-    Un bloque que sigue inconsistente tras compilar tiene errores, y el aviso
-    lo nombra.
+    Un bloque que sigue inconsistente tras compilar deja el aviso en el log;
+    el resultado solo lleva el detalle.
     """
-    nombres = []
     for bloque in entorno_sync.plc.get_program_blocks():
-        nombres.append(bloque.get_name())
         monkeypatch.setattr(bloque, "is_consistent", lambda: False)
         monkeypatch.setattr(bloque, "compile", lambda: True)
 
@@ -189,15 +187,13 @@ def test_los_errores_de_compilacion_no_tumban_el_sync(
 
     assert evento["estado"] == "ok", evento.get("error")
     compilacion = evento["resultado"]["compilacion"]
-    assert compilacion["ok"] is False
-    assert "errores de compilacion" in compilacion["error"]
-    assert "con errores" in compilacion["error"]
-    assert any(nombre in compilacion["error"] for nombre in nombres)
+    assert compilacion == "compile=WARN"
 
 
 def test_el_aviso_trae_el_mensaje_de_tia(
     entorno_sync: Any,
     monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     """El aviso dice que bloque falla y por que, sin la ruta del bloque."""
     from tests.tia_ops.test_compilar import ResultadoFalso
@@ -210,11 +206,16 @@ def test_el_aviso_trae_el_mensaje_de_tia(
             bloque, "compile", lambda nombre=nombre: ResultadoFalso(nombre, tiene_errores=True)
         )
 
-    evento = entorno_sync.sincronizar()
+    with caplog.at_level("WARNING"):
+        evento = entorno_sync.sincronizar()
 
-    error = evento["resultado"]["compilacion"]["error"]
+    assert evento["estado"] == "ok", evento.get("error")
+    aviso = "\n".join(
+        record.getMessage() for record in caplog.records if record.levelname == "WARNING"
+    )
     nombre = bloques[0].get_name()
-    assert f"{nombre} (Interface > Data type Boo is unknown.)" in error
+    assert f"{nombre} (Interface > Data type Boo is unknown.)" in aviso
+    assert "Revisa esos bloques en TIA Portal" in aviso
 
 
 def test_compile_que_devuelve_true_y_deja_el_bloque_bien_no_es_un_error(
@@ -237,8 +238,7 @@ def test_compile_que_devuelve_true_y_deja_el_bloque_bien_no_es_un_error(
 
     assert evento["estado"] == "ok", evento.get("error")
     compilacion = evento["resultado"]["compilacion"]
-    assert compilacion["ok"] is True, compilacion.get("error")
-    assert compilacion["detalle"].startswith("compile=OK")
+    assert compilacion.startswith("compile=OK")
 
 
 def test_los_comentarios_no_se_ejecutan_en_tia_v18(entorno_sync_v18: Any) -> None:
@@ -308,6 +308,7 @@ def test_el_dict_completo_fija_los_nombres_y_valores_de_cada_transaccion(
 def test_la_compilacion_con_errores_no_tumba_y_fija_su_dict(
     entorno_sync: Any,
     monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     """Un DB que sigue inconsistente deja ``compile=WARN``: el sync termina
     en ok, la tx de comentarios se ejecuta igual y el aviso lista el bloque
@@ -321,18 +322,31 @@ def test_la_compilacion_con_errores_no_tumba_y_fija_su_dict(
             bloque, "compile", lambda nombre=nombre: ResultadoFalso(nombre, tiene_errores=True)
         )
 
-    evento = entorno_sync.sincronizar()
+    with caplog.at_level("WARNING"):
+        evento = entorno_sync.sincronizar()
 
     assert evento["estado"] == "ok", evento.get("error")
     compilacion = evento["resultado"]["compilacion"]
-    assert compilacion["ok"] is False
-    assert compilacion["detalle"] == "compile=WARN"
-    error = compilacion["error"]
-    assert error.startswith("TIA reporta errores de compilacion: ")
-    assert "1 bloque(s) con errores: " in error
+    assert compilacion == "compile=WARN"
+    aviso = "\n".join(
+        record.getMessage() for record in caplog.records if record.levelname == "WARNING"
+    )
+    avisos_compilacion = [
+        record.getMessage()
+        for record in caplog.records
+        if record.levelname == "WARNING"
+        and record.getMessage().startswith("Compilacion con errores")
+    ]
+    assert len(avisos_compilacion) == 1, avisos_compilacion
+    aviso = avisos_compilacion[0]
+    assert aviso.startswith(
+        "Compilacion con errores (los cambios ya estan aplicados): "
+        "TIA reporta errores de compilacion: "
+    )
+    assert "1 bloque(s) con errores: " in aviso
     nombre = entorno_sync.plc.get_program_blocks()[0].get_name()
-    assert f"{nombre} (Interface > Data type Boo is unknown.)" in error
-    assert error.endswith(
+    assert f"{nombre} (Interface > Data type Boo is unknown.)" in aviso
+    assert aviso.endswith(
         " Revisa esos bloques en TIA Portal: pueden haber quedado con "
         "un tamano inconsistente tras el cambio de N_MAX."
     )
@@ -359,9 +373,7 @@ def test_si_la_compilacion_lanza_los_cambios_se_quedan(
 
     assert evento["estado"] == "ok", evento.get("error")
     compilacion = evento["resultado"]["compilacion"]
-    assert compilacion["ok"] is False
-    assert compilacion["error"] == "TIA no deja compilar"
-    assert compilacion["detalle"] == "compile=WARN"
+    assert compilacion == "compile=WARN"
     # El sync se quedo: las transacciones anteriores siguen confirmadas.
     for transaccion in evento["resultado"]["transacciones"]:
         assert transaccion["estado"] == CONFIRMADA, transaccion
@@ -416,12 +428,7 @@ def test_en_v18_el_dict_fija_el_estado_de_cada_transaccion(
     assert transacciones["Comentarios"]["detalle"] == (
         "los comentarios por instancia necesitan TIA Portal V21 o superior"
     )
-    compilacion = resultado["compilacion"]
-    assert compilacion == {
-        "ok": True,
-        "error": None,
-        "detalle": "compile=OK (0 compilados, 1 sin cambios)",
-    }
+    assert resultado["compilacion"] == "compile=OK (0 compilados, 1 sin cambios)"
     # Sin SimaticSD no se exporta ni importa ningun bloque.
     assert entorno_sync_v18.plc.importaciones_bloques == []
     assert resultado["prevision"] is not None

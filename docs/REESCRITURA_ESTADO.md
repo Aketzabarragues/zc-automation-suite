@@ -94,6 +94,24 @@ futura).
 - `backend/zc_suite/simatic/ml/constantes_modificador.py` captura la plantilla
   de constante al cargar el XML (necesario al borrar antes de anadir). La
   salida de Dispositivos sigue identica a main.
+
+### Fase 4: modulo comun de sincronizacion
+
+- El estado de transacciones, el resumen, `compilar_con_aviso`,
+  `mensaje_corto` y `localizar_xml` viven en
+  `backend/zc_suite/areas/alimentacion/sincronizacion_comun.py`; los FB de
+  dispositivos y entidades ya lo usan.
+- `resultado["compilacion"]` es un **detalle string** (`compile=OK (...)` /
+  `compile=WARN`) en el sync de dispositivos, como en entidades. El frontend
+  no lo lee: el aviso con errores va al log.
+- **No unificados** (difieren y se dejan):
+  - `_aplicar_comentarios`/`_confirmar_comentarios` de dispositivos reexportan
+    los bloques, los copian a `modified/` y editan los `.s7dcl`/`.s7res`
+    offline antes de importar; en entidades la edicion de los comentarios la
+    hace `ent_copiar_y_editar` en el paso previo, y el FB solo importa el DB.
+  - `disp_localizar_xml` (dominio de dispositivos) devuelve `Path | None`
+    para omitir las tablas ausentes del sync; `localizar_xml` comun devuelve
+    siempre un `Path`.
 - Por comprobar en V21: el config espera el DB `DB6_ENT`, pero el listado del
   proyecto real mostraba `DB6_ENTIDAD`.
 
