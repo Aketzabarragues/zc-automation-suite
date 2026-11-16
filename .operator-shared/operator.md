@@ -88,8 +88,11 @@ con PyInstaller.
 
 1. **Prohibicion de Git destructivo o merges.** Ningun agente puede ejecutar
    `git merge`, `git push`, `git reset --hard` ni cambiar de rama sin orden
-   explicita del operario. Los comandos de solo lectura (`git status`,
-   `git diff`, `git log`) si estan permitidos.
+   explicita del operario. Si estan permitidos los comandos de solo lectura
+   (`git status`, `git diff`, `git log`) y los commits locales en la rama de
+   trabajo activa, que sirven de checkpoint para dejar el trabajo a medias sin
+   perderlo. Un commit local nunca reescribe historia: no se amendan commits
+   ya publicados ni se hace `rebase` de lo ya hecho.
 2. **Fidelidad estricta a la UI de referencia.** En vistas frontend Vue esta
    prohibido improvisar el diseno: hay que clonar y adaptar la estructura
    exacta de la vista de referencia indicada (por ejemplo `ProcesosSyncView`) y
