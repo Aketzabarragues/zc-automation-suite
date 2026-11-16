@@ -197,7 +197,7 @@ onMounted(() => {
   <section class="flex-1 min-h-0 flex flex-col gap-4" data-testid="definicion-programacion">
     <!-- ── CARGA EXCEL ────────────────────────────────────────────────── -->
     <section class="bg-surface-raised border border-line rounded p-4" data-testid="definicion-carga">
-      <h2 class="text-xs font-semibold text-ink-muted uppercase mb-3">Carga Excel</h2>
+      <h2 class="text-xs font-semibold text-ink-muted uppercase mb-3">Carga excel</h2>
 
       <div class="flex items-center gap-3">
         <input

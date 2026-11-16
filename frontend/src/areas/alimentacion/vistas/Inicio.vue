@@ -16,7 +16,7 @@ const ACCIONES = [
     clave: "def",
     icono: "📊",
     titulo: "Definición programación",
-    descripcion: "Carga el maestro Excel y consulta el estado del PLC.",
+    descripcion: "Carga el maestro Excel y consulta la AppState del PLC.",
   },
   {
     clave: "disp",
