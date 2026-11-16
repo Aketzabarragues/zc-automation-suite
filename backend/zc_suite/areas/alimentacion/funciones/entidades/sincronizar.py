@@ -17,6 +17,10 @@ El resultado dice **cual se confirmo, cual se revirtio y cual no se ejecuto**,
 y lo mismo se ve en el faceplate: cada paso de transaccion lleva su estado en
 el detalle, y los pasos que no se alcanzan se quedan pendientes.
 
+El estado de las transacciones, el texto del aviso de compilacion y los
+helpers de texto y rutas los aporta ``sincronizacion_comun``: lo comun de los
+cuatro FB de sync, en un solo sitio.
+
 Correcciones sobre ``main``:
 
 - Cada transaccion **comprueba** su resultado. En ``main`` la de los
@@ -52,6 +56,19 @@ from zc_suite.areas.alimentacion.excel.almacen import AlmacenExcel
 from zc_suite.areas.alimentacion.funciones.entidades.generar_prevision import (
     generar_prevision,
 )
+from zc_suite.areas.alimentacion.sincronizacion_comun import (
+    ESTADO_CONFIRMADA,
+    ESTADO_NO_EJECUTADA,
+    ESTADO_REVIRTIDA,
+    CompilacionConErroresError,
+    estado_confirmada,
+    estado_no_ejecutada,
+    estado_revertida,
+    estados_iniciales,
+    localizar_xml,
+    resumen_transacciones,
+    texto_errores_compilacion,
+)
 from zc_suite.errores import OperacionError
 from zc_suite.nucleo.sesion import Sesion
 from zc_suite.nucleo.tia.errores import CanceladoError
@@ -74,13 +91,19 @@ CONTEXTO = "entidades"
 PAUSA_CONSOLIDACION_S = 2.0
 
 #: La transaccion se confirmo: TIA guardo los cambios.
-CONFIRMADA = "confirmada"
+CONFIRMADA = ESTADO_CONFIRMADA
 
 #: La transaccion fallo y se revirtio: TIA no guardo nada.
-REVIRTIDA = "revertida"
+REVIRTIDA = ESTADO_REVIRTIDA
 
 #: La transaccion no llego a ejecutarse.
-NO_EJECUTADA = "no ejecutada"
+NO_EJECUTADA = ESTADO_NO_EJECUTADA
+
+#: La cola final del aviso de una compilacion con errores de las entidades.
+COLA_COMPILACION = (
+    " Revisa ese bloque en TIA Portal: puede haber quedado con "
+    "un tamano inconsistente tras el cambio de N_MAX."
+)
 
 
 def sincronizar(
@@ -132,7 +155,13 @@ def sincronizar(
     tabla_config = entidades.tabla_config
     carpeta_tia = config.carpetas_tia.entidades
 
-    transacciones = _transacciones_iniciales()
+    transacciones = estados_iniciales(
+        {
+            "n_max": "N_MAX",
+            "constantes": "Constantes",
+            "comentarios": "Comentarios",
+        }
+    )
     carpeta = workdir(AREA, CONTEXTO, preview=("disp", "bloques"))
 
     # ── 1. Exportar etiquetas y DB ──────────────────────────────────────
@@ -161,12 +190,12 @@ def sincronizar(
         diff_constantes = ent_calcular_diff_constantes(
             tabla_tags,
             filas,
-            _localizar_xml(carpeta.variables_export, tabla_tags),
+            localizar_xml(carpeta.variables_export, tabla_tags),
         )
         diff_n_max = ent_calcular_diff_n_max(
             tabla_config,
             almacen.n_max_de_entidades(plc),
-            _localizar_xml(carpeta.variables_export, tabla_config),
+            localizar_xml(carpeta.variables_export, tabla_config),
         )
         diff_comentarios = ent_calcular_diff_comentarios(
             db,
@@ -193,8 +222,7 @@ def sincronizar(
     # ── 4. Tx A: el N_MAX (en linea) ────────────────────────────────────
     with job.paso("tx_n_max") as paso:
         if not ops_n_max:
-            transacciones["n_max"]["estado"] = NO_EJECUTADA
-            transacciones["n_max"]["detalle"] = "no habia nada que aplicar"
+            estado_no_ejecutada(transacciones, "n_max", "no habia nada que aplicar")
             paso["detail"] = "sin cambios de N_MAX"
         else:
             _transaccion(
@@ -261,8 +289,9 @@ def sincronizar(
     # ── 8. Tx B: las constantes (offline) ───────────────────────────────
     with job.paso("tx_constantes") as paso:
         if not ops_constantes:
-            transacciones["constantes"]["estado"] = NO_EJECUTADA
-            transacciones["constantes"]["detalle"] = "no habia constantes que aplicar"
+            estado_no_ejecutada(
+                transacciones, "constantes", "no habia constantes que aplicar"
+            )
             paso["detail"] = "sin cambios de constantes"
         else:
             _transaccion(
@@ -326,27 +355,6 @@ def sincronizar(
 # ── las transacciones ───────────────────────────────────────────────────────
 
 
-def _transacciones_iniciales() -> dict[str, dict[str, Any]]:
-    """Las tres transacciones del sync, todas sin ejecutar."""
-    return {
-        "n_max": {
-            "nombre": "N_MAX",
-            "estado": NO_EJECUTADA,
-            "detalle": "",
-        },
-        "constantes": {
-            "nombre": "Constantes",
-            "estado": NO_EJECUTADA,
-            "detalle": "",
-        },
-        "comentarios": {
-            "nombre": "Comentarios",
-            "estado": NO_EJECUTADA,
-            "detalle": "",
-        },
-    }
-
-
 def _transaccion(
     job: Job,
     transacciones: dict[str, dict[str, Any]],
@@ -375,25 +383,14 @@ def _transaccion(
     except CanceladoError:
         # La cancelacion del operario no es un fallo: sale tal cual para que
         # el trabajo termine como cancelado y no como error.
-        transacciones[clave]["estado"] = REVIRTIDA
-        transacciones[clave]["detalle"] = "el trabajo fue cancelado"
+        estado_revertida(transacciones, clave, "el trabajo fue cancelado")
         raise
     except Exception as exc:
-        transacciones[clave]["estado"] = REVIRTIDA
-        transacciones[clave]["detalle"] = str(exc)
+        estado_revertida(transacciones, clave, str(exc))
         raise OperacionError(
-            f"{exc}. {_resumen_de_transacciones(transacciones)}"
+            f"{exc}. {resumen_transacciones(transacciones)}"
         ) from exc
-    transacciones[clave]["estado"] = CONFIRMADA
-    transacciones[clave]["detalle"] = resumen
-
-
-def _resumen_de_transacciones(transacciones: dict[str, dict[str, Any]]) -> str:
-    """El estado de las transacciones, en una frase."""
-    partes = [
-        f"{datos['nombre']}: {datos['estado']}" for datos in transacciones.values()
-    ]
-    return "Transacciones: " + "; ".join(partes) + "."
+    estado_confirmada(transacciones, clave, resumen)
 
 
 # ── los pasos, en helpers privados ─────────────────────────────────────────
@@ -436,15 +433,17 @@ def _aplicar_comentarios(
         El detalle del paso.
     """
     if not soporta_simaticsd(job.tia.version_tia):
-        transacciones["comentarios"]["estado"] = NO_EJECUTADA
-        transacciones["comentarios"]["detalle"] = (
-            "los comentarios por instancia necesitan TIA Portal V21 o superior"
+        estado_no_ejecutada(
+            transacciones,
+            "comentarios",
+            "los comentarios por instancia necesitan TIA Portal V21 o superior",
         )
         return "no ejecutada: TIA Portal anterior a V21"
 
     if not edicion["comentarios"]:
-        transacciones["comentarios"]["estado"] = NO_EJECUTADA
-        transacciones["comentarios"]["detalle"] = "los comentarios ya estaban al dia"
+        estado_no_ejecutada(
+            transacciones, "comentarios", "los comentarios ya estaban al dia"
+        )
         return "no habia comentarios que aplicar"
 
     _transaccion(
@@ -458,8 +457,6 @@ def _aplicar_comentarios(
     return f"{transacciones['comentarios']['estado']}: DB de entidades"
 
 
-
-
 def _compilacion_defensiva(job: Job, plc: str, db: str) -> None:
     """Compila el DB para que TIA regenere el array redimensionado.
 
@@ -469,7 +466,9 @@ def _compilacion_defensiva(job: Job, plc: str, db: str) -> None:
         compilar_bloques(job.tia.portal, plc, [db])
     except Exception as exc:
         logger.warning(
-            "[ent sync] La compilacion defensiva de '%s' fallo (el sync sigue): %s", db, exc
+            "[ent sync] La compilacion defensiva de '%s' fallo (el sync sigue): %s",
+            db,
+            exc,
         )
 
 
@@ -478,47 +477,23 @@ def _compilar(job: Job, plc: str, db: str) -> dict[str, Any]:
 
     Los errores de compilacion **no** tumban el sync: el commit ya esta
     aplicado y el operario tiene que ver el error, no perder el trabajo.
+    Internamente se lanzan como :class:`CompilacionConErroresError` (fallo
+    tipado) y aqui se convierten en el dict ``compile=WARN`` que el resultado
+    del sync lleva desde antes de la extraccion: ese shape es parte del
+    contrato observable y se conserva tal cual.
     """
     try:
         resultado = compilar_bloques(job.tia.portal, plc, [db])
-    except Exception as exc:
-        aviso = f"La compilacion fallo (los cambios ya estan aplicados): {exc}"
-        logger.warning(aviso)
+        if resultado["n_compilados_error"] or resultado["n_errores"]:
+            raise CompilacionConErroresError(
+                texto_errores_compilacion(resultado) + COLA_COMPILACION
+            )
+    except CompilacionConErroresError as exc:
+        logger.warning("Compilacion con errores (los cambios ya estan aplicados): %s", exc)
         return {"ok": False, "error": str(exc), "detalle": "compile=WARN"}
-    if resultado["n_compilados_error"] or resultado["n_errores"]:
-        partes = []
-        if resultado["con_errores"]:
-            detalles = []
-            for compilado in resultado["compilados"]:
-                if not compilado["tiene_errores"]:
-                    continue
-                mensajes = compilado.get("mensajes") or []
-                if mensajes:
-                    detalles.append(f"{compilado['nombre']} ({_mensaje_corto(mensajes[0])})")
-                else:
-                    detalles.append(compilado["nombre"])
-            partes.append(
-                f"{len(resultado['con_errores'])} bloque(s) con errores: "
-                + ", ".join(detalles)
-            )
-        if resultado["errores"]:
-            partes.append(
-                f"{len(resultado['errores'])} no se pudieron compilar: "
-                + ", ".join(e["nombre"] for e in resultado["errores"])
-            )
-        if resultado["no_encontrados"]:
-            partes.append(
-                f"{len(resultado['no_encontrados'])} no encontrado(s): "
-                + ", ".join(resultado["no_encontrados"])
-            )
-        error = (
-            "TIA reporta errores de compilacion: "
-            + "; ".join(partes)
-            + ". Revisa ese bloque en TIA Portal: puede haber quedado con "
-            "un tamano inconsistente tras el cambio de N_MAX."
-        )
-        logger.warning("Compilacion con errores (los cambios ya estan aplicados): %s", error)
-        return {"ok": False, "error": error, "detalle": "compile=WARN"}
+    except Exception as exc:
+        logger.warning(f"La compilacion fallo (los cambios ya estan aplicados): {exc}")
+        return {"ok": False, "error": str(exc), "detalle": "compile=WARN"}
     return {
         "ok": True,
         "error": None,
@@ -527,32 +502,3 @@ def _compilar(job: Job, plc: str, db: str) -> dict[str, Any]:
             f"{resultado['n_sin_cambios']} sin cambios)"
         ),
     }
-
-
-def _mensaje_corto(mensaje: str) -> str:
-    """El mensaje de TIA sin la ruta del bloque.
-
-    ``"ZC_PLC_STD > Program blocks > DB6_ENT (DB6) > Interface > Data type
-    Boo is unknown."`` queda en ``"Interface > Data type Boo is unknown."``.
-    """
-    partes = [parte.strip() for parte in mensaje.split(" > ")]
-    for indice, parte in enumerate(partes):
-        if parte.endswith(")") and "(" in parte:
-            resto = partes[indice + 1 :]
-            return " > ".join(resto) if resto else mensaje
-    return mensaje
-
-
-def _localizar_xml(base: Path, tabla: str) -> Path:
-    """Localiza el XML de una tabla dentro de un export de TIA.
-
-    Tolera los dos layouts: plano o con la jerarquia de carpetas del PLC.
-    """
-    directo = base / f"{tabla}.xml"
-    if directo.is_file():
-        return directo
-    for encontrado in sorted(base.rglob(f"{tabla}.xml")):
-        return encontrado
-    return base / f"{tabla}.xml"
-
-
