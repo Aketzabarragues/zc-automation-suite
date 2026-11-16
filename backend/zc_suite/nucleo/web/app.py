@@ -42,6 +42,20 @@ CLAVE_DIST = "ZC_DIST"
 CLAVE_ORIGENES = "ZC_ORIGENES"
 CLAVE_DESARROLLO = "ZC_DESARROLLO"
 
+#: El ``config.json`` validado (``Config``) que esta en memoria. Lo escribe
+#: ``montar_app`` y lo refresca ``recargar_config_app``.
+CLAVE_CONFIG = "ZC_CONFIG"
+
+#: El ``config.json`` en uso (``ConfigEnUso``). Lo escribe
+#: ``montar_app``; los routers que recargan el config lo leen de ahi.
+CLAVE_CONFIG_EN_USO = "ZC_CONFIG_EN_USO"
+
+#: La funcion que guarda un ajuste de area en el ``config.json`` del
+#: usuario y lo recarga en memoria. Es una dependencia como las demas:
+#: la compone ``montar_app`` (que conoce las areas) y los routers la
+#: leen de ``current_app.config``.
+CLAVE_RECARGA_CONFIG = "ZC_RECARGA_CONFIG"
+
 #: Puerto de escucha por defecto.
 PUERTO_POR_DEFECTO = 9484
 
