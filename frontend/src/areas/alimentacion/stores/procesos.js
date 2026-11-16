@@ -30,14 +30,14 @@ export const RUTA_SINCRONIZAR = "/api/v1/areas/alimentacion/procesos/sincronizar
 /**
  * Los estados de un slot y como se pintan.
  *
- * Mismos labels y colores que las vistas de dispositivos y entidades: la
- * fuente unica de verdad para las acciones del diff.
+ * Mismos labels y colores que main (`disp_status.js`): la fuente unica de
+ * verdad para las acciones del diff.
  */
 export const PROC_STATUS = Object.freeze({
-  agregar: { label: "➕ AGREGAR", clase: "text-accent font-semibold" },
-  renombrar: { label: "✏️ RENOMBRAR", clase: "text-amber-700 font-semibold" },
+  agregar: { label: "➕ AGREGAR", clase: "text-green-600 font-semibold" },
+  renombrar: { label: "✏️ RENOMBRAR", clase: "text-amber-600 font-semibold" },
   eliminar: { label: "🗑️ ELIMINAR", clase: "text-red-700 font-semibold" },
-  sin_cambios: { label: "✓ OK", clase: "text-ink-muted" },
+  sin_cambios: { label: "✓ OK", clase: "text-ink-muted italic" },
 });
 
 /** Los arrays del proceso, en el orden de las pestanas. */
