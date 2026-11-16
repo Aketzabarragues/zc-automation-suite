@@ -12,6 +12,8 @@ import time
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 from zc_suite.nucleo.sesion import Sesion
 from zc_suite.nucleo.tia.job import HECHO
 
@@ -506,6 +508,134 @@ def test_dir_plantilla_nombre_con_traversal(entorno_apply: Any) -> None:
 
     assert evento["estado"] == "error"
     assert "separadores" in evento["error"]
+
+
+def test_el_dict_completo_fija_claves_y_valores(entorno_apply: Any) -> None:
+    """El resultado de exito fija sus claves de primer nivel, la etiqueta del
+    proceso y el estado exacto de la transaccion de import."""
+    evento = entorno_apply.crear(proc_uid=PROC_UID)
+
+    assert evento["estado"] == "ok", evento.get("error")
+    resultado = evento["resultado"]
+    assert set(resultado) == {
+        "plc",
+        "proc_uid",
+        "process_label",
+        "archivos_generados",
+        "colisiones",
+        "transacciones",
+        "compilacion",
+        "escaneo_actualizado",
+        "success",
+    }
+    assert resultado["plc"] == NOMBRE_PLC
+    assert resultado["proc_uid"] == PROC_UID
+    # La etiqueta fija la forma ``<uid>_<codigo>`` que usa el resto de la app.
+    assert resultado["process_label"] == "100_CPR"
+    assert resultado["success"] is True
+    assert resultado["colisiones"] == []
+    assert resultado["escaneo_actualizado"] is True
+    # El manifest se anade a los archivos generados al escribirse.
+    assert "manifest.json" in resultado["archivos_generados"]
+    # La transaccion unica se confirma con su detalle exacto.
+    assert resultado["transacciones"] == [
+        {
+            "nombre": "Importar proceso",
+            "estado": "confirmada",
+            "detalle": "tablas y bloques del proceso nuevo",
+        }
+    ]
+    # La compilacion no es un no-op (hay .s7dcl generados) y no tumba.
+    assert resultado["compilacion"]["ok"] is True
+    assert resultado["compilacion"]["detalle"].startswith("compile=")
+
+
+def test_la_compilacion_con_errores_fija_su_dict(entorno_apply: Any) -> None:
+    """Un error de compilacion no tumba el apply y el aviso fija su forma
+    exacta: el prefijo comun y la frase final propia del crear (los bloques
+    plurales, sin la frase del N_MAX)."""
+    resultado_falso = {
+        "compilados": [
+            {
+                "nombre": "DB100_CPR_INTERFAZ",
+                "tiene_errores": True,
+                "mensajes": [
+                    "ZC_PLC_STD > Program blocks > DB100_CPR_INTERFAZ (DB100) "
+                    "> Interface > Data type Boo is unknown."
+                ],
+                "avisos": [],
+                "era_inconsistente": True,
+            }
+        ],
+        "sin_cambios": ["FC101_CPR_ORDENES"],
+        "no_encontrados": [],
+        "errores": [],
+        "con_errores": ["DB100_CPR_INTERFAZ"],
+        "n_compilados_ok": 0,
+        "n_compilados_error": 1,
+        "n_sin_cambios": 1,
+        "n_no_encontrados": 0,
+        "n_errores": 0,
+    }
+    evento = _crear_con_compilador(entorno_apply, resultado_falso)
+
+    assert evento["estado"] == "ok", evento.get("error")
+    compilacion = evento["resultado"]["compilacion"]
+    assert compilacion["ok"] is False
+    assert compilacion["detalle"] == "compile=WARN"
+    error = compilacion["error"]
+    assert error.startswith("TIA reporta errores de compilacion: ")
+    assert "DB100_CPR_INTERFAZ (Interface > Data type Boo is unknown.)" in error
+    assert error.endswith(" Revisa los bloques en TIA Portal.")
+    # El import ya estaba confirmado: el fallo de compilacion no lo revierte.
+    assert _transaccion_importar(evento["resultado"])["estado"] == "confirmada"
+
+
+def test_si_la_compilacion_lanza_los_cambios_se_quedan(
+    entorno_apply: Any,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``compilar_bloques`` lanza: el apply termina en ok con ``compile=WARN``
+    y el error de compilacion lleva la excepcion (el import ya esta
+    confirmado)."""
+    from zc_suite.areas.alimentacion.funciones.procesos import (
+        crear as modulo_crear,
+    )
+
+    def _compilar_falla(*_args: Any, **_kwargs: Any) -> dict[str, Any]:
+        raise RuntimeError("TIA no deja compilar")
+
+    monkeypatch.setattr(modulo_crear, "compilar_bloques", _compilar_falla)
+
+    evento = entorno_apply.crear(proc_uid=PROC_UID)
+
+    assert evento["estado"] == "ok", evento.get("error")
+    compilacion = evento["resultado"]["compilacion"]
+    assert compilacion["ok"] is False
+    assert compilacion["error"] == "TIA no deja compilar"
+    assert compilacion["detalle"] == "compile=WARN"
+    # El import se quedo confirmado.
+    assert _transaccion_importar(evento["resultado"])["estado"] == "confirmada"
+
+
+def test_si_falla_el_import_fija_el_error_exacto(entorno_apply: Any) -> None:
+    """Si el import de tablas falla, el mensaje fija la forma exacta: la tx
+    revertida, el resumen de transacciones al final, y un trabajo en error no
+    devuelve resultado."""
+    entorno_apply.plc._fallo_import_tablas = "fallo simulado de tablas"  # type: ignore[assignment]
+
+    evento = entorno_apply.crear(proc_uid=PROC_UID)
+
+    assert evento["estado"] == "error"
+    assert evento["resultado"] is None
+    error = evento["error"]
+    # El fallo del import se envuelve con el directorio de origen.
+    assert "Importar proceso: revertida. No se pudo importar" in error
+    assert "fallo simulado de tablas" in error
+    # El mensaje termina con el resumen de transacciones.
+    assert error.endswith("Transacciones: Importar proceso: revertida.")
+    # No se importaron bloques (el fallo fue en tablas, antes).
+    assert entorno_apply.plc.importaciones_bloques == []
 
 
 # ── helpers de test ────────────────────────────────────────────────────────

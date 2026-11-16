@@ -21,6 +21,7 @@ from zc_suite.nucleo.tia.errores import CanceladoError
 from .conftest import (
     DB_ALM,
     DB_PARAM,
+    NOMBRE_PLC,
     PROC_UID,
     TABLA_PROCESO,
 )
@@ -417,3 +418,178 @@ def test_las_transacciones_se_abren_y_se_cierran(entorno_sync: Any) -> None:
     assert len(inicios) == len(cierres)
     assert cierres
     assert all(t["rollback"] is False for t in cierres)
+
+
+def test_el_dict_completo_fija_claves_y_valores(entorno_sync: Any) -> None:
+    """El resultado de exito fija sus claves de primer nivel y el valor exacto
+    de cada transaccion: los nombres publicos que el faceplate y el mensaje de
+    fallo comparten vienen de ``_transacciones_iniciales``.
+    """
+    evento = entorno_sync.sincronizar(PROC_UID)
+
+    assert evento["estado"] == "ok", evento.get("error")
+    resultado = evento["resultado"]
+    # Las claves de primer nivel, sin mas ni menos.
+    assert set(resultado) == {
+        "plc",
+        "proc_uid",
+        "operaciones",
+        "n_max",
+        "comentarios",
+        "transacciones",
+        "compilacion",
+        "prevision",
+    }
+    assert resultado["plc"] == NOMBRE_PLC
+    assert resultado["proc_uid"] == PROC_UID
+    transacciones = {t["nombre"]: t for t in resultado["transacciones"]}
+    assert list(transacciones) == ["N_MAX", "Comentarios"]
+    assert transacciones["N_MAX"]["estado"] == CONFIRMADA
+    assert transacciones["N_MAX"]["detalle"] == "2 N_MAX"
+    assert transacciones["Comentarios"]["estado"] == CONFIRMADA
+    assert transacciones["Comentarios"]["detalle"] == "DBs del proceso"
+    # Los contadores: dos N_MAX (PREAL 3->2, ALM_HMI 1->2) y el resumen de
+    # comentarios (``proc_resumen``), que cuenta agregados, renombrados y
+    # eliminados por array.
+    assert resultado["n_max"] == {"actualizados": 2}
+    assert set(resultado["comentarios"]) == {
+        "total",
+        "agregados",
+        "renombrados",
+        "eliminados",
+        "sin_cambios",
+    }
+    # Sin cambios de N_MAX la compilacion seria un no-op; aqui hay dos, pero
+    # los bloques del doble se quedan consistentes y no se recompilan.
+    assert resultado["compilacion"] == {
+        "ok": True,
+        "error": None,
+        "detalle": "compile=OK (0 compilados, 2 sin cambios)",
+    }
+    assert resultado["prevision"] is not None
+    assert "total" in resultado["prevision"]["summary"]
+    # El numero de operaciones suma N_MAX mas las operaciones de comentarios.
+    resumen = resultado["comentarios"]
+    assert resultado["operaciones"] == (
+        2 + resumen["agregados"] + resumen["renombrados"] + resumen["eliminados"]
+    )
+
+
+def test_la_compilacion_con_errores_no_tumba_y_fija_su_dict(
+    entorno_sync: Any,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Un DB que sigue inconsistente deja ``compile=WARN``: el sync termina en
+    ok y el aviso lista el bloque con el mensaje de TIA recortado (sin la ruta
+    del bloque)."""
+    from tests.tia_ops.test_compilar import ResultadoFalso
+
+    for bloque in entorno_sync.plc.get_program_blocks():
+        nombre = bloque.get_name()
+        monkeypatch.setattr(bloque, "is_consistent", lambda: False)
+        monkeypatch.setattr(
+            bloque, "compile", lambda nombre=nombre: ResultadoFalso(nombre, tiene_errores=True)
+        )
+
+    evento = entorno_sync.sincronizar(PROC_UID)
+
+    assert evento["estado"] == "ok", evento.get("error")
+    compilacion = evento["resultado"]["compilacion"]
+    assert compilacion["ok"] is False
+    assert compilacion["detalle"] == "compile=WARN"
+    error = compilacion["error"]
+    assert error.startswith("TIA reporta errores de compilacion: ")
+    nombre = entorno_sync.plc.get_program_blocks()[0].get_name()
+    assert f"{nombre} (Interface > Data type Boo is unknown.)" in error
+    assert error.endswith(
+        " Revisa ese bloque en TIA Portal: puede haber quedado con "
+        "un tamano inconsistente tras el cambio de N_MAX."
+    )
+    # El fallo de compilacion no revierte las transacciones.
+    for transaccion in evento["resultado"]["transacciones"]:
+        assert transaccion["estado"] == CONFIRMADA, transaccion
+
+
+def test_si_la_compilacion_lanza_los_cambios_se_quedan(
+    entorno_sync: Any,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``compilar_bloques`` lanza: el sync termina en ok con ``compile=WARN``
+    y el error de compilacion lleva la excepcion (los cambios ya estan
+    aplicados)."""
+    import zc_suite.areas.alimentacion.funciones.procesos.sincronizar as mod
+
+    def _compilar_falla(*_args: Any, **_kwargs: Any) -> dict[str, Any]:
+        raise RuntimeError("TIA no deja compilar")
+
+    monkeypatch.setattr(mod, "compilar_bloques", _compilar_falla)
+
+    evento = entorno_sync.sincronizar(PROC_UID)
+
+    assert evento["estado"] == "ok", evento.get("error")
+    compilacion = evento["resultado"]["compilacion"]
+    assert compilacion["ok"] is False
+    assert compilacion["error"] == "TIA no deja compilar"
+    assert compilacion["detalle"] == "compile=WARN"
+    # El sync se quedo: las transacciones siguen confirmadas.
+    for transaccion in evento["resultado"]["transacciones"]:
+        assert transaccion["estado"] == CONFIRMADA, transaccion
+
+
+def test_si_falla_la_importacion_de_comentarios_fija_el_error(
+    entorno_sync: Any,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Si TIA no deja importar los DBs, la tx de comentarios se revierte y el
+    mensaje fija el resumen exacto de transacciones; un trabajo en error no
+    devuelve resultado."""
+
+    def _falla(*_args: Any, **_kwargs: Any) -> None:
+        raise RuntimeError("TIA no deja importar")
+
+    monkeypatch.setattr(entorno_sync.plc, "import_blocks", _falla)
+
+    evento = entorno_sync.sincronizar(PROC_UID)
+
+    assert evento["estado"] == "error"
+    assert evento["resultado"] is None
+    error = evento["error"]
+    assert "TIA no deja importar" in error
+    # El mensaje termina con el resumen de transacciones, en su orden.
+    assert error.endswith(
+        "Transacciones: N_MAX: confirmada; "
+        "Comentarios: revertida."
+    )
+    # Lo confirmado en la primera transaccion se queda confirmado.
+    assert _n_max(entorno_sync)[f"{PROC_UID}_N_MAX_PREAL"] == "2"
+
+
+def test_en_v18_el_dict_fija_el_estado_de_cada_transaccion(
+    entorno_sync_v18: Any,
+) -> None:
+    """En V18 el dict completo fija: N_MAX confirmada, Comentarios no ejecutada
+    (falta SimaticSD), la compilacion como no-op y ni export ni import de
+    bloques."""
+    evento = entorno_sync_v18.sincronizar(PROC_UID)
+
+    assert evento["estado"] == "ok", evento.get("error")
+    resultado = evento["resultado"]
+    transacciones = {t["nombre"]: t for t in resultado["transacciones"]}
+    assert transacciones["N_MAX"]["estado"] == CONFIRMADA
+    assert transacciones["N_MAX"]["detalle"] == "2 N_MAX"
+    assert transacciones["Comentarios"]["estado"] == NO_EJECUTADA
+    assert transacciones["Comentarios"]["detalle"] == (
+        "los comentarios por instancia necesitan TIA Portal V21 o superior"
+    )
+    # Sin comentarios no hay compilacion (``_compilar`` no se llama).
+    assert resultado["compilacion"] == {
+        "ok": True,
+        "error": None,
+        "detalle": "compile=no-op",
+    }
+    # El N_MAX, en cambio, si se aplico: no depende de SimaticSD.
+    assert _n_max(entorno_sync_v18)[f"{PROC_UID}_N_MAX_PREAL"] == "2"
+    assert _n_max(entorno_sync_v18)[f"{PROC_UID}_N_MAX_ALM_HMI"] == "2"
+    # Ni export ni import de bloques en V18.
+    assert entorno_sync_v18.plc.importaciones_bloques == []
+    assert resultado["prevision"] is not None
