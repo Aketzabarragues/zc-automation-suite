@@ -665,6 +665,8 @@ describe("crearProceso", () => {
     expect(crear.generando).toBe(false);
     expect(crear.aplicando).toBe(false);
     expect(crear.hidratado).toBe(false);
+    expect(crear.guardandoRuta).toBe(false);
+    expect(crear.errorRuta).toBe(null);
     expect(crear.plantilla).toBe(null);
     expect(crear.hayPreview).toBe(false);
     expect(crear.bloquesPrevistos).toEqual([]);
@@ -672,5 +674,125 @@ describe("crearProceso", () => {
     expect(crear.dependenciasFaltantes).toEqual([]);
     expect(crear.hayColisiones).toBe(false);
     expect(crear.puedeCrear).toBe(false);
+  });
+
+  describe("guardarRutaPlantillas", () => {
+    it("ruta valida: PUT con el body, recarga el listado y deja la ruta del backend", async () => {
+      const { crear } = storesLimpios();
+      crear.plantillas = LISTADO.plantillas;
+      crear.plantillasPath = "C:\\datos\\plantillas";
+      let getTrasPut = 0;
+      global.fetch = vi.fn((ruta, opciones) => {
+        if (opciones && opciones.method === "PUT") {
+          return Promise.resolve({ ok: true, json: async () => ({ ok: true }) });
+        }
+        if (String(ruta).includes("/procesos/plantillas")) {
+          getTrasPut += 1;
+          return Promise.resolve({ ok: true, json: async () => LISTADO });
+        }
+        return fetchPorDefecto()(ruta);
+      });
+
+      const ok = await crear.guardarRutaPlantillas("  C:\\nuevas\\plantillas  ");
+
+      expect(ok).toBe(true);
+      const put = global.fetch.mock.calls.find(
+        ([ruta, opciones]) => opciones && opciones.method === "PUT",
+      );
+      expect(String(put[0])).toBe("/api/v1/areas/alimentacion/procesos/plantillas");
+      expect(JSON.parse(put[1].body)).toEqual({ plantillas_path: "C:\\nuevas\\plantillas" });
+      // El GET de la recarga va despues del PUT.
+      expect(getTrasPut).toBe(1);
+      expect(crear.plantillasPath).toBe("C:\\datos\\plantillas");
+      expect(crear.errorRuta).toBe(null);
+      expect(crear.guardandoRuta).toBe(false);
+      expect(crear.plantillas).toEqual(LISTADO.plantillas);
+    });
+
+    it("ruta vacia o solo espacios: no llama a la API y devuelve false", async () => {
+      const { crear } = storesLimpios();
+      const fetchInicial = global.fetch;
+
+      expect(await crear.guardarRutaPlantillas("")).toBe(false);
+      expect(await crear.guardarRutaPlantillas("   ")).toBe(false);
+      expect(await crear.guardarRutaPlantillas(null)).toBe(false);
+
+      expect(fetchInicial.mock.calls).toEqual([]);
+      expect(crear.errorRuta).toBe(null);
+      expect(crear.guardandoRuta).toBe(false);
+    });
+
+    it("error del PUT: el mensaje en errorRuta, sin recargar el listado", async () => {
+      const { crear } = storesLimpios();
+      let gets = 0;
+      global.fetch = vi.fn((ruta, opciones) => {
+        if (opciones && opciones.method === "PUT") {
+          return Promise.resolve({ ok: false, status: 500, json: async () => ({ error: "No se pudo escribir el config" }) });
+        }
+        if (String(ruta).includes("/procesos/plantillas")) {
+          gets += 1;
+          return Promise.resolve({ ok: true, json: async () => LISTADO });
+        }
+        return fetchPorDefecto()(ruta);
+      });
+
+      const ok = await crear.guardarRutaPlantillas("C:\\nuevas");
+
+      expect(ok).toBe(false);
+      expect(crear.errorRuta).toBe("No se pudo guardar: No se pudo escribir el config");
+      expect(crear.guardandoRuta).toBe(false);
+      // No se recargo: no hay GET despues del fallo.
+      expect(gets).toBe(0);
+    });
+
+    it("cargarPlantillas limpia la seleccion si la plantilla ya no esta en el listado", async () => {
+      const { crear } = storesLimpios();
+      // El store cree que la plantilla sigue ahi: la ruta cambio y el listado
+      // nuevo no la tiene.
+      crear.plantillas = LISTADO.plantillas;
+      crear.plantillaSeleccionada = "PLANTILLA_A";
+      crear.preview = PREVISION_OK;
+      crear.previewPlc = "ZC_PLC_STD";
+      crear.previewProcUid = 100;
+      crear.previewPlantilla = "PLANTILLA_A";
+      crear.resultadoAplicar = RESULTADO_APLICAR;
+      crear.transacciones = RESULTADO_APLICAR.transacciones;
+      global.fetch = vi.fn((ruta) => {
+        if (String(ruta).includes("/procesos/plantillas")) {
+          return Promise.resolve({
+            ok: true,
+            json: async () => ({
+              plantillas: [LISTADO.plantillas[1]],
+              plantillas_path: "C:\\otros",
+              aviso: null,
+            }),
+          });
+        }
+        return fetchPorDefecto()(ruta);
+      });
+
+      const ok = await crear.cargarPlantillas();
+
+      expect(ok).toBe(true);
+      expect(crear.plantillaSeleccionada).toBe("");
+      expect(crear.plantilla).toBe(null);
+      expect(crear.preview).toBe(null);
+      expect(crear.previewPlantilla).toBe("");
+      expect(crear.resultadoAplicar).toBe(null);
+      expect(crear.transacciones).toEqual([]);
+    });
+
+    it("cargarPlantillas conserva la seleccion si la plantilla sigue en el listado", async () => {
+      const { crear } = storesLimpios();
+      crear.plantillas = LISTADO.plantillas;
+      crear.plantillaSeleccionada = "PLANTILLA_A";
+      crear.preview = PREVISION_OK;
+      crear.previewPlantilla = "PLANTILLA_A";
+
+      await crear.cargarPlantillas();
+
+      expect(crear.plantillaSeleccionada).toBe("PLANTILLA_A");
+      expect(crear.preview).toStrictEqual(PREVISION_OK);
+    });
   });
 });

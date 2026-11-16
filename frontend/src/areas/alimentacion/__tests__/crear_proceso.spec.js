@@ -167,12 +167,19 @@ function fetchPorDefecto() {
 /**
  * Monta la vista con el proceso dado. El listado llega del mock de fetch
  * (un GET plano: el store no dispara trabajos al montar).
+ *
+ * `attachTo` engancha la vista al `document.body`: sin eso la raiz queda
+ * desligada y `document.activeElement` no refleja los `focus()` del panel
+ * de la ruta.
  */
 async function montar(proceso) {
   const stores = storesLimpios();
+  const attachTo = document.createElement("div");
+  document.body.appendChild(attachTo);
   const wrapper = mount(CrearProceso, {
     props: { proceso },
     global: { plugins: [stores.pinia] },
+    attachTo,
   });
   await flushPromises();
   return { wrapper, ...stores };
@@ -217,8 +224,8 @@ describe("CrearProceso", () => {
     });
   });
 
-  describe("la carpeta de plantillas", () => {
-    it("sin plantillas: aviso ambar con el texto del aviso", async () => {
+  describe("la ruta de plantillas", () => {
+    it("sin ruta configurada: el boton y el aviso ambar (ruta no configurada)", async () => {
       global.fetch = vi.fn((ruta) => {
         if (String(ruta).includes("/procesos/plantillas")) {
           return Promise.resolve({ ok: true, json: async () => LISTADO_VACIO });
@@ -228,19 +235,22 @@ describe("CrearProceso", () => {
 
       const { wrapper } = await montar(PROCESO);
 
-      const aviso = wrapper.find('[data-testid="crear-carpeta-sin-configurar"]');
-      expect(aviso.exists()).toBe(true);
-      expect(aviso.text()).toContain("Carpeta de plantillas sin configurar");
+      expect(wrapper.find('[data-testid="crear-configurar-ruta"]').exists()).toBe(true);
+      const sinConfigurar = wrapper.find('[data-testid="crear-ruta-sin-configurar"]');
+      expect(sinConfigurar.exists()).toBe(true);
+      expect(sinConfigurar.text()).toBe("(ruta no configurada)");
+      expect(sinConfigurar.classes()).toContain("text-amber-700");
+      expect(wrapper.find('[data-testid="crear-ruta-actual"]').exists()).toBe(false);
       expect(wrapper.find('[data-testid="crear-aviso"]').exists()).toBe(false);
       expect(wrapper.find('[data-testid="crear-plantilla-placeholder"]').text()).toContain("Sin plantillas");
     });
 
-    it("con carpeta: se muestra la ruta", async () => {
+    it("con ruta configurada: se muestra la ruta y no el aviso", async () => {
       const { wrapper } = await montar(PROCESO);
 
-      const carpeta = wrapper.find('[data-testid="crear-carpeta"]');
-      expect(carpeta.text()).toContain("C:\\datos\\plantillas");
-      expect(carpeta.find('[data-testid="crear-carpeta-sin-configurar"]').exists()).toBe(false);
+      const ruta = wrapper.find('[data-testid="crear-ruta-actual"]');
+      expect(ruta.text()).toBe("(C:\\datos\\plantillas)");
+      expect(wrapper.find('[data-testid="crear-ruta-sin-configurar"]').exists()).toBe(false);
     });
 
     it("carpeta caida: la ruta y el aviso por separado", async () => {
@@ -253,10 +263,109 @@ describe("CrearProceso", () => {
 
       const { wrapper } = await montar(PROCESO);
 
-      expect(wrapper.find('[data-testid="crear-carpeta"]').text()).toContain("X:\\no_existe");
+      expect(wrapper.find('[data-testid="crear-ruta-actual"]').text()).toContain("X:\\no_existe");
       const aviso = wrapper.find('[data-testid="crear-aviso"]');
       expect(aviso.exists()).toBe(true);
       expect(aviso.text()).toContain("Directorio no existe: X:\\no_existe");
+    });
+
+    it("el boton lleva el data-test de main y abre el panel con el input enfocado", async () => {
+      const { wrapper } = await montar(PROCESO);
+
+      const boton = wrapper.find('[data-testid="crear-configurar-ruta"]');
+      expect(boton.attributes("data-test")).toBe("procesos-crear-configure-path");
+      expect(wrapper.find('[data-testid="crear-ruta-panel"]').exists()).toBe(false);
+
+      await boton.trigger("click");
+      await flushPromises();
+
+      const panel = wrapper.find('[data-testid="crear-ruta-panel"]');
+      expect(panel.exists()).toBe(true);
+      expect(panel.attributes("data-test")).toBe("procesos-crear-path-modal");
+      expect(document.activeElement).toBe(document.getElementById("crear-ruta-input"));
+      expect(document.getElementById("crear-ruta-input").value).toBe("C:\\datos\\plantillas");
+      expect(boton.attributes("aria-expanded")).toBe("true");
+    });
+
+    it("Guardar esta deshabilitado con el input vacio y se habilita al escribir", async () => {
+      const { wrapper } = await montar(PROCESO);
+
+      await wrapper.find('[data-testid="crear-configurar-ruta"]').trigger("click");
+      await flushPromises();
+
+      // Con la ruta actual cargada como borrador, borrarla lo deshabilita.
+      await wrapper.find('[data-testid="crear-ruta-input"]').setValue("   ");
+      expect(wrapper.find('[data-testid="crear-ruta-guardar"]').attributes("disabled")).toBeDefined();
+
+      await wrapper.find('[data-testid="crear-ruta-input"]').setValue("C:\\nuevas");
+      expect(wrapper.find('[data-testid="crear-ruta-guardar"]').attributes("disabled")).toBeUndefined();
+    });
+
+    it("Guardar bien: PUT con el body correcto, el panel se cierra y el listado se recarga", async () => {
+      const { wrapper, crear } = await montar(PROCESO);
+
+      await wrapper.find('[data-testid="crear-configurar-ruta"]').trigger("click");
+      await wrapper.find('[data-testid="crear-ruta-input"]').setValue("C:\\nuevas");
+      const promesa = wrapper.find('[data-testid="crear-ruta-guardar"]').trigger("click");
+      await promesa;
+      await flushPromises();
+
+      const put = global.fetch.mock.calls.find(
+        ([ruta, opciones]) => opciones && opciones.method === "PUT" && String(ruta).includes("/procesos/plantillas"),
+      );
+      expect(put).toBeTruthy();
+      expect(String(put[0])).toBe("/api/v1/areas/alimentacion/procesos/plantillas");
+      expect(JSON.parse(put[1].body)).toEqual({ plantillas_path: "C:\\nuevas" });
+      expect(put[1].headers).toEqual({ "Content-Type": "application/json" });
+      // El listado se recarga: el GET se repite despues del PUT.
+      const gets = global.fetch.mock.calls.filter(
+        ([ruta, opciones]) => String(ruta).includes("/procesos/plantillas") && !(opciones && opciones.method === "PUT"),
+      );
+      expect(gets.length).toBe(2);
+      expect(wrapper.find('[data-testid="crear-ruta-panel"]').exists()).toBe(false);
+      expect(crear.plantillasPath).toBe("C:\\datos\\plantillas");
+      expect(crear.errorRuta).toBe(null);
+    });
+
+    it("Guardar mal: el error en crear-ruta-error y el panel sigue abierto", async () => {
+      global.fetch = vi.fn((ruta) => {
+        if (String(ruta).includes("/procesos/plantillas")) {
+          return Promise.resolve({ ok: true, json: async () => LISTADO });
+        }
+        return fetchPorDefecto()(ruta);
+      });
+      const { wrapper } = await montar(PROCESO);
+      // El PUT devuelve un 500.
+      global.fetch = vi.fn((ruta, opciones) => {
+        if (opciones && opciones.method === "PUT") {
+          return Promise.resolve({ ok: false, status: 500, json: async () => ({ error: "No se pudo escribir el config" }) });
+        }
+        return fetchPorDefecto()(ruta);
+      });
+
+      await wrapper.find('[data-testid="crear-configurar-ruta"]').trigger("click");
+      await wrapper.find('[data-testid="crear-ruta-input"]').setValue("C:\\nuevas");
+      await wrapper.find('[data-testid="crear-ruta-guardar"]').trigger("click");
+      await flushPromises();
+
+      const error = wrapper.find('[data-testid="crear-ruta-error"]');
+      expect(error.exists()).toBe(true);
+      expect(error.text()).toBe("No se pudo guardar: No se pudo escribir el config");
+      expect(wrapper.find('[data-testid="crear-ruta-panel"]').exists()).toBe(true);
+    });
+
+    it("Cancelar cierra el panel sin llamar a la API", async () => {
+      const { wrapper } = await montar(PROCESO);
+      // La unica peticion hasta aqui es el GET del montaje.
+      expect(global.fetch.mock.calls.length).toBe(1);
+
+      await wrapper.find('[data-testid="crear-configurar-ruta"]').trigger("click");
+      await flushPromises();
+      await wrapper.find('[data-testid="crear-ruta-cancelar"]').trigger("click");
+      await flushPromises();
+
+      expect(wrapper.find('[data-testid="crear-ruta-panel"]').exists()).toBe(false);
+      expect(global.fetch.mock.calls.length).toBe(1);
     });
   });
 
