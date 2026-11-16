@@ -8,7 +8,7 @@
  * crea el proceso en TIA Portal tras la confirmacion. La vista no toca
  * TIA ni el backend mas que a traves del store de crear_proceso.
  */
-import { computed, onMounted, ref } from "vue";
+import { computed, nextTick, onMounted, ref } from "vue";
 import { useCrearProcesoStore } from "../stores/crear_proceso.js";
 import DialogoConfirmacion from "../../../nucleo/componentes/DialogoConfirmacion.vue";
 import { usePlcStore } from "../../../nucleo/stores/plc.js";
@@ -152,6 +152,47 @@ async function confirmar() {
   await crear.aplicar(plc.seleccionado, props.proceso.uid);
 }
 
+/** `true` mientras el panel inline de la ruta de plantillas esta abierto. */
+const panelRuta = ref(false);
+
+/** El borrador de la ruta de plantillas, tal cual esta escrito en el input. */
+const rutaEdicion = ref("");
+
+/** El input del panel: para enfocarlo al abrirlo. */
+const inputRuta = ref(null);
+
+/** El boton que abre el panel: para devolverle el foco al cerrar. */
+const botonConfigurarRuta = ref(null);
+
+/** Abre el panel de la ruta con la ruta actual como borrador. */
+async function abrirPanelRuta() {
+  rutaEdicion.value = crear.plantillasPath || "";
+  panelRuta.value = true;
+  crear.errorRuta = null;
+  await nextTick();
+  inputRuta.value?.focus();
+}
+
+/** Cierra el panel sin guardar nada. */
+function cerrarPanelRuta() {
+  panelRuta.value = false;
+  crear.errorRuta = null;
+  botonConfigurarRuta.value?.focus();
+}
+
+/**
+ * Guarda la ruta del panel. Si el guardado falla, el panel sigue abierto y
+ * se ve el error en `crear.errorRuta`.
+ */
+async function guardarRuta() {
+  const ok = await crear.guardarRutaPlantillas(rutaEdicion.value);
+  if (ok) {
+    panelRuta.value = false;
+    rutaEdicion.value = "";
+    botonConfigurarRuta.value?.focus();
+  }
+}
+
 onMounted(() => {
   crear.hidratar();
   crear.cargarPlantillas();
@@ -179,28 +220,82 @@ onMounted(() => {
       </button>
     </header>
 
-    <!-- ── la carpeta de plantillas ────────────────────────────────── -->
-    <div class="flex items-center gap-2 flex-wrap" data-testid="crear-carpeta">
-      <span v-if="crear.plantillasPath" class="text-xs text-ink-muted">
-        Carpeta de plantillas:
-        <span class="font-mono text-ink">{{ crear.plantillasPath }}</span>
-      </span>
-      <span
-        v-else
-        class="text-xs text-amber-700"
-        data-testid="crear-carpeta-sin-configurar"
-      >
-        ⚠️ {{ crear.aviso || "Carpeta de plantillas sin configurar" }}
-      </span>
+    <!-- ── la ruta de plantillas: boton + ruta actual ──────────────── -->
+    <div class="flex items-center gap-2 flex-wrap">
       <button
         type="button"
-        class="ml-auto bg-surface border border-line rounded px-3 py-1 text-xs text-ink hover:bg-surface-sunken disabled:opacity-50"
-        :disabled="crear.cargandoPlantillas"
-        data-testid="crear-recargar-plantillas"
-        @click="crear.cargarPlantillas()"
+        ref="botonConfigurarRuta"
+        class="bg-surface border border-line rounded px-3 py-1 text-xs text-ink hover:bg-surface-sunken"
+        data-testid="crear-configurar-ruta"
+        data-test="procesos-crear-configure-path"
+        :aria-expanded="panelRuta"
+        aria-controls="crear-ruta-panel"
+        @click="abrirPanelRuta"
       >
-        {{ crear.cargandoPlantillas ? "Recargando…" : "Recargar plantillas" }}
+        Configurar ruta de plantillas
       </button>
+      <span v-if="crear.plantillasPath" class="text-xs text-ink-muted" data-testid="crear-ruta-actual">
+        ({{ crear.plantillasPath }})
+      </span>
+      <span v-else class="text-xs text-amber-700" data-testid="crear-ruta-sin-configurar">
+        (ruta no configurada)
+      </span>
+    </div>
+
+    <!-- ── el panel inline de la ruta ──────────────────────────────── -->
+    <div
+      v-if="panelRuta"
+      id="crear-ruta-panel"
+      class="bg-surface-sunken border border-line rounded p-3"
+      data-testid="crear-ruta-panel"
+      data-test="procesos-crear-path-modal"
+    >
+      <label class="block text-xs font-semibold text-ink-muted mb-1" for="crear-ruta-input">
+        Ruta base de plantillas
+      </label>
+      <input
+        id="crear-ruta-input"
+        ref="inputRuta"
+        v-model="rutaEdicion"
+        type="text"
+        placeholder="C:/Users/Aketza/plantillas_tia"
+        class="w-full bg-white border border-line rounded px-2 py-1 text-xs font-mono focus:border-accent focus:outline-none"
+        data-testid="crear-ruta-input"
+        @keydown.enter.prevent="guardarRuta"
+        @keydown.esc="cerrarPanelRuta"
+      />
+      <div class="flex gap-2 mt-2">
+        <button
+          type="button"
+          class="bg-accent text-ink-inverse rounded px-3 py-1 text-xs hover:bg-accent-hover disabled:opacity-50 disabled:cursor-not-allowed"
+          :disabled="!rutaEdicion.trim() || crear.guardandoRuta"
+          data-testid="crear-ruta-guardar"
+          data-test="procesos-crear-path-save"
+          @click="guardarRuta"
+        >
+          Guardar
+        </button>
+        <button
+          type="button"
+          class="bg-surface border border-line rounded px-3 py-1 text-xs text-ink hover:bg-surface-sunken"
+          data-testid="crear-ruta-cancelar"
+          @click="cerrarPanelRuta"
+        >
+          Cancelar
+        </button>
+        <button
+          type="button"
+          class="ml-auto bg-surface border border-line rounded px-3 py-1 text-xs text-ink hover:bg-surface-sunken disabled:opacity-50"
+          :disabled="crear.cargandoPlantillas || crear.guardandoRuta"
+          data-testid="crear-recargar-plantillas"
+          @click="crear.cargarPlantillas()"
+        >
+          {{ crear.cargandoPlantillas ? "Recargando…" : "Recargar plantillas" }}
+        </button>
+      </div>
+      <p v-if="crear.errorRuta" class="mt-2 text-xs text-red-700" data-testid="crear-ruta-error">
+        {{ crear.errorRuta }}
+      </p>
     </div>
 
     <!-- el aviso del listado (carpeta inexistente o caida) -->

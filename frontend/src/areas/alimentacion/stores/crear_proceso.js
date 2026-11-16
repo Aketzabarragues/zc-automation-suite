@@ -87,6 +87,10 @@ export const useCrearProcesoStore = defineStore("crearProceso", {
     error: null,
     /** `true` cuando ya se aplico la prevision de la sesion (una vez). */
     hidratado: false,
+    /** `true` mientras se guarda la ruta de plantillas. */
+    guardandoRuta: false,
+    /** El error al guardar la ruta de plantillas, o `null`. */
+    errorRuta: null,
   }),
 
   getters: {
@@ -222,12 +226,54 @@ export const useCrearProcesoStore = defineStore("crearProceso", {
         this.plantillas = datos.plantillas || [];
         this.plantillasPath = datos.plantillas_path || "";
         this.aviso = datos.aviso || null;
+        // La plantilla elegida ya no esta en el listado: es una seleccion
+        // fantasma (la ruta cambio) y su preview tampoco vale.
+        if (
+          this.plantillaSeleccionada &&
+          !this.plantillas.some((p) => p.carpeta === this.plantillaSeleccionada)
+        ) {
+          this.seleccionarPlantilla("");
+        }
         return true;
       } catch (error) {
         this.error = error.message;
         return false;
       } finally {
         this.cargandoPlantillas = false;
+      }
+    },
+
+    /**
+     * Guarda la ruta base de plantillas en el ``config.json`` del usuario.
+     *
+     * La ruta vacia no se envia: el boton Guardar esta deshabilitado con el
+     * input vacio y no hay forma de resetearla desde la UI. Si la escritura
+     * falla, el error queda en `errorRuta` (el error de la vista es
+     * `error`, que `cargarPlantillas` limpia) y no se recarga el listado.
+     *
+     * @param {string} ruta la ruta a guardar, con o sin espacios sobrantes.
+     * @returns {Promise<boolean>} si se guardo y el listado se recargo.
+     */
+    async guardarRutaPlantillas(ruta) {
+      const nueva = (ruta || "").trim();
+      if (!nueva) return false;
+      this.guardandoRuta = true;
+      this.errorRuta = null;
+      try {
+        await pedir(RUTA_PLANTILLAS, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ plantillas_path: nueva }),
+        });
+        // La ruta que se muestra es la que devuelve el backend, no la
+        // escrita a mano: `cargarPlantillas` deja `plantillasPath` tal cual.
+        await this.cargarPlantillas();
+        return true;
+      } catch (error) {
+        this.errorRuta = `No se pudo guardar: ${error.message}`;
+        return false;
+      } finally {
+        this.guardandoRuta = false;
       }
     },
 
