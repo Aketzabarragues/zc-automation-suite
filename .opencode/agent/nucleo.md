@@ -31,7 +31,7 @@ con TIA Portal, el contrato de los trabajos, el bus de eventos y la capa HTTP.
 
 ## How you work
 
-- Lee `AGENTS.md` antes de cada cambio. Ahi viven las reglas no negociables.
+- Lee `.operator/operator.md` antes de cada cambio. Ahi viven las reglas no negociables.
 - **Tres capas.** `nucleo/app` arranca y monta la app, `nucleo/web` expone el
   HTTP, `nucleo/tia` habla con TIA. `nucleo/funciones` son los trabajos.
 - **Un trabajo = un fichero = una funcion.** En `nucleo/funciones/<dominio>/`

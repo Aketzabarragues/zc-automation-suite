@@ -1,8 +1,9 @@
 # CONTRIBUTING — Guía para contribuidores
 
-> Las reglas del proyecto viven en `AGENTS.md`. Si hay conflicto, manda
-> `AGENTS.md`. Este documento explica el cómo: cómo se commitea, cómo se
-> verifica y qué se espera de cada cambio.
+> Las reglas del proyecto viven en
+> [`.operator-shared/operator.md`](.operator-shared/operator.md). Si hay
+> conflicto, manda ese fichero. Este documento explica el cómo: cómo se
+> commitea, cómo se verifica y qué se espera de cada cambio.
 
 ## 1. Reglas de commits
 
@@ -46,13 +47,13 @@
 
 | Regla | Detalle | Doc |
 |---|---|---|
-| Solo el hilo de `tia.py` importa `siemens_tia_scripting` | El wrapper se carga dentro del hilo; en ningun otro punto del proceso. | `AGENTS.md` |
-| Toda escritura en TIA dentro de `with transaccion(...)` | Con rollback automatico si salta una excepcion. | `AGENTS.md` |
-| Preview y aplicacion son la MISMA funcion | `aplicar=False` es el preview. No hay pares de funciones. | `AGENTS.md` |
+| Solo el hilo de `tia.py` importa `siemens_tia_scripting` | El wrapper se carga dentro del hilo; en ningun otro punto del proceso. | `.operator-shared/operator.md` |
+| Toda escritura en TIA dentro de `with transaccion(...)` | Con rollback automatico si salta una excepcion. | `.operator-shared/operator.md` |
+| Preview y aplicacion son la MISMA funcion | `aplicar=False` es el preview. No hay pares de funciones. | `.operator-shared/operator.md` |
 | TIA: `target_folder_path` no se pasa (ni `""`) | Pasar `""` rompe el match UPDATE en V21. | `tia_ops/importar.py` |
-| Encoding: `.s7res` utf-8-sig, resto utf-8 sin BOM | Siemens firma el YAML con BOM. | `AGENTS.md` |
-| Cero codigo sucio: no dejar `.pyd`/`.dll` en el arbol | Se stagean en `tempfile.mkdtemp()`. | `AGENTS.md` |
-| El nucleo no importa `areas` | Salvo la lista `AREAS` de `main.py`. Lo verifica `tests/test_fronteras.py`. | `AGENTS.md` |
+| Encoding: `.s7res` utf-8-sig, resto utf-8 sin BOM | Siemens firma el YAML con BOM. | `.operator-shared/operator.md` |
+| Cero codigo sucio: no dejar `.pyd`/`.dll` en el arbol | Se stagean en `tempfile.mkdtemp()`. | `.operator-shared/operator.md` |
+| El nucleo no importa `areas` | Salvo la lista `AREAS` de `main.py`. Lo verifica `tests/test_fronteras.py`. | `.operator-shared/operator.md` |
 
 ## 4. `vendor/` (binarios propietarios de terceros)
 
@@ -85,7 +86,8 @@ Si anadiste una operacion contra TIA o tocaste el nucleo:
 
 1. Smoke en vivo contra TIA Portal (los tests mockean todo y no pillan el path
    real de imports). **Siempre contra un proyecto de PRUEBA.**
-2. Documenta el cambio en `AGENTS.md` o en la guia correspondiente de `docs/`.
+2. Documenta el cambio en `.operator-shared/operator.md` o en la guia
+   correspondiente de `docs/`.
 
 ## 6. Push y PRs
 
@@ -102,7 +104,7 @@ Si anadiste una operacion contra TIA o tocaste el nucleo:
 - Si encuentras un bug en runtime que los tests no pilla, escribelo en
   [docs/PROBLEMAS.md](docs/PROBLEMAS.md) con la receta del fix.
 - Si modificas el contrato del nucleo (Job, transaccion, eventos SSE),
-  actualiza `AGENTS.md` en el mismo commit.
+  actualiza `.operator-shared/operator.md` en el mismo commit.
 
 ## Resumen
 
@@ -112,8 +114,8 @@ Si anadiste una operacion contra TIA o tocaste el nucleo:
 | Mensaje en archivo (no `-m`) | este doc | bloqueante |
 | Scope entre paréntesis | este doc | bloqueante |
 | Sin planes ni "Migrado de" en el cuerpo | este doc | bloqueante |
-| Dobles de test propios, nunca el SDK real | este doc + `AGENTS.md` | bloqueante |
-| Smoke en vivo contra TIA real antes de mergear | este doc + `AGENTS.md` | bloqueante |
+| Dobles de test propios, nunca el SDK real | este doc + `.operator-shared/operator.md` | bloqueante |
+| Smoke en vivo contra TIA real antes de mergear | este doc + `.operator-shared/operator.md` | bloqueante |
 | Prefijos de dominio primero | este doc | bloqueante |
 | `target_folder_path` no se pasa, nunca `""` | `tia_ops/importar.py` | bloqueante |
-| Preview y aplicacion en la misma funcion | `AGENTS.md` | bloqueante |
+| Preview y aplicacion en la misma funcion | `.operator-shared/operator.md` | bloqueante |

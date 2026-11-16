@@ -16,7 +16,7 @@ hilo dueño de TIA Portal, trabajos que se ejecutan enteros, eventos SSE y
 areas registradas en una lista explicita.
 
 El detalle de la arquitectura, los contratos y las reglas esta en
-[AGENTS.md](AGENTS.md).
+[`.operator-shared/operator.md`](.operator-shared/operator.md).
 
 ## Requisitos
 
