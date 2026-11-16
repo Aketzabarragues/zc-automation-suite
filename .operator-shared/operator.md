@@ -84,6 +84,26 @@ con PyInstaller.
   fechas ni narrativas de refactor.
 - Nada de shims, re-exports ni alias "legacy".
 
+## Normas Estrictas de Implementacion y Control de Calidad
+
+1. **Prohibicion de Git destructivo o merges.** Ningun agente puede ejecutar
+   `git merge`, `git push`, `git reset --hard` ni cambiar de rama sin orden
+   explicita del operario. Los comandos de solo lectura (`git status`,
+   `git diff`, `git log`) si estan permitidos.
+2. **Fidelidad estricta a la UI de referencia.** En vistas frontend Vue esta
+   prohibido improvisar el diseno: hay que clonar y adaptar la estructura
+   exacta de la vista de referencia indicada (por ejemplo `ProcesosSyncView`) y
+   verificar el diff contra `main` antes de dar la vista por terminada.
+3. **Limite de tamano y principio DRY.** Ninguna funcion nueva puede superar
+   las 80-100 lineas, ni copiar/pegar logica ya existente (`_compilar`, control
+   de transacciones, avisos). Si algo ya existe en otro modulo, se extrae a un
+   helper comun y se reutiliza desde ahi.
+4. **Excepciones de dominio frente a diccionarios de estado.** Los fallos de
+   compilacion o de sincronizacion lanzan excepciones tipadas
+   (subclases de `ZCError`), nunca devuelven `{"ok": False}`. Siempre se
+   validan las versiones de TIA Portal involucradas (por ejemplo V18 / V21)
+   antes de operar.
+
 ## Reglas de commits
 
 - 1-2 archivos por commit (excepcion: refactor coordinado de 1 archivo en N
