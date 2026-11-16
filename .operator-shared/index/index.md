@@ -19,7 +19,6 @@ read_if: "Antes de leer o modificar codigo del proyecto; para saber que modulo e
 
 ## Project Index
 
-- `AGENTS.md` — Reglas y arquitectura del repo (fuente autoritativa de las reglas).
 - `CONTRIBUTING.md` — Como se commitea, como se verifica y que se espera de cada cambio.
 - `README.md` — Que es el proyecto, estado de la reescritura, requisitos e instalacion.
 - `LICENSE` — MIT.
@@ -45,6 +44,9 @@ read_if: "Antes de leer o modificar codigo del proyecto; para saber que modulo e
 - `MAPA_FB.md` — Mapa de los FB por area y fase.
 - `PROBLEMAS.md` — Errores de runtime que los tests no pillan, con la receta del fix.
 - `INSTALAR.md` — Instalacion, incluida la wheel oficial de Siemens.
+- `TIA_OPENNESS.md` — Contrato y trampas del SDK TIA Openness: `import_blocks` sin `target_folder_path`, `compile()` devuelve un `ExecutionResult`, errores .NET pendientes, encoding y CRLF, fixtures byte a byte.
+- `REESCRITURA_ESTADO.md` — Estado de la reescritura: fases 4.1-4.6, decisiones aprobadas con el operario, como se revisa una entrega contra main y que queda pendiente.
+- `PERFIL_OPERARIO.md` — Preferencias durables del operario y el motivo de cada regla, para proponer disenos y refactors.
 - `referencia_ui/REFERENCIA_UI.md` — Referencia visual de la UI.
 - `referencia_ui/capturas/` — Capturas de pantalla de la UI, una por vista o estado.
 

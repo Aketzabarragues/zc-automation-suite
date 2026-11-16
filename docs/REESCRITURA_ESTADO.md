@@ -1,0 +1,183 @@
+---
+description: "Estado de la reescritura en rewrite/arquitectura-simple: reglas de seguridad, flujo de entrega y revision, estado de las fases 4.1-4.6, decisiones tomadas con el operario y lista pendiente."
+read_if: "Empezar una fase nueva de la reescritura, revisar una entrega contra main, o dudar si una desviacion de main esta ya aprobada."
+---
+
+# Estado de la reescritura
+
+Complementa a `.operator-shared/operator.md` (arquitectura y reglas) y a
+`docs/FLUJOS_ALIMENTACION.md` (los flujos de main y los cambios deliberados).
+Aqui va solo lo que no esta en esos ficheros: el estado, las decisiones de las
+revisiones y la forma de trabajar.
+
+## Objetivo
+
+- Reescritura desde cero en `rewrite/arquitectura-simple`. Un solo `.exe`
+  portable (PyInstaller onefile), sin base de datos, sin compatibilidad con
+  main.
+
+## Reglas de la reescritura (contrato de seguridad)
+
+- **Replicar main fielmente. No inventar nada.** Cada diferencia con main se
+  lista en el informe de entrega y la aprueba el operario. Si main tiene un
+  fallo, se documenta y se propone el arreglo; no se arregla en silencio.
+- El parser del Excel es **identico** al de main (mismos casts, acepta
+  `.xlsm`). No se anaden columnas, comentarios ni validaciones que main no
+  tenga.
+- **Nada contra TIA desde el agente.** Los smokes los lanza el operario en una
+  maquina virtual con TIA, sobre una **copia PRUEBA** del proyecto, y el
+  proyecto **nunca se guarda** despues. Nunca se prueba un formato o una
+  escritura que no este en un smoke commiteado.
+- El repo es **publico**: no se commitea el Excel real del operario ni datos
+  personales.
+- Si `npm install` cambia `frontend/package-lock.json`, no se commitea.
+- Commits pequenos, en espanol, en el estilo del repo.
+
+## Forma de trabajo (flujo de entrega)
+
+- Un agente implementa cada fase en su propia rama y **para al final** con un
+  informe: hash de cada commit, ficheros tocados, numero de tests de backend y
+  frontend, ruff, build y desviaciones de main con su motivo.
+- Otro agente revisa la rama contra main (ver "Como se revisa una entrega") y
+  devuelve aprobacion, preguntas al operario o un parche.
+- Los arreglos pequenos llegan como parche `git format-patch`: se aplican con
+  `git am`, se pasan los tests y se hace push. No se reescriben a mano.
+- Si una fase se para a preguntar, que sea solo por una contradiccion entre
+  main y el prompt, o por algo no cubierto que cambia el comportamiento, con
+  fichero y linea de main y la opcion que replica main.
+
+## Fases
+
+| Fase | Estado |
+|---|---|
+| 4.1 Excel (parser y editor) | Hecha. Paridad del parser con main verificada fichero a fichero |
+| 4.2 Prevision de dispositivos | Hecha y validada en V21 |
+| 4.3 Sincronizar dispositivos | Hecha y validada en V21 (3 transacciones confirmadas) |
+| 4.4 Entidades | Hecha. Paridad con main verificada con TIA simulado. Falta la prueba en V21 |
+| 4.5 Procesos: comentarios de DB (proc_db) | Hecha. La rama `feat/4.5-procesos` esta ya fundida en la rama (merge `a08c10d`), con su smoke y sus fixes (V18, carpeta de TIA, summary por array) |
+| 4.6 Crear proceso desde plantilla | Hecha en la rama: clonacion de plantillas, manifest, preview, store, vista y rutas (`3c347f2` y siguientes). Falta la validacion en V21 (solo SimaticSD) |
+
+El estado de 4.5/4.6 refleja el `git log` de la rama a fecha de la ultima
+revision de este documento; la skill original lo tenia como "en curso" y
+"pendiente".
+
+Datos de la prueba real de 4.3 en V21: prevision con 116 altas, 83 bajas,
+3 renombres y 10 N_MAX; sincronizacion completa en unos 47 s; prevision
+posterior toda al dia. El escaneo del PLC tarda unos 100 s (posible mejora
+futura).
+
+## Decisiones tomadas con el operario
+
+### Sesion en el servidor
+
+- `backend/zc_suite/nucleo/sesion.py` guarda PLCs, seleccion, escaneo (TTL
+  300 s) y datos de cada area (`guardar_dato_area`, `borrar_dato_area`,
+  `datos_area`). Sobrevive a un F5 de la web.
+- Se vacia al **arrancar y al cerrar** la app. Nada automatico al arrancar: el
+  operario sube el Excel, conecta y escanea cada vez. El Excel **no** se
+  guarda entre ejecuciones.
+- Seleccionar un PLC de la lista lee su cache sin pulsar "Actualizar".
+- Perder TIA (`perder_tia()`) vacia todo, como `resetPlcState` de main.
+  Cambiar de PLC borra los datos del area.
+- El frontend aplica la instantanea de `GET /api/v1/sesion` **una sola vez**
+  (hidratar una vez). Volver a aplicarla pisaba previsiones recientes.
+
+### Confirmaciones
+
+- Toda accion que modifica el PLC pide confirmacion, como Dispositivos en
+  main. Main no la tenia en Entidades ni en Procesos: era un fallo de main y
+  el operario quiere el dialogo en las tres vistas.
+
+### Entidades (4.4)
+
+- **Borrar antes de anadir constantes.** En main, una entidad cuyo numero
+  cambia desaparece de TIA: anade primero (se salta el nombre porque ya
+  existe) y luego borra. La reescritura borra primero. Aprobado.
+- El contador "entidades analizadas" de main siempre marca 0 (lee un
+  `entities_block` que el backend no envia). Corregido. Aprobado.
+- `backend/zc_suite/simatic/ml/constantes_modificador.py` captura la plantilla
+  de constante al cargar el XML (necesario al borrar antes de anadir). La
+  salida de Dispositivos sigue identica a main.
+- Por comprobar en V21: el config espera el DB `DB6_ENT`, pero el listado del
+  proyecto real mostraba `DB6_ENTIDAD`.
+
+### Procesos (4.5)
+
+- Los contadores de las pestanas de main siempre marcan 0 (leen un
+  `summary` por array que el backend no envia). Se corrige.
+- **Pendiente de decision:** main escribe "." en las posiciones que sobran, y
+  la prevision siguiente las vuelve a marcar como "eliminar" para siempre. Se
+  replica tal cual, con un test que lo documente, y se decide tras la
+  revision.
+- Nombres en el proyecto real: `DB53100_CPR_PARAM`, `DB55100_CPR_ALM`, tabla
+  `100_CPR`.
+
+### Compilacion
+
+- `block.compile()` y `compile_software()` devuelven un `ExecutionResult`,
+  nunca un booleano (la regla completa esta en `docs/TIA_OPENNESS.md`).
+- `backend/zc_suite/tia_ops/compilar.py`: hay errores si `get_errors()` trae
+  algo o el estado no es 0; tras compilar un bloque, `is_consistent()` es la
+  comprobacion de respaldo.
+- La compilacion va **fuera** de las transacciones y no bloquea. El aviso
+  lista cada bloque con su mensaje de TIA recortado, p. ej.
+  "1 bloque(s) con errores: DB_NO_OK (Interface > Data type Boo is unknown.)".
+- Hubo un falso "10 bloques con errores" por tratar el resultado como
+  booleano: el operario comprobo en TIA que habia 0 errores.
+
+### Log y consola
+
+- Log en `logs/zc.log` junto al exe, nivel DEBUG. La consola de la SPA solo
+  muestra INFO o superior.
+- El backend ya registra el fin de cada trabajo; el frontend no lo repite
+  (`frontend/src/nucleo/eventos.js`).
+- El exe es de ventana, con icono en la bandeja del sistema (pystray).
+
+### Ficheros TIA
+
+- El XML que se genera se escribe con CRLF explicito (ElementTree escribe en
+  modo texto y en Linux saldria LF).
+- Los ids MLC de SimaticSD son aleatorios, en main y en la reescritura: al
+  comparar, se normalizan.
+
+### Config
+
+- `config/config.json` con el formato nuevo (`areas.alimentacion` con
+  `carpetas_tia`, `tabla_nmax`, `plantillas_procesos`, `dispositivos`,
+  `etiquetas_dispositivos`, `entidades`, `procesos`), validado por
+  `backend/zc_suite/areas/alimentacion/config.py`. Un config con el formato de
+  main muestra un banner rojo.
+- Nunca poner el exe de main y el de la reescritura en la misma carpeta: el
+  de la reescritura leeria el `config.json` de main.
+
+## Como se revisa una entrega
+
+1. Traer la rama, pasar los tests de backend y frontend, ruff y build.
+2. Leer el diff entero y comparar cada regla con el codigo de main citado en
+   `docs/FLUJOS_ALIMENTACION.md`.
+3. Ejecutar main y la reescritura con **el mismo Excel** y un **TIA simulado**
+   (un `siemens_tia_scripting` falso que exporta bloques y tablas de prueba y
+   guarda lo que se importa). Comparar los ficheros de `modified/` byte a
+   byte, normalizando CRLF, BOM e ids MLC.
+4. Repetir con un escenario de fallo (una importacion que falla) y comprobar
+   el estado de cada transaccion.
+5. Capturar la vista con Playwright y compararla con la de main: textos,
+   contadores, estados y botones.
+6. Informe al operario: veredicto, desviaciones de main para que decida, y el
+   mensaje o el parche para la siguiente iteracion.
+
+El TIA simulado y los scripts de comparacion no estan en el repo.
+
+## Pendiente
+
+- Revisar la 4.5 contra main (la rama ya esta fundida; falta el veredicto de
+  revision).
+- Decidir el caso "." de proc_db.
+- Prueba en V21 de 4.4 (comprobar antes el nombre del DB de entidades) y de
+  4.5 y 4.6 (SimaticSD).
+- Opcional: traducir "Devices:" y "Entities:" de los dialogos de
+  confirmacion.
+- Opcional: rendimiento del escaneo (unos 100 s en el proyecto real).
+- El test `test_lanzar_responde_409_si_hay_un_trabajo_en_curso` de
+  `tests/nucleo/web/test_web.py` falla a veces segun la velocidad del hilo de
+  TIA; hay un parche que lo arregla.
