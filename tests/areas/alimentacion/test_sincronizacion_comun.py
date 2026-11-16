@@ -2,18 +2,19 @@
 
 Es pura logica: no hay portal de TIA ni transacciones aqui. El doble de
 ``compilar_bloques`` es un dict fijo: el modulo no toca TIA, recibe el
-resultado.
+resultado a traves del callable.
 """
 from __future__ import annotations
 
 import ast
+import logging
 from pathlib import Path
 
 from zc_suite.areas.alimentacion.sincronizacion_comun import (
     ESTADO_CONFIRMADA,
     ESTADO_NO_EJECUTADA,
     ESTADO_REVIRTIDA,
-    CompilacionConErroresError,
+    compilar_con_aviso,
     estado_confirmada,
     estado_no_ejecutada,
     estado_revertida,
@@ -23,7 +24,6 @@ from zc_suite.areas.alimentacion.sincronizacion_comun import (
     resumen_transacciones,
     texto_errores_compilacion,
 )
-from zc_suite.errores import OperacionError
 
 # ── el estado de las transacciones ──────────────────────────────────────────
 
@@ -197,36 +197,77 @@ def test_el_texto_errores_con_bloques_no_encontrados() -> None:
     )
 
 
-def test_la_excepcion_de_compilacion_cuelga_de_operacion_error() -> None:
-    """Es un fallo esperado: warning, sin traceback, y lleva el aviso."""
-    aviso = (
-        "TIA reporta errores de compilacion: "
-        "1 bloque(s) con errores: DB2000_ED (Interface > Data type Boo is unknown.)"
-    )
-    exc = CompilacionConErroresError(aviso)
-
-    assert isinstance(exc, OperacionError)
-    assert str(exc) == aviso
-
-
-def test_el_llamador_la_convierte_en_el_aviso_compile_warn() -> None:
-    """El patron del FB: capturar y devolver el dict de compile=WARN."""
-    cola = (
-        " Revisa esos bloques en TIA Portal: pueden haber quedado con "
+def _cola_prueba() -> str:
+    return (
+        " Revisa ese bloque en TIA Portal: puede haber quedado con "
         "un tamano inconsistente tras el cambio de N_MAX."
     )
-    resultado = _resultado_compilar()
-    try:
-        raise CompilacionConErroresError(
-            texto_errores_compilacion(resultado) + cola
-        )
-    except CompilacionConErroresError as exc:
-        compilacion = {"ok": False, "error": str(exc), "detalle": "compile=WARN"}
 
-    assert compilacion["ok"] is False
-    assert compilacion["detalle"] == "compile=WARN"
-    assert compilacion["error"].startswith("TIA reporta errores de compilacion: ")
-    assert compilacion["error"].endswith(cola)
+
+def _logger_con_registro() -> tuple[logging.Logger, list[str]]:
+    """Un logger con un handler que registra los mensajes formateados."""
+    registro: list[str] = []
+    logger = logging.getLogger("prueba")
+
+    class _Registro(logging.Handler):
+        def emit(self, record: logging.LogRecord) -> None:
+            registro.append(record.getMessage())
+
+    logger.addHandler(_Registro())
+    return logger, registro
+
+
+def test_compilar_con_aviso_devuelve_el_detalle_ok() -> None:
+    """El exito devuelve el detalle con los valores del resultado, sin aviso."""
+    logger, registro = _logger_con_registro()
+    resultado = _resultado_compilar(con_errores=False)
+
+    detalle = compilar_con_aviso(
+        compilador=lambda: resultado,
+        cola=_cola_prueba(),
+        logger=logger,
+    )
+
+    assert detalle == "compile=OK (2 compilados, 1 sin cambios)"
+    assert registro == []
+
+
+def test_compilar_con_aviso_con_errores_da_warn_y_la_cola_exacta() -> None:
+    """Errores de TIA: ``compile=WARN`` y el warning lleva el cuerpo mas la cola."""
+    logger, registro = _logger_con_registro()
+    resultado = _resultado_compilar()
+
+    detalle = compilar_con_aviso(
+        compilador=lambda: resultado,
+        cola=_cola_prueba(),
+        logger=logger,
+    )
+
+    assert detalle == "compile=WARN"
+    assert registro == [
+        "Compilacion con errores (los cambios ya estan aplicados): "
+        + texto_errores_compilacion(resultado)
+        + _cola_prueba()
+    ]
+
+
+def test_compilar_con_aviso_si_lanza_da_warn_y_avisa() -> None:
+    """El compilador lanza: ``compile=WARN`` y el warning lleva la excepcion."""
+    logger, registro = _logger_con_registro()
+
+    def _compilador() -> dict[str, object]:
+        raise RuntimeError("TIA no deja compilar")
+
+    detalle = compilar_con_aviso(
+        compilador=_compilador,
+        cola=_cola_prueba(),
+        logger=logger,
+    )
+
+    assert detalle == "compile=WARN"
+    assert registro == [
+        "La compilacion fallo (los cambios ya estan aplicados): TIA no deja compilar"
+    ]
 
 
 # ── los helpers de texto y rutas ────────────────────────────────────────────

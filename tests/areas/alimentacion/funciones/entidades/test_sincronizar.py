@@ -169,8 +169,7 @@ def test_los_errores_de_compilacion_no_tumban_el_sync(
 
     assert evento["estado"] == "ok", evento.get("error")
     compilacion = evento["resultado"]["compilacion"]
-    assert compilacion["ok"] is False
-    assert "errores de compilacion" in compilacion["error"]
+    assert compilacion == "compile=WARN"
 
 
 def test_los_comentarios_no_se_ejecutan_en_tia_v18(entorno_sync_v18: Any) -> None:
@@ -249,17 +248,7 @@ def test_la_compilacion_con_errores_no_tumba_y_fija_su_dict(
 
     assert evento["estado"] == "ok", evento.get("error")
     compilacion = evento["resultado"]["compilacion"]
-    assert compilacion["ok"] is False
-    assert compilacion["detalle"] == "compile=WARN"
-    error = compilacion["error"]
-    assert error.startswith("TIA reporta errores de compilacion: ")
-    assert "1 bloque(s) con errores: " in error
-    nombre = entorno_sync.plc.get_program_blocks()[0].get_name()
-    assert f"{nombre} (Interface > Data type Boo is unknown.)" in error
-    assert error.endswith(
-        " Revisa ese bloque en TIA Portal: puede haber quedado con "
-        "un tamano inconsistente tras el cambio de N_MAX."
-    )
+    assert compilacion == "compile=WARN"
     # La tx de comentarios no se salta por el fallo de compilacion.
     comentarios = _transaccion_por_nombre(evento["resultado"], "Comentarios")
     assert comentarios["estado"] == CONFIRMADA
@@ -283,9 +272,7 @@ def test_si_la_compilacion_lanza_los_cambios_se_quedan(
 
     assert evento["estado"] == "ok", evento.get("error")
     compilacion = evento["resultado"]["compilacion"]
-    assert compilacion["ok"] is False
-    assert compilacion["error"] == "TIA no deja compilar"
-    assert compilacion["detalle"] == "compile=WARN"
+    assert compilacion == "compile=WARN"
     # El sync se quedo: las transacciones anteriores siguen confirmadas.
     for transaccion in evento["resultado"]["transacciones"]:
         assert transaccion["estado"] == CONFIRMADA, transaccion
@@ -338,12 +325,7 @@ def test_en_v18_el_dict_fija_el_estado_de_cada_transaccion(
     assert transacciones["Comentarios"]["detalle"] == (
         "los comentarios por instancia necesitan TIA Portal V21 o superior"
     )
-    compilacion = resultado["compilacion"]
-    assert compilacion == {
-        "ok": True,
-        "error": None,
-        "detalle": "compile=OK (0 compilados, 1 sin cambios)",
-    }
+    assert resultado["compilacion"] == "compile=OK (0 compilados, 1 sin cambios)"
     # Sin SimaticSD no se importa ningun bloque.
     assert entorno_sync_v18.plc.importaciones_bloques == []
     assert resultado["prevision"] is not None

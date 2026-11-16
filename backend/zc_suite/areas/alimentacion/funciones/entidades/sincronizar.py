@@ -60,14 +60,13 @@ from zc_suite.areas.alimentacion.sincronizacion_comun import (
     ESTADO_CONFIRMADA,
     ESTADO_NO_EJECUTADA,
     ESTADO_REVIRTIDA,
-    CompilacionConErroresError,
+    compilar_con_aviso,
     estado_confirmada,
     estado_no_ejecutada,
     estado_revertida,
     estados_iniciales,
     localizar_xml,
     resumen_transacciones,
-    texto_errores_compilacion,
 )
 from zc_suite.errores import OperacionError
 from zc_suite.nucleo.sesion import Sesion
@@ -308,8 +307,12 @@ def sincronizar(
 
     # ── 9. Compilar los bloques ─────────────────────────────────────────
     with job.paso("compilar") as paso:
-        compilacion = _compilar(job, plc, db)
-        paso["detail"] = compilacion["detalle"]
+        detalle_compilacion = compilar_con_aviso(
+            compilador=lambda: compilar_bloques(job.tia.portal, plc, [db]),
+            cola=COLA_COMPILACION,
+            logger=logger,
+        )
+        paso["detail"] = detalle_compilacion
 
     # ── 10. Tx C: los comentarios (offline, solo V21+) ──────────────────
     with job.paso("tx_comentarios") as paso:
@@ -347,7 +350,7 @@ def sincronizar(
         "constantes": {"operaciones": len(ops_constantes)},
         "comentarios": {"operaciones": len(ops_comentarios)},
         "transacciones": list(transacciones.values()),
-        "compilacion": compilacion,
+        "compilacion": detalle_compilacion,
         "prevision": prevision,
     }
 
@@ -472,33 +475,4 @@ def _compilacion_defensiva(job: Job, plc: str, db: str) -> None:
         )
 
 
-def _compilar(job: Job, plc: str, db: str) -> dict[str, Any]:
-    """Compila el DB de entidades, fuera de la transaccion.
 
-    Los errores de compilacion **no** tumban el sync: el commit ya esta
-    aplicado y el operario tiene que ver el error, no perder el trabajo.
-    Internamente se lanzan como :class:`CompilacionConErroresError` (fallo
-    tipado) y aqui se convierten en el dict ``compile=WARN`` que el resultado
-    del sync lleva desde antes de la extraccion: ese shape es parte del
-    contrato observable y se conserva tal cual.
-    """
-    try:
-        resultado = compilar_bloques(job.tia.portal, plc, [db])
-        if resultado["n_compilados_error"] or resultado["n_errores"]:
-            raise CompilacionConErroresError(
-                texto_errores_compilacion(resultado) + COLA_COMPILACION
-            )
-    except CompilacionConErroresError as exc:
-        logger.warning("Compilacion con errores (los cambios ya estan aplicados): %s", exc)
-        return {"ok": False, "error": str(exc), "detalle": "compile=WARN"}
-    except Exception as exc:
-        logger.warning(f"La compilacion fallo (los cambios ya estan aplicados): {exc}")
-        return {"ok": False, "error": str(exc), "detalle": "compile=WARN"}
-    return {
-        "ok": True,
-        "error": None,
-        "detalle": (
-            f"compile=OK ({resultado['n_compilados_ok']} compilados, "
-            f"{resultado['n_sin_cambios']} sin cambios)"
-        ),
-    }

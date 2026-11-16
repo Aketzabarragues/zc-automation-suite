@@ -6,11 +6,11 @@ crear) se copian entre si, en un solo sitio:
 - **El estado de las transacciones**: los tres estados (confirmada, revertida
   y no ejecutada), el estado inicial data-driven por nombres y el resumen
   exacto que va al final del mensaje de fallo.
-- **La compilacion fuera de transaccion**: los FB la lanzan fuera de la
-  transaccion (TIA no la admite dentro) y un fallo **no** tumba el trabajo:
-  se convierte en el aviso ``compile=WARN``. La excepcion tipada
-  :class:`CompilacionConErroresError` lleva el mensaje del aviso: el llamador
-  la captura y lo convierte en el ``compile=WARN`` exactamente igual que antes.
+- **La compilacion fuera de transaccion**: :func:`compilar_con_aviso` hace
+  todo el flujo: llama al compilador (los FB lo lanzan fuera de la
+  transaccion, porque TIA no la admite dentro), registra los avisos en el
+  log y devuelve **solo el detalle** (``compile=OK (...)`` o
+  ``compile=WARN``). Un fallo **no** tumba el trabajo.
 - **Los helpers de texto y rutas** que los FB de sync se repiten:
   :func:`mensaje_corto` (el mensaje de TIA sin la ruta del bloque) y
   :func:`localizar_xml` (el XML de una tabla dentro de un export de TIA).
@@ -27,9 +27,8 @@ tabla, el del export plano), mientras que la de dispositivos devuelve
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from pathlib import Path
-
-from zc_suite.errores import OperacionError
 
 logger = logging.getLogger(__name__)
 
@@ -41,15 +40,6 @@ ESTADO_REVIRTIDA = "revertida"
 
 #: La transaccion no llego a ejecutarse.
 ESTADO_NO_EJECUTADA = "no ejecutada"
-
-
-class CompilacionConErroresError(OperacionError):
-    """La compilacion termino con errores de TIA.
-
-    El llamador la captura y la convierte en el aviso ``compile=WARN``
-    exactamente igual que antes de la extraccion: el mensaje es el texto
-    completo del aviso.
-    """
 
 
 # ── el estado de las transacciones ──────────────────────────────────────────
@@ -102,15 +92,54 @@ def estado_no_ejecutada(transacciones: dict[str, dict[str, str]], clave: str, de
 # ── la compilacion fuera de transaccion ─────────────────────────────────────
 
 
+def compilar_con_aviso(
+    *,
+    compilador: Callable[[], dict[str, object]],
+    cola: str,
+    logger: logging.Logger,
+) -> str:
+    """La compilacion fuera de la transaccion, con aviso, en un solo sitio.
+
+    Llama a ``compilador`` (el FB decide cuando y desde donde; el callable
+    debe invocar **su** ``compilar_bloques`` local para que los tests puedan
+    parchearlo) y convierte cualquier fallo en el aviso ``compile=WARN``:
+    la compilacion la lanza el FB fuera de la transaccion (TIA no la admite
+    dentro) y un fallo **no** tumba el trabajo: los cambios ya estan
+    aplicados y el operario tiene que ver el aviso, no perder el sync.
+
+    Args:
+        compilador: lo que compila: devuelve el resultado de
+            ``tia_ops.compilar_bloques`` o lanza.
+        cola: la cola final del aviso de errores de cada FB.
+        logger: donde se registran los avisos (el logger del FB).
+
+    Returns:
+        Solo el detalle del paso: ``compile=OK (N compilados, M sin cambios)``
+        o ``compile=WARN``.
+    """
+    try:
+        resultado = compilador()
+    except Exception as exc:
+        logger.warning("La compilacion fallo (los cambios ya estan aplicados): %s", exc)
+        return "compile=WARN"
+    if resultado["n_compilados_error"] or resultado["n_errores"]:
+        logger.warning(
+            "Compilacion con errores (los cambios ya estan aplicados): %s",
+            texto_errores_compilacion(resultado) + cola,
+        )
+        return "compile=WARN"
+    return (
+        f"compile=OK ({resultado['n_compilados_ok']} compilados, "
+        f"{resultado['n_sin_cambios']} sin cambios)"
+    )
+
+
 def texto_errores_compilacion(resultado: dict[str, object]) -> str:
     """El cuerpo del aviso de una compilacion con errores.
 
     ``resultado`` es lo que devuelve ``tia_ops.compilar_bloques``: las
     listas ``compilados``, ``errores`` y ``no_encontrados`` y sus contadores.
     No se incluye la cola final: la pone el llamador (cada FB tiene la suya).
-
-    Args:
-        resultado: el resultado de ``compilar_bloques``.
     """
     partes: list[str] = []
     con_errores = resultado["con_errores"]
