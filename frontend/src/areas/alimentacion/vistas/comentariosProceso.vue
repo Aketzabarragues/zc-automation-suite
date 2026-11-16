@@ -274,7 +274,7 @@ function claseDeTransaccion(estado) {
 </script>
 
 <template>
-  <section class="flex-1 min-h-0 flex flex-col" data-testid="procesos-comentarios">
+  <section class="flex-none flex flex-col" data-testid="procesos-comentarios">
     <!-- ── la cabecera ────────────────────────────────────────────── -->
     <header class="flex justify-between items-start mb-4">
       <div>
@@ -434,7 +434,7 @@ function claseDeTransaccion(estado) {
     <!-- ── la tabla del diff ──────────────────────────────────────── -->
     <div
       v-if="hayPreview"
-      class="flex-1 min-h-0 bg-surface-raised border border-line rounded overflow-auto mt-2"
+      class="flex-1 min-h-[14rem] bg-surface-raised border border-line rounded overflow-auto mt-2"
     >
       <table class="w-full text-xs" data-testid="procesos-tabla">
         <thead class="sticky top-0 bg-surface-sunken text-[10px] uppercase">

@@ -179,7 +179,7 @@ onMounted(() => {
     <!-- ── la tarjeta de la vista activa (una sola a la vez) ────────── -->
     <section
       v-if="modo === 'comentarios'"
-      class="flex-1 min-h-0 bg-surface-raised border border-line rounded p-4 flex flex-col overflow-hidden"
+      class="flex-1 min-h-0 bg-surface-raised border border-line rounded p-4 flex flex-col overflow-y-auto"
       data-testid="procesos-contenido"
     >
       <ComentariosProceso
