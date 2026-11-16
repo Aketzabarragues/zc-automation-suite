@@ -92,13 +92,13 @@ def test_next_mlc_id_no_colisiona_con_usados() -> None:
 def test_next_mlc_id_unico_en_multiples_llamadas() -> None:
     """Multiples llamadas generan IDs distintos."""
     used: set[str] = set()
-    generated = [siguiente_id_mlc(used) for _ in range(100)]
+    generated: list[str] = []
+    # El caller debe actualizar el set tras cada llamada; el test lo hace.
+    for _ in range(100):
+        generated.append(siguiente_id_mlc(used))
+        used.update(generated[-1:])
     # Todos los IDs son distintos entre si.
     assert len(set(generated)) == 100
-    # El caller debe actualizar el set; simulamos:
-    used.update(generated)
-    for new_id in generated:
-        assert new_id in used
 
 
 def test_next_mlc_id_maneja_set_no_vacio() -> None:
