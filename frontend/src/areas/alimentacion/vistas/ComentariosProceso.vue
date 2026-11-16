@@ -203,10 +203,15 @@ function estadoDe(fila) {
   return PROC_STATUS[fila.action] || { label: fila.action, clase: "text-ink-muted" };
 }
 
-/** El texto del boton de generar. */
+/**
+ * El texto del boton de generar.
+ *
+ * La lupa va en su propio `<span>` (que gira mientras genera): el texto no
+ * la lleva, para no duplicarla.
+ */
 const textoGenerar = computed(() => {
   if (procesos.generando) return "Generando…";
-  return "🔍 Generar Previsión";
+  return "Generar Previsión";
 });
 
 /** El texto del boton de aplicar. */

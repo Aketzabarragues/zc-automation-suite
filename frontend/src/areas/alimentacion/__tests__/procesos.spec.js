@@ -284,6 +284,15 @@ describe("Procesos", () => {
     ).toBeUndefined();
   });
 
+  it("el boton de generar muestra la lupa una sola vez", async () => {
+    const { wrapper } = montarConTodo();
+    await flushPromises();
+    await abrirComentarios(wrapper);
+
+    const boton = wrapper.find('[data-testid="proc-sync-generate-preview"]');
+    expect(boton.text()).toBe("\u{1F50D} Generar Previsión");
+  });
+
   it("sin prevision enseña el estado vacio", async () => {
     const { wrapper } = montarConTodo();
     await flushPromises();
