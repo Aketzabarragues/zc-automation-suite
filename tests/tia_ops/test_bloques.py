@@ -67,6 +67,23 @@ class BloqueFalso:
         return self.codigo
 
 
+class BloqueContador(BloqueFalso):
+    """Bloque que cuenta las llamadas al SDK de sus propiedades y rutas."""
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.leidas: list[str] = []
+        self.rutas_completas = 0
+
+    def get_property(self, name: str) -> Any:
+        self.leidas.append(name)
+        return super().get_property(name)
+
+    def get_path_full(self) -> str:
+        self.rutas_completas += 1
+        return super().get_path_full()
+
+
 class UserDataType(BloqueFalso):
     """Tipo de datos de usuario. La clase es lo que lo delata en TIA."""
 
@@ -96,6 +113,10 @@ class ProyectoFalso:
 
     def get_plcs(self) -> list[PlcFalso]:
         return [self.plc]
+
+
+class UserDataTypeContador(UserDataType, BloqueContador):
+    """UDT que cuenta las llamadas al SDK."""
 
 
 class PortalFalso:
@@ -278,6 +299,118 @@ def test_la_ruta_de_un_bloque_no_cambia() -> None:
     assert ops.escanear_bloques(portal, "ZC_PLC_STD")[0]["ruta"] == (
         "ZC_Controles/1_Documentado"
     )
+
+
+# ── llamadas al SDK ────────────────────────────────────────────────────────
+
+
+def test_programming_language_se_lee_una_sola_vez_por_bloque() -> None:
+    """Antes del cambio, cada bloque la leia dos veces (familia + extendidas)."""
+    bloque = BloqueContador(
+        "DB10",
+        propiedades={"ProgrammingLanguage": "DB", "MemoryLayout": "Optimized"},
+    )
+    portal, _plc = _portal([bloque])
+
+    resultado = ops.escanear_bloques(portal, "ZC_PLC_STD")
+
+    assert bloque.leidas.count("ProgrammingLanguage") == 1
+    assert resultado[0]["tipo"] == "DB"
+    assert resultado[0]["extended"]["programming_language"] == "DB"
+
+
+def test_programming_language_se_lee_una_sola_vez_en_un_udt() -> None:
+    """En un UDT el tipo no se deduce del lenguaje, pero el DTO lo sigue llevando."""
+    tipo = UserDataTypeContador(
+        "MiTipo",
+        propiedades={"ProgrammingLanguage": "SCL", "MemoryLayout": "Optimized"},
+    )
+    portal = PortalFalso(PlcFalso(tipos=[tipo]))
+
+    resultado = ops.escanear_tipos_de_usuario(portal, "ZC_PLC_STD")
+
+    assert tipo.leidas.count("ProgrammingLanguage") == 1
+    assert resultado[0]["tipo"] == "UDT"
+    assert resultado[0]["extended"]["programming_language"] == "SCL"
+
+
+def test_el_dto_de_un_udt_mantiene_sus_claves_y_valores() -> None:
+    """El DTO de un UDT es el mismo que antes: clave y valor de lenguaje intactos."""
+    tipo = UserDataType(
+        "MiTipo",
+        propiedades={
+            "HeaderName": "titulo UDT",
+            "HeaderAuthor": "Aketza",
+            "HeaderVersion": "1.0",
+            "ProgrammingLanguage": "SCL",
+            "MemoryLayout": "Optimized",
+        },
+    )
+    portal = PortalFalso(PlcFalso(tipos=[tipo]))
+
+    resultado = ops.escanear_tipos_de_usuario(portal, "ZC_PLC_STD")
+    extendidas = resultado[0]["extended"]
+
+    assert resultado[0]["tipo"] == "UDT"
+    assert set(extendidas) == set(ops.CLAVES_EXTENDIDAS)
+    assert extendidas["programming_language"] == "SCL"
+    assert extendidas["title"] == "titulo UDT"
+    assert extendidas["author"] == "Aketza"
+    assert extendidas["version"] == "1.0"
+    assert extendidas["memory_layout"] == "Optimized"
+
+
+def test_el_dto_no_cambia_si_leer_el_lenguaje_falla() -> None:
+    """Si la lectura de ProgrammingLanguage falla, el DTO queda como si no la hubiera."""
+    bloque = BloqueContador("FC1", propiedades={"MemoryLayout": "Optimized"})
+    original = bloque.get_property
+
+    def get_property(name: str) -> Any:
+        bloque.leidas.append(name)
+        if name == "ProgrammingLanguage":
+            raise UnicodeDecodeError("utf-8", b"\xff", 0, 1, "ilegible")
+        return original(name)
+
+    bloque.get_property = get_property  # type: ignore[method-assign]
+    portal, _plc = _portal([bloque])
+
+    resultado = ops.escanear_bloques(portal, "ZC_PLC_STD")
+    extendidas = resultado[0]["extended"]
+
+    assert bloque.leidas.count("ProgrammingLanguage") == 1
+    assert set(extendidas) == set(ops.CLAVES_EXTENDIDAS)
+    assert extendidas["programming_language"] is None
+    assert extendidas["memory_layout"] == "Optimized"
+
+
+def test_get_path_full_no_se_llama_en_los_bloques_de_programa() -> None:
+    bloque = BloqueContador(
+        "DB10",
+        ruta="ZC_Controles/1_Documentado",
+        ruta_completa="ZC_PLC_STD.ZC_Controles.1_Documentado",
+    )
+    portal, _plc = _portal([bloque])
+
+    resultado = ops.escanear_bloques(portal, "ZC_PLC_STD")
+
+    assert bloque.rutas_completas == 0
+    assert resultado[0]["ruta"] == "ZC_Controles/1_Documentado"
+
+
+def test_get_path_full_si_se_llama_en_los_tipos_de_usuario() -> None:
+    tipo = UserDataTypeContador(
+        "MiTipo",
+        ruta="1_Documentado",
+        ruta_completa="ZC_PLC_STD.ZC_Controles.1_Documentado",
+    )
+    portal = PortalFalso(PlcFalso(tipos=[tipo]))
+
+    resultado = ops.escanear_tipos_de_usuario(portal, "ZC_PLC_STD")
+
+    assert tipo.rutas_completas == 1
+    assert resultado[0]["ruta"] == "ZC_Controles/1_Documentado"
+    assert resultado[0]["tipo"] == "UDT"
+    assert resultado[0]["numero"] is None
 
 
 # ── clasificacion ──────────────────────────────────────────────────────────
