@@ -3,12 +3,16 @@
 Los docs de agente son la carta de cada agente: si nombran un modulo que ya
 no esta, el agente trabaja sobre una estructura que ya no es la del repo.
 
-Los docs viven en dos sitios:
+Los docs de agente viven en dos sitios:
 
-- ``.operator/``: el cerebro del proyecto (specs e instrucciones). Es
-  local: ``.operator/`` esta en el gitignore global, asi que en un clon
-  limpio no existe.
+- ``.operator/``: notas locales del entorno. Es local: ``.operator/`` esta
+  en el gitignore global, asi que en un clon limpio no existe.
 - ``.opencode/agent/``: las definiciones de subagente que carga el harness.
+
+``docs/`` queda fuera: es documentacion para humanos, no la carta de un
+agente. ``referencia_ui/`` registra de donde salio cada captura (componentes
+que ya no existen) y ``FLUJOS_ALIMENTACION.md`` documenta el layout de main
+a proposito.
 
 Si no hay ningun doc (clon limpio sin el cerebro), la comprobacion se
 salta: no hay nada que verificar.
@@ -105,3 +109,41 @@ def test_cada_doc_de_agente_explica_el_contracto_de_los_trabajos() -> None:
     for doc in sorted(definiciones.glob("*.md")):
         texto = doc.read_text(encoding="utf-8")
         assert "funciones/" in texto, f"{doc.name} no explica donde viven los trabajos"
+
+
+#: El conocimiento durable del proyecto. Versionado: se comprueba siempre.
+DOCS_DURABLES = ("TIA_OPENNESS.md", "REESCRITURA_ESTADO.md", "PERFIL_OPERARIO.md")
+
+
+def test_los_docs_durables_citan_rutas_que_existen() -> None:
+    """Cada ruta que cita el conocimiento durable existe en el repo."""
+    fallos: list[str] = []
+    for nombre in DOCS_DURABLES:
+        doc = RAIZ / "docs" / nombre
+        assert doc.is_file(), f"Falta el doc durable {nombre}"
+        for ruta in _rutas_reales(doc.read_text(encoding="utf-8")):
+            if not (RAIZ / ruta).exists():
+                fallos.append(f"{nombre}: {ruta}")
+    assert not fallos, "Rutas citadas que no existen:\n" + "\n".join(fallos)
+
+
+def test_los_docs_durables_no_citan_la_estructura_vieja() -> None:
+    """El conocimiento durable no nombra ficheros que se movieron."""
+    viejos = (
+        "zc_suite/tia.py",
+        "zc_suite/web.py",
+        "zc_suite/eventos.py",
+        "zc_suite/config.py",
+        "zc_suite/workdir.py",
+        "zc_suite/main.py",
+        "simatic_sd/",
+        "simatic_ml/",
+    )
+    fallos: list[str] = []
+    for nombre in DOCS_DURABLES:
+        doc = RAIZ / "docs" / nombre
+        texto = doc.read_text(encoding="utf-8")
+        for viejo in viejos:
+            if viejo in texto:
+                fallos.append(f"{nombre}: {viejo}")
+    assert not fallos, "Rutas de la estructura anterior:\n" + "\n".join(fallos)
