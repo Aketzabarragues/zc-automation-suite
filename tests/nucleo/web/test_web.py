@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import threading
 import time
 from pathlib import Path
 from typing import Any
@@ -180,9 +181,15 @@ def test_lanzar_responde_202_con_el_job_id(cliente: Any) -> None:
 
 
 def test_lanzar_responde_409_si_hay_un_trabajo_en_curso(cliente: Any) -> None:
-    with cliente.application.app_context():
-        _, codigo = lanzar(lambda job: {})
-        respuesta, codigo2 = lanzar(lambda job: {})
+    # El primer trabajo espera a que el test lo suelte: si acabara antes, el
+    # segundo trabajo se encolaria con 202 y el test fallaria por azar.
+    soltar = threading.Event()
+    try:
+        with cliente.application.app_context():
+            _, codigo = lanzar(lambda job: soltar.wait(5) and {})
+            respuesta, codigo2 = lanzar(lambda job: {})
+    finally:
+        soltar.set()
 
     assert codigo == 202
     assert codigo2 == 409
