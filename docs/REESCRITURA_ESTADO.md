@@ -169,6 +169,42 @@ El TIA simulado y los scripts de comparacion no estan en el repo.
 - Decidir el caso "." de proc_db.
 - Prueba en V21 de 4.4 (comprobar antes el nombre del DB de entidades) y de
   4.5 y 4.6 (SimaticSD).
-- Opcional: traducir "Devices:" y "Entities:" de los dialogos de
-  confirmacion.
-- Opcional: rendimiento del escaneo (unos 100 s en el proyecto real).
+- Rendimiento del escaneo: quitadas dos llamadas al SDK por bloque, falta
+  medir el tiempo real en el proyecto.
+
+## Ruta de plantillas editable
+
+La ruta de las plantillas se edita desde la SPA (como en main) y se guarda
+en el `config.json` del usuario.
+
+- La clave se llama `plantillas_procesos` (no `plantillas_path`: esta en
+  `CLAVES_ANTIGUAS` y dispararia el banner de config incompatible). Su
+  valor por defecto es la **cadena vacia**, que significa "sin configurar":
+  no se resuelve contra `raiz_datos()`.
+- `carpeta_plantillas()` devuelve `Path | None`: `None` cuando no esta
+  configurada. Los FB de prevision y de creacion lanzan `OperacionError`.
+- `PUT /api/v1/areas/alimentacion/procesos/plantillas` con
+  `{plantillas_path: str}`: escribe en el `config.json` del usuario de
+  forma atomica (`.tmp` + `os.replace`) y recarga el config en memoria
+  (`recargar_config_app`), sin reiniciar. La cadena vacia resetea.
+- El router NO importa `nucleo.app.main`: el callback de recarga se
+  registra en `app.config[CLAVE_RECARGA_CONFIG]` y el router lo lee de ahi.
+- `montar_app` se partio en `_secciones_de`, `_estado_completo`,
+  `_montar_areas` y `_refrescar_areas`: las blueprints se registran una
+  sola vez al arrancar y la recarga no las repite (Flask no lo admite).
+
+## Escaneo del PLC: llamadas al SDK
+
+Por bloque, el escaneo hacía dos lecturas de `ProgrammingLanguage` (en
+`_tipo` y en `_extendidas`) y llamaba a `get_path()` y a `get_path_full()`.
+
+- `ProgrammingLanguage` se lee **una vez** por bloque en `_dto()` y se
+  comparte con `_tipo()` y `_extendidas()`. UDT incluidos: el DTO de un UDT
+  conserva su `extended["programming_language"]`.
+- `extended` tiene 5 claves y su unica fuente es `CLAVES_EXTENDIDAS`.
+- `get_path_full()` se llama **solo en los UDT**, donde `get_path()` se
+  queda corto. En los bloques de programa manda el docstring de `_ruta`:
+  `get_path()` basta.
+- El DTO no cambia: mismos campos, mismos valores.
+- La instrumentacion de tiempos es a nivel **DEBUG** (`logs/zc.log`): la
+  consola de la SPA solo muestra INFO o superior.
