@@ -10,6 +10,8 @@ las entidades y los procesos.
 - ``POST /procesos/preview``    encola la prevision de un proceso.
 - ``POST /procesos/sincronizar`` encola la sincronizacion de un proceso.
 - ``GET  /procesos/plantillas``    las plantillas de procesos disponibles.
+- ``PUT  /procesos/plantillas``    guarda la ruta de las plantillas en el
+  ``config.json`` del usuario y recarga el config en memoria.
 - ``POST /procesos/crear/preview``    encola la prevision de crear un proceso
   desde una plantilla.
 - ``POST /procesos/crear/aplicar``    encola la creacion del proceso desde
@@ -58,8 +60,14 @@ from zc_suite.areas.alimentacion.funciones.procesos.sincronizar import (
     sincronizar as proc_sincronizar,
 )
 from zc_suite.areas.alimentacion.procesos.plantillas import proc_listar_plantillas
+from zc_suite.nucleo.app.config import ConfigError
 from zc_suite.nucleo.sesion import CLAVE_SESION, Sesion
-from zc_suite.nucleo.web.app import HTTPError, lanzar, servicio
+from zc_suite.nucleo.web.app import (
+    CLAVE_RECARGA_CONFIG,
+    HTTPError,
+    lanzar,
+    servicio,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -259,6 +267,17 @@ def listar_plantillas_procesos() -> tuple[Response, int]:
         error = "El config del area no es valido: revisa el config.json en uso."
         return jsonify({"error": error}), 400
     plantillas_carpeta = carpeta_plantillas(None, almacen.config)
+    if plantillas_carpeta is None:
+        # Cadena vacia en el config: "sin configurar". No se toca el disco:
+        # el frontend muestra el CTA "configura la ruta" sin tratarlo como
+        # error (como main).
+        return jsonify(
+            {
+                "plantillas": [],
+                "plantillas_path": "",
+                "aviso": "La ruta de plantillas no esta configurada.",
+            }
+        ), 200
     plantillas, aviso = proc_listar_plantillas(plantillas_carpeta)
     return jsonify(
         {
@@ -267,6 +286,42 @@ def listar_plantillas_procesos() -> tuple[Response, int]:
             "aviso": aviso,
         }
     ), 200
+
+
+@rutas.put("/procesos/plantillas")
+def guardar_ruta_plantillas() -> tuple[Response, int]:
+    """Guarda la ruta de las plantillas en el ``config.json`` del usuario.
+
+    Body: ``{"plantillas_path": str}``. La cadena vacia es valida (resetea a
+    "sin configurar"). El ``config.json`` se escribe de forma atomica
+    (``.tmp`` + rename) y se recarga en memoria: el siguiente GET y los FB
+    ven la nueva ruta sin reiniciar la app.
+
+    ``200`` con ``{ok, plantillas_path}``; ``400`` si el body no es un dict
+    o ``plantillas_path`` no es str; ``500`` si no se puede escribir el
+    config (permisos, disco lleno) o si la recarga falla.
+    """
+    body = request.get_json(silent=True)
+    if not isinstance(body, dict):
+        return jsonify({"error": "El body debe ser un JSON de objetos."}), 400
+    if "plantillas_path" not in body or not isinstance(body["plantillas_path"], str):
+        return jsonify({"error": "plantillas_path debe ser str."}), 400
+    nueva_ruta = body["plantillas_path"]
+
+    recargar = current_app.config.get(CLAVE_RECARGA_CONFIG)
+    if recargar is None:
+        return jsonify({"error": "No se puede guardar: la app no esta montada."}), 500
+    try:
+        ruta = recargar(ID, "plantillas_procesos", nueva_ruta)
+    except ConfigError as exc:
+        return jsonify({"error": str(exc)}), 500
+    logger.info(
+        "Ruta de plantillas de %s guardada: %r (%s)",
+        ID,
+        nueva_ruta,
+        ruta,
+    )
+    return jsonify({"ok": True, "plantillas_path": nueva_ruta, "ruta": str(ruta)}), 200
 
 
 @rutas.post("/procesos/crear/preview")

@@ -170,8 +170,10 @@ class ConfigArea(BaseModel):
     #: La tabla donde viven las constantes de los N_MAX de los dispositivos.
     tabla_nmax: str
 
-    #: La carpeta de las plantillas de los procesos, relativa a los datos.
-    plantillas_procesos: str = "plantillas"
+    #: La carpeta de las plantillas de los procesos. Vacia = sin
+    #: configurar: el GET de plantillas lo avisa y el FB de crear falla
+    #: con un mensaje claro.
+    plantillas_procesos: str = ""
 
     #: Los tipos de dispositivo, por clave. El orden es el de las pestanas.
     dispositivos: dict[str, ConfigDispositivo]

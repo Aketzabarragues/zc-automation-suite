@@ -95,7 +95,7 @@ def defaults(config: dict[str, Any]) -> dict[str, Any]:
     Returns:
         Un dict con los ajustes por defecto del area.
     """
-    return {"plantillas_procesos": "plantillas"}
+    return {"plantillas_procesos": ""}
 
 
 def valida_config(config: dict[str, Any]) -> str | None:

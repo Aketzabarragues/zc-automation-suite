@@ -8,7 +8,7 @@
         "procesos": "0_Procesos"
       },
       "tabla_nmax": "0_Config_Dispositivos",
-      "plantillas_procesos": "plantillas",
+      "plantillas_procesos": "",
       "dispositivos": {
         "ed": {
           "etiqueta": "ED",
