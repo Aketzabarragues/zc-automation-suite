@@ -861,6 +861,18 @@ describe("Procesos", () => {
       expect(wrapper.find('[data-testid="procesos-tarjeta-crear"]').classes()).not.toContain("border-accent");
     });
 
+    it("la tarjeta del modo crear deja hacer scroll y no recorta", async () => {
+      const { wrapper } = montarConTodo();
+      await flushPromises();
+      await wrapper.find('[data-testid="procesos-tarjeta-crear"]').trigger("click");
+      await flushPromises();
+
+      const tarjeta = wrapper.find('[data-testid="procesos-contenido"]');
+      expect(tarjeta.exists()).toBe(true);
+      expect(tarjeta.classes()).toContain("overflow-y-auto");
+      expect(tarjeta.classes()).not.toContain("overflow-hidden");
+    });
+
     it("pulsar 'crear' monta CrearProceso y oculta la de comentarios", async () => {
       const { wrapper } = montarConTodo();
       await flushPromises();

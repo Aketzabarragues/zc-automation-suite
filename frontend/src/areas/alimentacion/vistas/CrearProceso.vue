@@ -200,7 +200,7 @@ onMounted(() => {
 </script>
 
 <template>
-  <section class="flex-1 min-h-0 flex flex-col gap-4" data-testid="crear">
+  <section class="flex-none flex flex-col gap-4" data-testid="crear">
     <!-- ── la cabecera ────────────────────────────────────────────── -->
     <header class="flex justify-between items-start">
       <div>
@@ -346,7 +346,7 @@ onMounted(() => {
 
     <!-- ── la tabla comparativa DATO / PLANTILLA / PROCESO NUEVO ───── -->
     <div
-      class="flex-1 overflow-auto bg-surface-raised border border-line rounded"
+      class="flex-1 min-h-[14rem] overflow-auto bg-surface-raised border border-line rounded"
       data-testid="crear-tabla-nmax"
     >
       <table class="w-full text-xs">
@@ -452,7 +452,7 @@ onMounted(() => {
         <h3 class="text-sm font-semibold text-ink mb-2">
           Bloques a generar ({{ crear.bloquesPrevistos.length }})
         </h3>
-        <div class="flex-1 overflow-auto bg-surface-raised border border-line rounded">
+        <div class="flex-1 min-h-[14rem] overflow-auto bg-surface-raised border border-line rounded">
           <table class="w-full text-xs">
             <thead class="sticky top-0 bg-surface-sunken text-[10px] uppercase">
               <tr>
@@ -499,7 +499,7 @@ onMounted(() => {
               crear.dependenciasFaltantes.length
           }})
         </h3>
-        <div class="flex-1 overflow-auto bg-surface-raised border border-line rounded">
+        <div class="flex-1 min-h-[14rem] overflow-auto bg-surface-raised border border-line rounded">
           <table class="w-full text-xs">
             <thead class="sticky top-0 bg-surface-sunken text-[10px] uppercase">
               <tr>

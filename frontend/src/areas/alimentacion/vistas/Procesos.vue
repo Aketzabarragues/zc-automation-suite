@@ -191,7 +191,7 @@ onMounted(() => {
 
     <section
       v-else-if="modo === 'crear'"
-      class="flex-1 min-h-0 bg-surface-raised border border-line rounded p-4 flex flex-col overflow-hidden"
+      class="flex-1 min-h-0 bg-surface-raised border border-line rounded p-4 flex flex-col overflow-y-auto"
       data-testid="procesos-contenido"
     >
       <CrearProceso :proceso="procesoElegido" @cerrar="cerrarCrear" />

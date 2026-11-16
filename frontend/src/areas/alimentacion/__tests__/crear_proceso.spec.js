@@ -441,6 +441,40 @@ describe("CrearProceso", () => {
     });
   });
 
+  describe("el layout: alto natural y tablas que no se aplastan", () => {
+    it("la raiz crece con su contenido (flex-none, sin min-h-0)", async () => {
+      const { wrapper } = await montar(PROCESO);
+
+      const raiz = wrapper.find('[data-testid="crear"]');
+      expect(raiz.exists()).toBe(true);
+      expect(raiz.classes()).toContain("flex-none");
+      expect(raiz.classes()).not.toContain("min-h-0");
+    });
+
+    it("la tabla N_MAX no se aplasta: min-h-[14rem] y overflow-auto", async () => {
+      const { wrapper } = await montar(PROCESO);
+
+      const tabla = wrapper.find('[data-testid="crear-tabla-nmax"]');
+      expect(tabla.exists()).toBe(true);
+      expect(tabla.classes()).toContain("min-h-[14rem]");
+      expect(tabla.classes()).toContain("overflow-auto");
+    });
+
+    it("las tablas de bloques y dependencias no se aplastan: min-h-[14rem] y overflow-auto", async () => {
+      const { wrapper } = await montarConPrevision(PROCESO);
+
+      const bloques = wrapper.find('[data-testid="crear-bloques"] .overflow-auto');
+      expect(bloques.exists()).toBe(true);
+      expect(bloques.classes()).toContain("min-h-[14rem]");
+      expect(bloques.classes()).toContain("overflow-auto");
+
+      const dependencias = wrapper.find('[data-testid="crear-dependencias"] .overflow-auto');
+      expect(dependencias.exists()).toBe(true);
+      expect(dependencias.classes()).toContain("min-h-[14rem]");
+      expect(dependencias.classes()).toContain("overflow-auto");
+    });
+  });
+
   describe("el boton Generar Prevision", () => {
     it("esta deshabilitado sin plantilla", async () => {
       // Sin elegir plantilla (solo PLC y TIA): el boton queda deshabilitado.
