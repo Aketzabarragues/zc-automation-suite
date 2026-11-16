@@ -54,12 +54,8 @@ revisiones y la forma de trabajar.
 | 4.2 Prevision de dispositivos | Hecha y validada en V21 |
 | 4.3 Sincronizar dispositivos | Hecha y validada en V21 (3 transacciones confirmadas) |
 | 4.4 Entidades | Hecha. Paridad con main verificada con TIA simulado. Falta la prueba en V21 |
-| 4.5 Procesos: comentarios de DB (proc_db) | Hecha. La rama `feat/4.5-procesos` esta ya fundida en la rama (merge `a08c10d`), con su smoke y sus fixes (V18, carpeta de TIA, summary por array) |
-| 4.6 Crear proceso desde plantilla | Hecha en la rama: clonacion de plantillas, manifest, preview, store, vista y rutas (`3c347f2` y siguientes). Falta la validacion en V21 (solo SimaticSD) |
-
-El estado de 4.5/4.6 refleja el `git log` de la rama a fecha de la ultima
-revision de este documento; la skill original lo tenia como "en curso" y
-"pendiente".
+| 4.5 Procesos: comentarios de DB (proc_db) | Hecha. Paridad con main verificada con TIA simulado. Falta la prueba en V21 |
+| 4.6 Crear proceso desde plantilla | Hecha. Paridad con main verificada con TIA simulado. Falta la prueba en V21 |
 
 Datos de la prueba real de 4.3 en V21: prevision con 116 altas, 83 bajas,
 3 renombres y 10 N_MAX; sincronizacion completa en unos 47 s; prevision
@@ -170,14 +166,9 @@ El TIA simulado y los scripts de comparacion no estan en el repo.
 
 ## Pendiente
 
-- Revisar la 4.5 contra main (la rama ya esta fundida; falta el veredicto de
-  revision).
 - Decidir el caso "." de proc_db.
 - Prueba en V21 de 4.4 (comprobar antes el nombre del DB de entidades) y de
   4.5 y 4.6 (SimaticSD).
 - Opcional: traducir "Devices:" y "Entities:" de los dialogos de
   confirmacion.
 - Opcional: rendimiento del escaneo (unos 100 s en el proyecto real).
-- El test `test_lanzar_responde_409_si_hay_un_trabajo_en_curso` de
-  `tests/nucleo/web/test_web.py` falla a veces segun la velocidad del hilo de
-  TIA; hay un parche que lo arregla.
