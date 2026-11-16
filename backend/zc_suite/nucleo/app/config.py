@@ -22,6 +22,7 @@ import os
 import shutil
 import sys
 from collections.abc import Iterable
+from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -294,6 +295,67 @@ def estado_config(
         "motivo": motivo,
         "areas_faltantes": areas_registradas_faltantes(config, ids_areas),
     }
+
+
+def leer_datos(ruta: Path) -> dict[str, Any]:
+    """El ``config.json`` de ``ruta`` como dict, sin validar.
+
+    Es la mitad de ``cargar_config`` sin el esquema: la escritura atomica
+    necesita los datos crudos (validarlos antes de escribirlos es cosa del
+    llamador).
+
+    Raises:
+        ConfigError: si el fichero no existe o no es JSON valido.
+    """
+    try:
+        # ``utf-8-sig`` lee igual un fichero con BOM que sin el: hay
+        # editores que lo guardan con BOM y el app no deberia caer por eso.
+        texto = ruta.read_text(encoding="utf-8-sig")
+    except OSError as exc:
+        raise ConfigError(f"No se pudo leer el {NOMBRE_CONFIG} de {ruta}: {exc}") from exc
+    try:
+        return json.loads(texto)
+    except json.JSONDecodeError as exc:
+        raise ConfigError(
+            f"El {NOMBRE_CONFIG} de {ruta} no es JSON valido: {exc}"
+        ) from exc
+
+
+def escribir_config(ruta: Path, datos: dict[str, Any]) -> None:
+    """Escribe el ``config.json`` de ``ruta`` de forma atomica.
+
+    El dict va tal cual: se conserva lo que ya hubiera en el fichero
+    (otras areas, claves propias del operario) porque quien cambia una
+    clave lo hace sobre los datos crudos leidos aqui mismo.
+
+    Es atomica: primero se escribe a un ``.tmp`` de la misma carpeta y
+    luego ``os.replace`` (rename). Si el proceso muere a mitad, el
+    ``config.json`` anterior sigue entero; solo puede quedar el ``.tmp``
+    suelto, que se limpia en cuanto se puede.
+
+    El fichero se escribe sin BOM (``utf-8``): ``utf-8-sig`` lo lee igual
+    que uno con BOM, y asi la app nunca introduce un BOM nuevo.
+
+    Args:
+        ruta: el ``config.json`` que se escribe.
+        datos: el config completo, ya con el cambio aplicado.
+
+    Raises:
+        ConfigError: si la carpeta no existe o no se puede escribir
+            (permisos, disco lleno, disco de solo lectura).
+    """
+    try:
+        temporal = ruta.with_name(f"{ruta.name}.tmp")
+        with temporal.open("w", encoding="utf-8", newline="\n") as fh:
+            json.dump(datos, fh, indent=2, ensure_ascii=False)
+            fh.write("\n")
+        os.replace(temporal, ruta)
+    except OSError as exc:
+        with suppress(OSError):
+            temporal.unlink(missing_ok=True)
+        raise ConfigError(
+            f"No se pudo escribir el {NOMBRE_CONFIG} en {ruta}: {exc}"
+        ) from exc
 
 
 def cargar_config(ruta: Path | None = None) -> Config:
