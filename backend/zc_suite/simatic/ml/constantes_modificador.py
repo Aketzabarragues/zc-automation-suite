@@ -106,7 +106,7 @@ class ModificadorConstantesUsuario:
         Solo incluye constantes casteables a int (igual que el
         parser).
         """
-        result: dict[str, str] = {}
+        resultado: dict[str, str] = {}
         for const in self._root.findall(f".//{USER_CONSTANT_TAG}"):
             name_el = const.find(f".//{NAME_TAG}")
             value_el = const.find(f".//{VALUE_TAG}")
@@ -120,8 +120,8 @@ class ModificadorConstantesUsuario:
                 int(value)
             except ValueError:
                 continue
-            result[value] = name
-        return result
+            resultado[value] = name
+        return resultado
 
     def leer_constantes_con_comentarios(self) -> dict[str, dict[str, str | None]]:
         """Itera PlcUserConstants y devuelve ``{value_str: {"name", "comment"}}``.
@@ -137,7 +137,7 @@ class ModificadorConstantesUsuario:
         configurar el comment en la tabla de constantes, no en el indice
         del array del DB.
         """
-        result: dict[str, dict[str, str | None]] = {}
+        resultado: dict[str, dict[str, str | None]] = {}
         for const in self._root.findall(f".//{USER_CONSTANT_TAG}"):
             name_el = const.find(f".//{NAME_TAG}")
             value_el = const.find(f".//{VALUE_TAG}")
@@ -159,8 +159,8 @@ class ModificadorConstantesUsuario:
                     stripped = text_el.text.strip()
                     if stripped:
                         comment = stripped
-            result[value] = {"name": name, "comment": comment}
-        return result
+            resultado[value] = {"name": name, "comment": comment}
+        return resultado
 
     def _constante_de_plantilla(self) -> ET.Element | None:
         """Devuelve el primer PlcUserConstant del documento como plantilla."""
@@ -169,12 +169,12 @@ class ModificadorConstantesUsuario:
 
     def _nombres_de_constantes_existentes(self) -> set[str]:
         """Devuelve el conjunto de ``<Name>`` ya presentes."""
-        result: set[str] = set()
+        resultado: set[str] = set()
         for const in self._root.findall(f".//{USER_CONSTANT_TAG}"):
             name_el = const.find(f".//{NAME_TAG}")
             if name_el is not None and name_el.text:
-                result.add(name_el.text.strip())
-        return result
+                resultado.add(name_el.text.strip())
+        return resultado
 
     def anadir_constantes_de_tabla(
         self,

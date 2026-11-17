@@ -67,7 +67,7 @@ class ParserConstantesUsuario:
         el mismo nombre (no deberia pasar en TIA, pero por si acaso),
         gana la ultima ocurrencia.
         """
-        result: dict[str, int] = {}
+        resultado: dict[str, int] = {}
         # ``ET.iter`` NO soporta el wildcard ``{*}`` (limitacion Python 3.x).
         # Usamos ``findall(".//{*}...")`` que si acepta la sintaxis wildcard.
         for constant in raiz.findall(f".//{USER_CONSTANT_TAG}"):
@@ -87,5 +87,5 @@ class ParserConstantesUsuario:
             except ValueError:
                 # Constantes Real / String / Bool: se descartan.
                 continue
-            result[name_text] = int_value
-        return result
+            resultado[name_text] = int_value
+        return resultado

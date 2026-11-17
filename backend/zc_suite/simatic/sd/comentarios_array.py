@@ -184,7 +184,7 @@ def comentarios_actuales(
     """
     id_a_texto = mapa_mlc(texto_res)
 
-    result: dict[int, str | None] = {}
+    resultado: dict[int, str | None] = {}
     for indice in indices:
         mlc_id = None
         if texto_dcl is not None:
@@ -196,17 +196,17 @@ def comentarios_actuales(
                 if mlc_match:
                     mlc_id = mlc_match.group("id")
         if mlc_id and mlc_id in id_a_texto:
-            result[indice] = id_a_texto[mlc_id]
+            resultado[indice] = id_a_texto[mlc_id]
         else:
-            result[indice] = None
-    return result
+            resultado[indice] = None
+    return resultado
 
 
 def _procesar_indice(
     texto_dcl: str,
     ids_usados: set[str],
     textos_mlc: list[dict[str, str]],
-    result: ResultadoArray,
+    resultado: ResultadoArray,
     indice: int,
     nuevo_comentario: str,
     nombre_array: str,
@@ -228,7 +228,7 @@ def _procesar_indice(
             texto_dcl,
             ids_usados,
             textos_mlc,
-            result,
+            resultado,
             indice,
             nuevo_comentario,
             nombre_array,
@@ -249,7 +249,7 @@ def _procesar_indice(
             _caso_b(
                 texto_dcl,
                 ids_a_eliminar,
-                result,
+                resultado,
                 indice,
                 meta_str,
                 declaracion,
@@ -264,7 +264,7 @@ def _procesar_indice(
     if nuevo_comentario and id_existente:
         _caso_c(
             textos_mlc,
-            result,
+            resultado,
             indice,
             id_existente,
             nuevo_comentario,
@@ -277,7 +277,7 @@ def _procesar_indice(
             texto_dcl,
             ids_usados,
             textos_mlc,
-            result,
+            resultado,
             indice,
             nuevo_comentario,
             nombre_array,
@@ -287,7 +287,7 @@ def _procesar_indice(
         )
 
     # Sin MLC y texto vacio: no-op.
-    result.noop.append(indice)
+    resultado.noop.append(indice)
     return texto_dcl, ids_usados, textos_mlc
 
 
@@ -319,7 +319,7 @@ def _caso_a(
     texto_dcl: str,
     ids_usados: set[str],
     textos_mlc: list[dict[str, str]],
-    result: ResultadoArray,
+    resultado: ResultadoArray,
     indice: int,
     nuevo_comentario: str,
     nombre_array: str,
@@ -331,7 +331,7 @@ def _caso_a(
     ``(texto_dcl, ids_usados, textos_mlc)`` actualizados.
     """
     if not nuevo_comentario:
-        result.noop.append(indice)
+        resultado.noop.append(indice)
         return texto_dcl, ids_usados, textos_mlc
     nuevo_id = siguiente_id_mlc(ids_usados)
     ids_usados.add(nuevo_id)
@@ -348,14 +348,14 @@ def _caso_a(
         "\nEND_DATA_BLOCK", f"{inyeccion}\nEND_DATA_BLOCK", 1,
     )
     textos_mlc.append({"id": nuevo_id, "es-ES": nuevo_comentario})
-    result.injected[indice] = nuevo_id
+    resultado.injected[indice] = nuevo_id
     return texto_dcl, ids_usados, textos_mlc
 
 
 def _caso_b(
     texto_dcl: str,
     ids_a_eliminar: set[str],
-    result: ResultadoArray,
+    resultado: ResultadoArray,
     indice: int,
     meta_str: str,
     declaracion: str,
@@ -382,13 +382,13 @@ def _caso_b(
             f"{{\n            {nuevos_meta}\n        }}\n        {declaracion}",
             1,
         )
-    result.removed.append(indice)
+    resultado.removed.append(indice)
     return texto_dcl
 
 
 def _caso_c(
     textos_mlc: list[dict[str, str]],
-    result: ResultadoArray,
+    resultado: ResultadoArray,
     indice: int,
     id_existente: str,
     nuevo_comentario: str,
@@ -398,10 +398,10 @@ def _caso_c(
         if item.get("id") == id_existente:
             texto_actual = item.get("es-ES", "")
             if texto_actual == nuevo_comentario:
-                result.noop.append(indice)
+                resultado.noop.append(indice)
             else:
                 item["es-ES"] = nuevo_comentario
-                result.updated[indice] = id_existente
+                resultado.updated[indice] = id_existente
             break
     else:
         # MLC existe en .s7dcl pero no en .s7res (estado
@@ -409,14 +409,14 @@ def _caso_c(
         textos_mlc.append(
             {"id": id_existente, "es-ES": nuevo_comentario}
         )
-        result.updated[indice] = id_existente
+        resultado.updated[indice] = id_existente
 
 
 def _caso_d(
     texto_dcl: str,
     ids_usados: set[str],
     textos_mlc: list[dict[str, str]],
-    result: ResultadoArray,
+    resultado: ResultadoArray,
     indice: int,
     nuevo_comentario: str,
     nombre_array: str,
@@ -447,7 +447,7 @@ def _caso_d(
             f"        {declaracion}"
         )
         texto_dcl = texto_dcl.replace(bloque_completo, nuevo_bloque, 1)
-    result.injected[indice] = nuevo_id
+    resultado.injected[indice] = nuevo_id
     return texto_dcl, ids_usados, textos_mlc
 
 
@@ -524,14 +524,14 @@ def confirmar_comentarios_array(
     )
     ids_a_eliminar: set[str] = set()
 
-    result = ResultadoArray(nombre_array=nombre_array)
+    resultado = ResultadoArray(nombre_array=nombre_array)
 
     for indice, nuevo_comentario in mapa_indices.items():
         texto_dcl, ids_usados, textos_mlc = _procesar_indice(
             texto_dcl,
             ids_usados,
             textos_mlc,
-            result,
+            resultado,
             indice,
             nuevo_comentario,
             nombre_array,
@@ -555,11 +555,11 @@ def confirmar_comentarios_array(
 
     _logger.debug(
         f"confirmar_comentarios_array: array={nombre_array!r} type={tipo_array!r} "
-        f"indices={len(mapa_indices)} injected={len(result.injected)} "
-        f"reused={len(result.reused)} updated={len(result.updated)} "
-        f"removed={len(result.removed)} noop={len(result.noop)}"
+        f"indices={len(mapa_indices)} injected={len(resultado.injected)} "
+        f"reused={len(resultado.reused)} updated={len(resultado.updated)} "
+        f"removed={len(resultado.removed)} noop={len(resultado.noop)}"
     )
-    return result
+    return resultado
 
 
 __all__ = [
