@@ -176,10 +176,19 @@ def test_suscribirse_a_un_bus_cerrado_falla() -> None:
 
 
 def test_publicar_en_un_bus_cerrado_no_falla() -> None:
+    """No se reparte a nadie y no deja rastro para una suscripcion futura."""
     bus = BusEventos()
     bus.cerrar()
 
     bus.publicar("log", {"nivel": "info", "mensaje": "hola"})
+
+    assert bus.cerrado is True
+    assert bus.suscriptores == 0
+    assert bus.ultimo_progress() is None
+    assert bus.ultimo_tia() is None
+    assert bus.ultimo_job() is None
+    with pytest.raises(BusCerradoError):
+        bus.suscribir()
 
 
 # ── hidratacion del ultimo job ────────────────────────────────────────────
@@ -309,6 +318,7 @@ def test_el_handler_publica_las_lineas_de_log() -> None:
 
 
 def test_el_handler_ignora_un_bus_cerrado() -> None:
+    """La linea se loggea pero no llega al bus: no queda rastro en el ultimo."""
     bus = BusEventos()
     bus.cerrar()
     logger_prueba = logging.getLogger("zc_suite.test_eventos_cerrado")
@@ -318,6 +328,10 @@ def test_el_handler_ignora_un_bus_cerrado() -> None:
         logger_prueba.info("no debe romper nada")
     finally:
         desconectar_logging(logger_prueba, handler)
+
+    assert bus.ultimo_progress() is None
+    assert bus.ultimo_tia() is None
+    assert bus.ultimo_job() is None
 
 
 def test_el_handler_se_puede_enchufar_y_desenchufar() -> None:

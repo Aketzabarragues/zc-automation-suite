@@ -247,11 +247,19 @@ def test_las_limpiezas_no_se_salen_de_su_contexto(tmp_path: Path) -> None:
 
 
 def test_limpiar_una_carpeta_inexistente_no_falla(tmp_path: Path) -> None:
+    """Limpiar sin haber creado: no lanza y deja el layout completo en disco."""
     wd = Workdir(base=tmp_path / "ctx")
 
     wd.limpiar_preview()
     wd.limpiar_sincronizar()
     wd.limpiar_todo()
+
+    assert wd.base.is_dir()
+    assert wd.preview.is_dir()
+    assert wd.variables_export.is_dir()
+    assert wd.variables_modified.is_dir()
+    assert wd.bloques_export.is_dir()
+    assert wd.bloques_modified.is_dir()
 
 
 def test_el_workdir_se_puede_inyectar_en_una_funcion(tmp_path: Path) -> None:

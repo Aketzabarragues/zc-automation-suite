@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib
+import sys
 
 import pytest
 
@@ -24,7 +25,11 @@ PAQUETES_NUCLEO: tuple[str, ...] = (
 @pytest.mark.parametrize("nombre", PAQUETES_NUCLEO)
 def test_paquete_del_nucleo_es_importable(nombre: str) -> None:
     modulo = importlib.import_module(nombre)
+    # Es un paquete (tiene __path__), no un modulo suelto, y es el objeto
+    # registrado en sys.modules: un reemplazo o un import parcial no pasan.
     assert modulo.__name__ == nombre
+    assert getattr(modulo, "__path__", None) is not None
+    assert sys.modules[nombre] is modulo
 
 
 def test_version_del_paquete() -> None:

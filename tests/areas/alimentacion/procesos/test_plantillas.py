@@ -127,7 +127,7 @@ def test_leer_manifest_dependencias_elemento_vacio(tmp_path: Path) -> None:
 
 def test_validar_minimos_suficientes() -> None:
     """Los minimos del operario cubren los de la plantilla: no lanza."""
-    proc_validar_minimos(
+    assert proc_validar_minimos(
         MANIFEST_VALIDO,
         {
             "N_MAX_PREAL": 10,
@@ -135,14 +135,14 @@ def test_validar_minimos_suficientes() -> None:
             "N_MAX_ALM": 0,
             "N_MAX_ALM_HMI": 0,
         },
-    )
+    ) is None
 
 
 def test_validar_minimos_sin_clave_en_manifest() -> None:
     """Sin 'minimos' en el manifest (o con minimos vacios) no hay minimo."""
     manifest = {k: v for k, v in MANIFEST_VALIDO.items() if k != "minimos"}
-    proc_validar_minimos(manifest, {})
-    proc_validar_minimos({"minimos": {}}, {})
+    assert proc_validar_minimos(manifest, {}) is None
+    assert proc_validar_minimos({"minimos": {}}, {}) is None
 
 
 def test_validar_minimos_insuficientes_lista_todas_las_claves() -> None:
@@ -174,10 +174,10 @@ def test_validar_minimos_insuficientes_lista_todas_las_claves() -> None:
 
 def test_validar_minimos_cubre_justo() -> None:
     """Igual al minimo (no menor) vale: no lanza."""
-    proc_validar_minimos(
+    assert proc_validar_minimos(
         MANIFEST_VALIDO,
         {"N_MAX_PREAL": 10, "N_MAX_PINT": 5},
-    )
+    ) is None
 
 
 def test_excepciones_cuelgan_de_zcerror() -> None:

@@ -14,6 +14,7 @@ from flask import Flask, jsonify
 from zc_suite.nucleo.tia.eventos import BusEventos
 from zc_suite.nucleo.tia.servicio import ServicioTIA
 from zc_suite.nucleo.web.app import (
+    PUERTO_POR_DEFECTO,
     HTTPError,
     crear_app,
     exigir_host,
@@ -296,9 +297,11 @@ def test_una_peticion_con_host_sin_puerto_se_rechaza(cliente: Any) -> None:
 
 
 def test_exigir_host_acepta_los_dos_loopback(app: Flask) -> None:
-    for host in ("127.0.0.1:9484", "localhost:9484"):
+    """El Host de loopback con el puerto configurado no lanza HTTPError."""
+    puerto = app.config.get("ZC_PUERTO", PUERTO_POR_DEFECTO)
+    for host in (f"127.0.0.1:{puerto}", f"localhost:{puerto}"):
         with app.test_request_context("/", headers={"Host": host}):
-            exigir_host()
+            assert exigir_host() is None
 
 
 def test_exigir_host_rechaza_un_host_ajeno(app: Flask) -> None:
