@@ -466,46 +466,71 @@ class ModificadorConstantesUsuario:
           RuntimeError: si el constant no tiene ``<ObjectList>``
             (estructura corrupta del template).
         """
+        object_list = self._asegurar_object_list(const)
+        mlt = self._localizar_multilingual_text(object_list)
+        text_el = self._asegurar_multilingual_text(object_list, mlt)
+        # Actualizar el texto (string vacio = limpiar).
+        text_el.text = text if text else None
+
+    def _asegurar_object_list(self, const: ET.Element) -> ET.Element:
+        """Devuelve el ``<ObjectList>`` hijo directo de ``const``.
+
+        Crearlo si no existe: en TIA real los constants SIEMPRE tienen
+        ObjectList; la creacion es solo defensa contra templates corruptos
+        (e.g. tests).
+        """
         object_list_local = OBJECT_LIST_TAG.split("}", 1)[-1]
-        multi_text_local = MULTI_LINGUAL_TEXT_TAG.split("}", 1)[-1]
-        text_local = TEXT_TAG.split("}", 1)[-1]
 
         # Buscar <ObjectList> hijo directo. element.find() requiere el
         # nombre con namespace completo; usamos XPath wildcard para
         # soportar tanto ``{*}ObjectList`` como ``{ns}ObjectList``.
         object_list = const.find(f"./{OBJECT_LIST_TAG}")
-        if object_list is None:
-            # Tolerar template sin ObjectList (e.g. tests): crearlo
-            # antes de inyectar el comment. En TIA real los constants
-            # SIEMPRE tienen ObjectList; esto es solo defensa.
-            name_text = ""
-            name_el = const.find(NAME_TAG)
-            if name_el is not None:
-                name_text = str(name_el.text or "")
-            # Usar el mismo namespace que el padre.
-            local_ns = (
-                const.tag.split("}", 1)[0] + "}"
-                if "}" in const.tag else ""
-            )
-            object_list = ET.SubElement(const, local_ns + object_list_local)
-            _logger.debug(
-                f"ModificadorConstantesUsuario._inyectar_comentario_multilingue: "
-                f"constant '{name_text}' no tenia <ObjectList>; creado"
-            )
+        if object_list is not None:
+            return object_list
+        name_text = ""
+        name_el = const.find(NAME_TAG)
+        if name_el is not None:
+            name_text = str(name_el.text or "")
+        # Usar el mismo namespace que el padre.
+        local_ns = (
+            const.tag.split("}", 1)[0] + "}"
+            if "}" in const.tag else ""
+        )
+        object_list = ET.SubElement(const, local_ns + object_list_local)
+        _logger.debug(
+            f"ModificadorConstantesUsuario._inyectar_comentario_multilingue: "
+            f"constant '{name_text}' no tenia <ObjectList>; creado"
+        )
+        return object_list
 
-        # Buscar/crear <MultilingualText CompositionName="Comment">
-        # DENTRO de <ObjectList>. child.tag incluye el namespace
-        # completo (e.g. ``{http://...}MultilingualText``); comparar
-        # solo el local name (parte tras ``}``) o usar wildcard XPath.
-        mlt = None
+    @staticmethod
+    def _localizar_multilingual_text(object_list: ET.Element) -> ET.Element | None:
+        """El ``<MultilingualText CompositionName="Comment">`` de ``object_list``.
+
+        ``None`` si no existe. child.tag incluye el namespace completo
+        (e.g. ``{http://...}MultilingualText``); se compara solo el local
+        name (parte tras ``}``).
+        """
+        multi_text_local = MULTI_LINGUAL_TEXT_TAG.split("}", 1)[-1]
         for child in object_list:
             local = child.tag.split("}", 1)[-1] if "}" in child.tag else child.tag
             if local == multi_text_local and child.get(
                 "CompositionName", ""
             ) == "Comment":
-                mlt = child
-                break
+                return child
+        return None
 
+    def _asegurar_multilingual_text(
+        self, object_list: ET.Element, mlt: ET.Element | None
+    ) -> ET.Element:
+        """El elemento ``<Text>`` donde inyectar el comentario, creandolo si no existe.
+
+        Si ``mlt`` es ``None`` crea la estructura canonica DENTRO de
+        ``<ObjectList>``; si existe, reusa su primer
+        ``<MultilingualTextItem>`` (o lo crea si falta).
+        """
+        object_list_local = OBJECT_LIST_TAG.split("}", 1)[-1]
+        text_local = TEXT_TAG.split("}", 1)[-1]
         if mlt is None:
             # Crear la estructura canonica DENTRO de <ObjectList>.
             # Usar el mismo namespace que el padre para consistencia.
@@ -515,7 +540,7 @@ class ModificadorConstantesUsuario:
             )
             mlt = ET.SubElement(
                 object_list,
-                local_ns + multi_text_local,
+                local_ns + MULTI_LINGUAL_TEXT_TAG.split("}", 1)[-1],
                 {"CompositionName": "Comment"},
             )
             mlt_inner_ol = ET.SubElement(mlt, local_ns + object_list_local)
@@ -526,33 +551,30 @@ class ModificadorConstantesUsuario:
             )
             mlti_al = ET.SubElement(mlti, local_ns + "AttributeList")
             ET.SubElement(mlti_al, local_ns + "Culture").text = "es-ES"
-            text_el = ET.SubElement(mlti_al, local_ns + text_local)
-        else:
-            # Reusar el primer <MultilingualTextItem> existente.
-            # Usar wildcard XPath porque element.find() requiere el
-            # nombre con namespace completo para matchear.
-            mlti = mlt.find(f"{OBJECT_LIST_TAG}/MultilingualTextItem")
-            if mlti is None:
-                # Tag local: usar el mismo namespace que mlt (heredado).
-                local_ns = mlt.tag.split("}", 1)[0] + "}" if "}" in mlt.tag else ""
-                mlt_inner_ol = ET.SubElement(mlt, local_ns + object_list_local)
-                mlti = ET.SubElement(
-                    mlt_inner_ol,
-                    local_ns + "MultilingualTextItem",
-                    {"CompositionName": "Items"},
-                )
-                mlti_al = ET.SubElement(mlti, local_ns + "AttributeList")
-                ET.SubElement(mlti_al, local_ns + "Culture").text = "es-ES"
-                text_el = ET.SubElement(mlti_al, local_ns + text_local)
-            else:
-                text_el = mlti.find(f"AttributeList/{TEXT_TAG}")
-                if text_el is None:
-                    text_el = ET.SubElement(
-                        mlti.find("AttributeList"),
-                        text_local,
-                    )
-        # Actualizar el texto (string vacio = limpiar).
-        text_el.text = text if text else None
+            return ET.SubElement(mlti_al, local_ns + text_local)
+        # Reusar el primer <MultilingualTextItem> existente.
+        # Usar wildcard XPath porque element.find() requiere el
+        # nombre con namespace completo para matchear.
+        mlti = mlt.find(f"{OBJECT_LIST_TAG}/MultilingualTextItem")
+        if mlti is None:
+            # Tag local: usar el mismo namespace que mlt (heredado).
+            local_ns = mlt.tag.split("}", 1)[0] + "}" if "}" in mlt.tag else ""
+            mlt_inner_ol = ET.SubElement(mlt, local_ns + object_list_local)
+            mlti = ET.SubElement(
+                mlt_inner_ol,
+                local_ns + "MultilingualTextItem",
+                {"CompositionName": "Items"},
+            )
+            mlti_al = ET.SubElement(mlti, local_ns + "AttributeList")
+            ET.SubElement(mlti_al, local_ns + "Culture").text = "es-ES"
+            return ET.SubElement(mlti_al, local_ns + text_local)
+        text_el = mlti.find(f"AttributeList/{TEXT_TAG}")
+        if text_el is None:
+            text_el = ET.SubElement(
+                mlti.find("AttributeList"),
+                text_local,
+            )
+        return text_el
 
     def _anadir_despues_de_la_ultima(self, new_const: ET.Element) -> None:
         """Inserta ``new_const`` tras el ultimo PlcUserConstant hermano si existe."""
