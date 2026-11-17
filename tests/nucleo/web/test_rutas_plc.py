@@ -7,6 +7,7 @@ from typing import Any
 
 import pytest
 from flask import Flask, jsonify
+from tests._dobles import PortalWebFalso
 
 from zc_suite.nucleo.sesion import CLAVE_SESION, Sesion
 from zc_suite.nucleo.tia.eventos import BusEventos
@@ -15,19 +16,6 @@ from zc_suite.nucleo.web.app import crear_app
 from zc_suite.nucleo.web.rutas import plc
 
 BASE = "http://localhost:9484"
-
-
-class PortalFalso:
-    """Doble minimo del portal de TIA."""
-
-    def get_process_id(self) -> int:
-        return 4242
-
-    def get_project(self) -> Any:
-        return None
-
-    def detach(self) -> None:
-        pass
 
 
 class TsFalso:
@@ -40,12 +28,12 @@ class TsFalso:
             WithoutGraphicalUserInterface = "sin_gui"
 
     def __init__(self) -> None:
-        self.portal = PortalFalso()
+        self.portal = PortalWebFalso()
 
-    def attach_portal(self, portal_mode: str | None = None) -> PortalFalso:
+    def attach_portal(self, portal_mode: str | None = None) -> PortalWebFalso:
         return self.portal
 
-    def open_portal(self, portal_mode: str | None = None) -> PortalFalso:
+    def open_portal(self, portal_mode: str | None = None) -> PortalWebFalso:
         return self.portal
 
     def set_logging(self, path: str, console: bool) -> None:

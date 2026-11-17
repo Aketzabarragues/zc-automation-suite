@@ -65,6 +65,29 @@ class ProyectoFalso:
         return [self.plc]
 
 
+class PortalFalso:
+    """El portal de TIA, con el proyecto ya construido."""
+
+    def __init__(self, plc: Any | None = None) -> None:
+        self.proyecto = ProyectoFalso(plc) if plc is not None else None
+
+    def get_project(self) -> ProyectoFalso | None:
+        return self.proyecto
+
+
+class PortalWebFalso:
+    """El portal minimo de las rutas web: proyecto cerrado y sin pid real."""
+
+    def get_process_id(self) -> int:
+        return 4242
+
+    def get_project(self) -> None:
+        return None
+
+    def detach(self) -> None:
+        pass
+
+
 class PlcSyncFalso:
     """El PLC del sync: tablas de tags, bloques y la importacion."""
 

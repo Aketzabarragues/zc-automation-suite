@@ -5,11 +5,12 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
+from tests._dobles import (
+    PortalFalso,
+)
 
 from zc_suite.errores import OperacionError
 from zc_suite.tia_ops import bloques as ops
-
-from tests._dobles import ProyectoFalso
 
 # ── dobles de test ─────────────────────────────────────────────────────────
 
@@ -113,13 +114,6 @@ class PlcFalso:
 class UserDataTypeContador(UserDataType, BloqueContador):
     """UDT que cuenta las llamadas al SDK."""
 
-
-class PortalFalso:
-    def __init__(self, plc: PlcFalso | None = None) -> None:
-        self.proyecto = ProyectoFalso(plc) if plc is not None else None
-
-    def get_project(self) -> ProyectoFalso | None:
-        return self.proyecto
 
 
 def _portal(bloques: list[BloqueFalso] | None = None) -> tuple[PortalFalso, PlcFalso]:

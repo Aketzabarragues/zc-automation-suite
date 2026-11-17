@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import pytest
+from tests._dobles import (
+    PortalFalso,
+)
 
 from zc_suite.errores import OperacionError
 from zc_suite.tia_ops import tablas as ops
-
-from tests._dobles import ProyectoFalso
 
 
 class TablaFalsa:
@@ -32,13 +33,6 @@ class PlcFalso:
     def get_plc_tag_tables(self) -> list[TablaFalsa]:
         return self.tablas
 
-
-class PortalFalso:
-    def __init__(self, plc: PlcFalso | None = None) -> None:
-        self.proyecto = ProyectoFalso(plc) if plc is not None else None
-
-    def get_project(self) -> ProyectoFalso | None:
-        return self.proyecto
 
 
 def test_escanear_tablas_devuelve_nombre_y_ruta() -> None:
