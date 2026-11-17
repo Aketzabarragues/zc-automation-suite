@@ -747,6 +747,36 @@ describe("CrearProceso", () => {
     });
   });
 
+  describe("la nota de version de TIA", () => {
+    it("con TIA V18 la muestra y con V21.0, V21.1 o version vacia no la muestra", async () => {
+      const { wrapper, tia } = await montar(PROCESO);
+
+      // Version vacia (estado inicial): la nota no se muestra.
+      expect(tia.version_tia).toBe("");
+      expect(wrapper.find('[data-testid="crear-nota-version"]').exists()).toBe(false);
+
+      // V18: la nota se muestra.
+      tia.version_tia = "V18";
+      await flushPromises();
+      expect(wrapper.find('[data-testid="crear-nota-version"]').exists()).toBe(true);
+
+      // V18.0: la nota se sigue mostrando.
+      tia.version_tia = "V18.0 Upd5";
+      await flushPromises();
+      expect(wrapper.find('[data-testid="crear-nota-version"]').exists()).toBe(true);
+
+      // V21.0: no se muestra.
+      tia.version_tia = "V21.0";
+      await flushPromises();
+      expect(wrapper.find('[data-testid="crear-nota-version"]').exists()).toBe(false);
+
+      // V21.1: no se muestra.
+      tia.version_tia = "V21.1";
+      await flushPromises();
+      expect(wrapper.find('[data-testid="crear-nota-version"]').exists()).toBe(false);
+    });
+  });
+
   describe("el resultado de crear", () => {
     it("tras crear OK: panel verde con el proceso creado, el numero de archivos, las transacciones y sin aviso de compilacion", async () => {
       const { wrapper, trabajos } = await montarConPrevision(PROCESO, PREVISION_OK);

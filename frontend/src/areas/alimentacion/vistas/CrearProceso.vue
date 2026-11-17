@@ -94,6 +94,15 @@ const textoAplicar = computed(() =>
   crear.aplicando ? "⏳ Aplicando…" : "✅ Aplicar Cambios en TIA Portal",
 );
 
+/**
+ * `true` si la version de TIA conocida es anterior a V21. Version vacia o no
+ * interpretable: `false` (no se inventa la advertencia sin dato).
+ */
+const notaVersionVisible = computed(() => {
+  const numero = Number(tia.version_tia.match(/\d+/)?.[0]);
+  return Number.isInteger(numero) && numero < 21;
+});
+
 /** `true` mientras el dialogo de confirmacion esta abierto. */
 const dialogoAbierto = ref(false);
 
@@ -610,8 +619,8 @@ onMounted(() => {
       </p>
     </div>
 
-    <!-- ── la nota de version ──────────────────────────────────────── -->
-    <p class="text-[10px] text-ink-muted" data-testid="crear-nota-version">
+    <!-- ── la nota de version, solo en TIA anterior a V21 ──────────── -->
+    <p v-if="notaVersionVisible" class="text-[10px] text-ink-muted" data-testid="crear-nota-version">
       Crear un proceso necesita TIA Portal V21 o superior.
     </p>
 
