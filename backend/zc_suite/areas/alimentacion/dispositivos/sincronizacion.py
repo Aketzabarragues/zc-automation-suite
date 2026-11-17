@@ -25,7 +25,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from zc_suite.areas.alimentacion.dispositivos.diferencias import DiffNMax, DiffTabla
+from zc_suite.areas.alimentacion.dispositivos.diferencias import DiffTabla
 from zc_suite.simatic.ml import ModificadorConstantesUsuario
 
 logger = logging.getLogger(__name__)
@@ -64,34 +64,6 @@ def disp_localizar_xml(base: Path, tabla: str) -> Path | None:
 
 
 # ── las operaciones que hay que aplicar ─────────────────────────────────────
-
-
-def disp_calcular_operaciones_n_max(tabla: str, diff: DiffNMax) -> list[dict[str, Any]]:
-    """Las operaciones de N_MAX que hay que aplicar en linea.
-
-    Solo se proponen las constantes que **ya existen** en TIA y cuyo valor
-    no coincide. Una constante que no esta en TIA no se puede cambiar: el
-    cambio de valor fallaria. Es lo que hace ``main``.
-
-    Sin XML de TIA no se propone nada: no se puede saber cual es el valor
-    actual, y cambiarlo a ciegas dejaria el PLC mal dimensionado.
-
-    Args:
-        tabla: la tabla de TIA donde viven los N_MAX.
-        diff: el diff de los N_MAX.
-
-    Returns:
-        La lista de ``{"tabla", "constante", "valor"}``.
-    """
-    return [
-        {
-            "tabla": tabla,
-            "constante": str(fila["name"]),
-            "valor": int(fila["nuevo"]),
-        }
-        for fila in diff.todos
-        if fila["status"] == "actualizar" and str(fila["name"]) in diff.actual
-    ]
 
 
 def disp_calcular_renombres(diffs: dict[str, DiffTabla]) -> list[dict[str, str]]:

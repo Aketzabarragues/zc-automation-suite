@@ -49,7 +49,6 @@ from zc_suite.areas.alimentacion.entidades.diferencias import (
 from zc_suite.areas.alimentacion.entidades.sincronizacion import (
     ent_calcular_operaciones_comentarios,
     ent_calcular_operaciones_constantes,
-    ent_calcular_operaciones_n_max,
     ent_copiar_y_editar,
 )
 from zc_suite.areas.alimentacion.excel.almacen import AlmacenExcel
@@ -61,6 +60,7 @@ from zc_suite.areas.alimentacion.sincronizacion_comun import (
     ESTADO_CONFIRMADA,
     ESTADO_NO_EJECUTADA,
     ESTADO_REVIRTIDA,
+    calcular_operaciones_n_max,
     compilar_con_aviso,
     estado_no_ejecutada,
     estados_iniciales,
@@ -313,7 +313,7 @@ def _preparar_operaciones(
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
     """Las operaciones del sync: N_MAX, constantes y comentarios."""
     return (
-        ent_calcular_operaciones_n_max(config.entidades.tabla_config, diff_n_max),
+        calcular_operaciones_n_max(config.entidades.tabla_config, diff_n_max),
         ent_calcular_operaciones_constantes(diff_constantes),
         ent_calcular_operaciones_comentarios(filas),
     )

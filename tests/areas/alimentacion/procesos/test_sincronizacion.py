@@ -16,7 +16,9 @@ from zc_suite.areas.alimentacion.procesos.sincronizacion import (
     proc_confirmar_db,
     proc_localizar_db,
     proc_mapa_apply,
-    proc_operaciones_n_max,
+)
+from zc_suite.areas.alimentacion.sincronizacion_comun import (
+    calcular_operaciones_n_max,
 )
 
 # ── localizar los SimaticSD ─────────────────────────────────────────────────
@@ -305,7 +307,7 @@ def _diff_n_max() -> DiffNMax:
 
 
 def test_operaciones_n_max_solo_los_que_cambian_y_estan_en_tia() -> None:
-    ops = proc_operaciones_n_max("100_CPR", _diff_n_max())
+    ops = calcular_operaciones_n_max("100_CPR", _diff_n_max())
     assert ops == [{"tabla": "100_CPR", "constante": "100_N_MAX_PREAL", "valor": 4}]
 
 
@@ -320,7 +322,7 @@ def test_operaciones_n_max_vacias_si_no_hay_cambios() -> None:
         resumen={"igual": 1, "actualizar": 0, "falta": 0},
         xml_ausente=False,
     )
-    assert proc_operaciones_n_max("100_CPR", diff) == []
+    assert calcular_operaciones_n_max("100_CPR", diff) == []
 
 
 def test_operaciones_n_max_no_toca_los_que_no_estan_en_tia() -> None:
@@ -334,7 +336,7 @@ def test_operaciones_n_max_no_toca_los_que_no_estan_en_tia() -> None:
         resumen={"igual": 0, "actualizar": 0, "falta": 1},
         xml_ausente=False,
     )
-    assert proc_operaciones_n_max("100_CPR", diff) == []
+    assert calcular_operaciones_n_max("100_CPR", diff) == []
 
 
 # ── el orden de los arrays ──────────────────────────────────────────────────

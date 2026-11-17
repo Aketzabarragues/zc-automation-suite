@@ -16,11 +16,13 @@ from zc_suite.areas.alimentacion.dispositivos.diferencias import (
 from zc_suite.areas.alimentacion.dispositivos.sincronizacion import (
     COMENTARIO_SLOT_CERO,
     disp_calcular_cambios_dispositivos,
-    disp_calcular_operaciones_n_max,
     disp_calcular_renombres,
     disp_copiar_y_editar,
     disp_localizar_xml,
     disp_mapa_comentarios,
+)
+from zc_suite.areas.alimentacion.sincronizacion_comun import (
+    calcular_operaciones_n_max,
 )
 
 #: El XML de una tabla de tags, tal y como lo exporta TIA en plano.
@@ -108,7 +110,7 @@ def test_localiza_el_xml_plano_y_el_de_jerarquia(tmp_path: Path) -> None:
 
 def test_las_operaciones_de_n_max_solo_son_las_que_cambian() -> None:
     """Solo se propone cambiar el N_MAX cuyo valor no coincide."""
-    operaciones = disp_calcular_operaciones_n_max("0_Config_Dispositivos", _diff_n_max())
+    operaciones = calcular_operaciones_n_max("0_Config_Dispositivos", _diff_n_max())
 
     assert operaciones == [
         {"tabla": "0_Config_Dispositivos", "constante": "N_MAX_DISP_ED", "valor": 8}
@@ -138,7 +140,7 @@ def test_un_n_max_que_no_existe_en_tia_no_se_propone() -> None:
         resumen={"actualizar": 2, "sin_cambios": 0, "total": 2},
     )
 
-    operaciones = disp_calcular_operaciones_n_max("0_Config_Dispositivos", diff)
+    operaciones = calcular_operaciones_n_max("0_Config_Dispositivos", diff)
 
     assert operaciones == [
         {"tabla": "0_Config_Dispositivos", "constante": "N_MAX_DISP_ED", "valor": 8}
@@ -156,7 +158,7 @@ def test_sin_xml_de_n_max_no_se_propone_nada() -> None:
         xml_ausente=True,
     )
 
-    assert disp_calcular_operaciones_n_max("0_Config_Dispositivos", diff) == []
+    assert calcular_operaciones_n_max("0_Config_Dispositivos", diff) == []
 
 
 def test_los_renombres_son_los_del_diff() -> None:

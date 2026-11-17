@@ -78,13 +78,13 @@ from zc_suite.areas.alimentacion.procesos.sincronizacion import (
     proc_arrays_para_apply,
     proc_confirmar_db,
     proc_localizar_db,
-    proc_operaciones_n_max,
     proc_tipo_array,
 )
 from zc_suite.areas.alimentacion.sincronizacion_comun import (
     ESTADO_CONFIRMADA,
     ESTADO_NO_EJECUTADA,
     ESTADO_REVIRTIDA,
+    calcular_operaciones_n_max,
     compilar_con_aviso,
     estado_no_ejecutada,
     estados_iniciales,
@@ -529,7 +529,7 @@ def _preparar_operaciones(
             f"La tabla '{mapa.table_name}' no existe en TIA (o no se pudo "
             "exportarla): lanza la prevision antes de sincronizar."
         )
-    ops_n_max = proc_operaciones_n_max(mapa.table_name, diff_n_max)
+    ops_n_max = calcular_operaciones_n_max(mapa.table_name, diff_n_max)
 
     if sin_comentarios:
         arrays = proc_arrays_vacios(mapa)

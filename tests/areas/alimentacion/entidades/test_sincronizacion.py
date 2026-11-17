@@ -12,9 +12,11 @@ from zc_suite.areas.alimentacion.entidades.diferencias import DiffEntidades, Dif
 from zc_suite.areas.alimentacion.entidades.sincronizacion import (
     ent_calcular_operaciones_comentarios,
     ent_calcular_operaciones_constantes,
-    ent_calcular_operaciones_n_max,
     ent_copiar_y_editar,
     ent_mapa_de_comentarios,
+)
+from zc_suite.areas.alimentacion.sincronizacion_comun import (
+    calcular_operaciones_n_max,
 )
 
 #: El XML de la tabla de entidades, tal y como lo exporta TIA en plano.
@@ -159,12 +161,12 @@ def test_las_operaciones_de_n_max_solo_cubren_las_existentes() -> None:
         resumen={"actualizar": 1, "sin_cambios": 0, "total": 1},
     )
 
-    assert ent_calcular_operaciones_n_max("0_Config_Generales", diff) == []
+    assert calcular_operaciones_n_max("0_Config_Generales", diff) == []
 
 
 def test_las_operaciones_de_n_max() -> None:
     """La operacion de N_MAX lleva la tabla, la constante y el valor."""
-    operaciones = ent_calcular_operaciones_n_max("0_Config_Generales", _diff_n_max())
+    operaciones = calcular_operaciones_n_max("0_Config_Generales", _diff_n_max())
 
     assert operaciones == [
         {"tabla": "0_Config_Generales", "constante": "N_MAX_ENTIDAD", "valor": 5}

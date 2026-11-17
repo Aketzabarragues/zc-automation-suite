@@ -13,6 +13,9 @@ crear) se copian entre si, en un solo sitio:
   ``detalle``). Un fallo **no** tumba el trabajo.
   :func:`compilar_con_aviso` es su envoltorio que solo devuelve el detalle,
   para los FB que no necesitan mas.
+- **Las operaciones de N_MAX** que hay que aplicar en linea:
+  :func:`calcular_operaciones_n_max` las calcula a partir del diff del
+  N_MAX, con el mismo criterio en los tres dominios.
 - **Los helpers de texto y rutas** que los FB de sync se repiten:
   :func:`mensaje_corto` (el mensaje de TIA sin la ruta del bloque) y
   :func:`localizar_xml` (el XML de una tabla dentro de un export de TIA).
@@ -31,6 +34,9 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable
 from pathlib import Path
+from typing import Any
+
+from zc_suite.areas.alimentacion.dispositivos.diferencias import DiffNMax
 
 logger = logging.getLogger(__name__)
 
@@ -89,6 +95,37 @@ def estado_no_ejecutada(transacciones: dict[str, dict[str, str]], clave: str, de
     """La transaccion no llego a ejecutarse (sin cambios, o falta la version)."""
     transacciones[clave]["estado"] = ESTADO_NO_EJECUTADA
     transacciones[clave]["detalle"] = detalle
+
+
+# ── las operaciones de N_MAX ────────────────────────────────────────────────
+
+
+def calcular_operaciones_n_max(tabla: str, diff: DiffNMax) -> list[dict[str, Any]]:
+    """Las operaciones de N_MAX que hay que aplicar en linea.
+
+    Solo se proponen las constantes que **ya existen** en TIA y cuyo valor
+    no coincide. Una constante que no esta en TIA no se puede cambiar: el
+    cambio de valor fallaria.
+
+    Sin XML de TIA no se propone nada: no se puede saber cual es el valor
+    actual, y cambiarlo a ciegas dejaria el PLC mal dimensionado.
+
+    Args:
+        tabla: la tabla de TIA donde viven los N_MAX.
+        diff: el diff de los N_MAX.
+
+    Returns:
+        La lista de ``{"tabla", "constante", "valor"}``.
+    """
+    return [
+        {
+            "tabla": tabla,
+            "constante": str(fila["name"]),
+            "valor": int(fila["nuevo"]),
+        }
+        for fila in diff.todos
+        if fila["status"] == "actualizar" and str(fila["name"]) in diff.actual
+    ]
 
 
 # ── la compilacion fuera de transaccion ─────────────────────────────────────

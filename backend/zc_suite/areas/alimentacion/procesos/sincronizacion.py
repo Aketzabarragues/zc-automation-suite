@@ -27,9 +27,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Any
 
-from zc_suite.areas.alimentacion.dispositivos.diferencias import DiffNMax
 from zc_suite.areas.alimentacion.procesos.mapa import COMENTARIO_VACIO
 from zc_suite.simatic.sd import ResultadoArray, confirmar_comentarios_array
 
@@ -235,28 +233,3 @@ def _confirmar(dcl: Path, res: Path, array: str, mapa: dict[int, str]) -> Result
     )
 
 
-# ── los N_MAX ───────────────────────────────────────────────────────────────
-
-
-def proc_operaciones_n_max(tabla: str, diff: DiffNMax) -> list[dict[str, Any]]:
-    """Las operaciones de N_MAX que hay que aplicar en linea.
-
-    Mismo criterio que ``disp_calcular_operaciones_n_max``: solo las
-    constantes que ya existen en TIA y cuyo valor no coincide.
-
-    Args:
-        tabla: la tabla del proceso (``"<uid>_<codigo>"``).
-        diff: el diff de los N_MAX (``proc_calcular_diff_n_max``).
-
-    Returns:
-        La lista de ``{"tabla", "constante", "valor"}``.
-    """
-    return [
-        {
-            "tabla": tabla,
-            "constante": str(fila["name"]),
-            "valor": int(fila["nuevo"]),
-        }
-        for fila in diff.todos
-        if fila["status"] == "actualizar" and str(fila["name"]) in diff.actual
-    ]

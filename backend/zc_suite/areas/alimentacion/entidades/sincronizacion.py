@@ -26,10 +26,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from zc_suite.areas.alimentacion.entidades.diferencias import (
-    DiffEntidades,
-    DiffNMax,
-)
+from zc_suite.areas.alimentacion.entidades.diferencias import DiffEntidades
 from zc_suite.simatic.ml import ModificadorConstantesUsuario
 from zc_suite.simatic.sd import confirmar_comentarios_array
 
@@ -43,31 +40,6 @@ TIPO_ARRAY = "UDT"
 
 
 # ── las operaciones que hay que aplicar ─────────────────────────────────────
-
-
-def ent_calcular_operaciones_n_max(tabla: str, diff: DiffNMax) -> list[dict[str, Any]]:
-    """Las operaciones de N_MAX que hay que aplicar en linea.
-
-    Solo se proponen las constantes que **ya existen** en TIA y cuyo valor
-    no coincide. Una constante que no esta en TIA no se puede cambiar: el
-    cambio de valor fallaria. Es lo que hace ``main``.
-
-    Args:
-        tabla: la tabla de TIA donde viven los N_MAX.
-        diff: el diff de los N_MAX.
-
-    Returns:
-        La lista de ``{"tabla", "constante", "valor"}``.
-    """
-    return [
-        {
-            "tabla": tabla,
-            "constante": str(fila["name"]),
-            "valor": int(fila["nuevo"]),
-        }
-        for fila in diff.todos
-        if fila["status"] == "actualizar" and str(fila["name"]) in diff.actual
-    ]
 
 
 def ent_calcular_operaciones_constantes(diff: DiffEntidades) -> list[dict[str, Any]]:

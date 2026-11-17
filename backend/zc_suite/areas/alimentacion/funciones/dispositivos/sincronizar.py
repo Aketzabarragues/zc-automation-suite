@@ -49,7 +49,6 @@ from zc_suite.areas.alimentacion.dispositivos.diferencias import (
 )
 from zc_suite.areas.alimentacion.dispositivos.sincronizacion import (
     disp_calcular_cambios_dispositivos,
-    disp_calcular_operaciones_n_max,
     disp_calcular_renombres,
     disp_copiar_y_editar,
     disp_localizar_xml,
@@ -64,6 +63,7 @@ from zc_suite.areas.alimentacion.sincronizacion_comun import (
     ESTADO_CONFIRMADA,
     ESTADO_NO_EJECUTADA,
     ESTADO_REVIRTIDA,
+    calcular_operaciones_n_max,
     compilar_con_aviso,
     estado_no_ejecutada,
     estados_iniciales,
@@ -266,7 +266,7 @@ def _preparar_operaciones(
 ) -> tuple[list[dict[str, Any]], list[dict[str, str]], list[dict[str, Any]]]:
     """Las operaciones del sync: N_MAX, renombres y cambios de tablas."""
     return (
-        disp_calcular_operaciones_n_max(config.tabla_nmax, diff_n_max),
+        calcular_operaciones_n_max(config.tabla_nmax, diff_n_max),
         disp_calcular_renombres(diffs),
         disp_calcular_cambios_dispositivos(diffs),
     )
