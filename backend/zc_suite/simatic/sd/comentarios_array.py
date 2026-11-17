@@ -63,6 +63,7 @@ import logging
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 import yaml
 
@@ -201,6 +202,282 @@ def comentarios_actuales(
     return result
 
 
+def _procesar_indice(
+    texto_dcl: str,
+    ids_usados: set[str],
+    textos_mlc: list[dict[str, str]],
+    result: ResultadoArray,
+    indice: int,
+    nuevo_comentario: str,
+    nombre_array: str,
+    tipo_array: str,
+    ruta_dcl: Path,
+    ids_a_eliminar: set[str],
+) -> tuple[str, set[str], list[dict[str, str]]]:
+    """Aplica el caso A/B/C/D de un indice sobre el estado del DB.
+
+    Devuelve la tupla ``(texto_dcl, ids_usados, textos_mlc)`` actualizada.
+    """
+    nuevo_comentario = str(nuevo_comentario or "")
+    pattern = _patron_de_indice(nombre_array, indice, tipo_array)
+    match = pattern.search(texto_dcl)
+
+    # CASO A: indice no existe. Inyectar antes de END_DATA_BLOCK.
+    if match is None:
+        return _caso_a(
+            texto_dcl,
+            ids_usados,
+            textos_mlc,
+            result,
+            indice,
+            nuevo_comentario,
+            nombre_array,
+            ruta_dcl,
+        )
+
+    # Indice existe. Procesar metadata + declaracion.
+    meta_str = match.group("meta") or ""
+    declaracion = match.group("decl")
+    bloque_completo = match.group(0)
+
+    mlc_match = _RE_ATRIBUTO_MLC.search(meta_str) if meta_str else None
+    id_existente = mlc_match.group("id") if mlc_match else None
+
+    # CASO B: eliminar comentario (texto vacio y MLC pre-existente).
+    if not nuevo_comentario and id_existente:
+        return (
+            _caso_b(
+                texto_dcl,
+                ids_a_eliminar,
+                result,
+                indice,
+                meta_str,
+                declaracion,
+                bloque_completo,
+                id_existente,
+            ),
+            ids_usados,
+            textos_mlc,
+        )
+
+    # CASO C: actualizar texto de MLC pre-existente.
+    if nuevo_comentario and id_existente:
+        _caso_c(
+            textos_mlc,
+            result,
+            indice,
+            id_existente,
+            nuevo_comentario,
+        )
+        return texto_dcl, ids_usados, textos_mlc
+
+    # CASO D: anadir MLC a un indice que existia sin MLC.
+    if nuevo_comentario and not id_existente:
+        return _caso_d(
+            texto_dcl,
+            ids_usados,
+            textos_mlc,
+            result,
+            indice,
+            nuevo_comentario,
+            nombre_array,
+            meta_str,
+            declaracion,
+            bloque_completo,
+        )
+
+    # Sin MLC y texto vacio: no-op.
+    result.noop.append(indice)
+    return texto_dcl, ids_usados, textos_mlc
+
+
+def _leer_estado(
+    ruta_dcl: Path,
+    ruta_res: Path,
+) -> tuple[str, dict[str, Any], list[dict[str, str]], set[str]]:
+    """Lee el par ``.s7dcl``/``.s7res`` y prepara el estado del MLC.
+
+    ``datos_res`` se reusa al final para preservar el resto de claves
+    top-level del .s7res original al re-dumplear. ``textos_mlc`` se
+    construye desde la utility compartida para garantizar que solo
+    contiene entradas ``MLC_*`` con ``id`` + ``es-ES``.
+
+    Returns:
+        La tupla ``(texto_dcl, datos_res, textos_mlc, ids_usados)``.
+    """
+    texto_dcl = ruta_dcl.read_text(encoding=SD_ENCODING)
+    texto_res = ruta_res.read_text(encoding=SD_ENCODING)
+    datos_res = yaml.safe_load(texto_res) or {}
+    textos_mlc = [
+        {"id": k, "es-ES": v}
+        for k, v in mapa_mlc(texto_res).items()
+    ]
+    return texto_dcl, datos_res, textos_mlc, ids_mlc_existentes(texto_res)
+
+
+def _caso_a(
+    texto_dcl: str,
+    ids_usados: set[str],
+    textos_mlc: list[dict[str, str]],
+    result: ResultadoArray,
+    indice: int,
+    nuevo_comentario: str,
+    nombre_array: str,
+    ruta_dcl: Path,
+) -> tuple[str, set[str], list[dict[str, str]]]:
+    """CASO A: indice no existe; inyectarlo antes de ``END_DATA_BLOCK``.
+
+    Texto vacio: no-op. Devuelve la tupla
+    ``(texto_dcl, ids_usados, textos_mlc)`` actualizados.
+    """
+    if not nuevo_comentario:
+        result.noop.append(indice)
+        return texto_dcl, ids_usados, textos_mlc
+    nuevo_id = siguiente_id_mlc(ids_usados)
+    ids_usados.add(nuevo_id)
+    inyeccion = (
+        f'\n        {{\n            S7_MLC := "{nuevo_id}"\n        }}\n'
+        f"        {nombre_array}[{indice}] := ();"
+    )
+    if "\nEND_DATA_BLOCK" not in texto_dcl:
+        raise ValueError(
+            f"confirmar_comentarios_array: '{ruta_dcl}' no contiene "
+            f"'END_DATA_BLOCK'; no se donde inyectar '{nombre_array}[{indice}]'."
+        )
+    texto_dcl = texto_dcl.replace(
+        "\nEND_DATA_BLOCK", f"{inyeccion}\nEND_DATA_BLOCK", 1,
+    )
+    textos_mlc.append({"id": nuevo_id, "es-ES": nuevo_comentario})
+    result.injected[indice] = nuevo_id
+    return texto_dcl, ids_usados, textos_mlc
+
+
+def _caso_b(
+    texto_dcl: str,
+    ids_a_eliminar: set[str],
+    result: ResultadoArray,
+    indice: int,
+    meta_str: str,
+    declaracion: str,
+    bloque_completo: str,
+    id_existente: str,
+) -> str:
+    """CASO B: eliminar comentario (texto vacio y MLC pre-existente).
+
+    Devuelve el ``texto_dcl`` resultante.
+    """
+    ids_a_eliminar.add(id_existente)
+    nuevos_meta = _RE_ATRIBUTO_MLC.sub("", meta_str).strip()
+    es_ancla_vacia = bool(re.search(r":=\s*\(\s*\)\s*;", declaracion))
+    if not nuevos_meta and es_ancla_vacia:
+        # Borrar la linea entera (bloque + asignacion ancla).
+        texto_dcl = texto_dcl.replace(bloque_completo, "", 1)
+    elif not nuevos_meta:
+        texto_dcl = texto_dcl.replace(
+            bloque_completo, f"        {declaracion}", 1,
+        )
+    else:
+        texto_dcl = texto_dcl.replace(
+            bloque_completo,
+            f"{{\n            {nuevos_meta}\n        }}\n        {declaracion}",
+            1,
+        )
+    result.removed.append(indice)
+    return texto_dcl
+
+
+def _caso_c(
+    textos_mlc: list[dict[str, str]],
+    result: ResultadoArray,
+    indice: int,
+    id_existente: str,
+    nuevo_comentario: str,
+) -> None:
+    """CASO C: actualizar el texto de un MLC pre-existente en el .s7res."""
+    for item in textos_mlc:
+        if item.get("id") == id_existente:
+            texto_actual = item.get("es-ES", "")
+            if texto_actual == nuevo_comentario:
+                result.noop.append(indice)
+            else:
+                item["es-ES"] = nuevo_comentario
+                result.updated[indice] = id_existente
+            break
+    else:
+        # MLC existe en .s7dcl pero no en .s7res (estado
+        # inconsistente, caso raro). Anadir entrada nueva.
+        textos_mlc.append(
+            {"id": id_existente, "es-ES": nuevo_comentario}
+        )
+        result.updated[indice] = id_existente
+
+
+def _caso_d(
+    texto_dcl: str,
+    ids_usados: set[str],
+    textos_mlc: list[dict[str, str]],
+    result: ResultadoArray,
+    indice: int,
+    nuevo_comentario: str,
+    nombre_array: str,
+    meta_str: str,
+    declaracion: str,
+    bloque_completo: str,
+) -> tuple[str, set[str], list[dict[str, str]]]:
+    """CASO D: anadir MLC a un indice que existia sin MLC.
+
+    Devuelve la tupla ``(texto_dcl, ids_usados, textos_mlc)`` actualizados.
+    """
+    nuevo_id = siguiente_id_mlc(ids_usados)
+    ids_usados.add(nuevo_id)
+    textos_mlc.append({"id": nuevo_id, "es-ES": nuevo_comentario})
+
+    if meta_str:
+        # Hay bloque { ... } con otros metadatos: anadir S7_MLC al inicio.
+        nuevo_meta = (
+            f'{{ S7_MLC := "{nuevo_id}"; {meta_str.strip()} }}'
+        )
+        texto_dcl = texto_dcl.replace(
+            bloque_completo, f"        {nuevo_meta}\n        {declaracion}", 1,
+        )
+    else:
+        # No hay bloque: crear uno nuevo.
+        nuevo_bloque = (
+            f'        {{\n            S7_MLC := "{nuevo_id}"\n        }}\n'
+            f"        {declaracion}"
+        )
+        texto_dcl = texto_dcl.replace(bloque_completo, nuevo_bloque, 1)
+    result.injected[indice] = nuevo_id
+    return texto_dcl, ids_usados, textos_mlc
+
+
+def _escribir_resultados(
+    ruta_dcl: Path,
+    ruta_res: Path,
+    texto_dcl: str,
+    datos_res: dict[str, Any],
+    escribir_en_original: bool,
+) -> None:
+    """Escribe el par ``.s7dcl``/``.s7res`` modificado.
+
+    Por defecto a ``modificado_<fichero>`` (no toca los originales, igual
+    que el script original del operario); con ``escribir_en_original``
+    sobre los originales, para acumular cambios sobre el mismo DB.
+    """
+    if escribir_en_original:
+        salida_dcl = ruta_dcl
+        salida_res = ruta_res
+    else:
+        salida_dcl = ruta_dcl.parent / f"modificado_{ruta_dcl.name}"
+        salida_res = ruta_res.parent / f"modificado_{ruta_res.name}"
+    salida_dcl.write_text(texto_dcl, encoding=SD_ENCODING, newline=SD_NEWLINE)
+    salida_res.write_text(
+        yaml.dump(datos_res, allow_unicode=True, sort_keys=False),
+        encoding=SD_ENCODING,
+        newline=SD_NEWLINE,
+    )
+
+
 def confirmar_comentarios_array(
     ruta_dcl: str | Path,
     ruta_res: str | Path,
@@ -242,149 +519,38 @@ def confirmar_comentarios_array(
     """
     ruta_dcl = Path(ruta_dcl)
     ruta_res = Path(ruta_res)
-
-    texto_dcl = ruta_dcl.read_text(encoding=SD_ENCODING)
-    texto_res = ruta_res.read_text(encoding=SD_ENCODING)
-
-    # ``datos_res`` se reusa al final para preservar el resto de claves
-    # top-level del .s7res original al re-dumplear. ``textos_mlc`` se
-    # construye desde la utility compartida para garantizar que solo
-    # contiene entradas ``MLC_*`` con ``id`` + ``es-ES``.
-    datos_res = yaml.safe_load(texto_res) or {}
-    textos_mlc: list[dict[str, str]] = [
-        {"id": k, "es-ES": v}
-        for k, v in mapa_mlc(texto_res).items()
-    ]
+    texto_dcl, datos_res, textos_mlc, ids_usados = _leer_estado(
+        ruta_dcl, ruta_res
+    )
     ids_a_eliminar: set[str] = set()
-    ids_usados = ids_mlc_existentes(texto_res)
 
     result = ResultadoArray(nombre_array=nombre_array)
 
     for indice, nuevo_comentario in mapa_indices.items():
-        nuevo_comentario = str(nuevo_comentario or "")
-        pattern = _patron_de_indice(nombre_array, indice, tipo_array)
-        match = pattern.search(texto_dcl)
-
-        # CASO A: indice no existe. Inyectar antes de END_DATA_BLOCK.
-        if match is None:
-            if not nuevo_comentario:
-                result.noop.append(indice)
-                continue
-            nuevo_id = siguiente_id_mlc(ids_usados)
-            ids_usados.add(nuevo_id)
-            inyeccion = (
-                f'\n        {{\n            S7_MLC := "{nuevo_id}"\n        }}\n'
-                f"        {nombre_array}[{indice}] := ();"
-            )
-            if "\nEND_DATA_BLOCK" not in texto_dcl:
-                raise ValueError(
-                    f"confirmar_comentarios_array: '{ruta_dcl}' no contiene "
-                    f"'END_DATA_BLOCK'; no se donde inyectar '{nombre_array}[{indice}]'."
-                )
-            texto_dcl = texto_dcl.replace(
-                "\nEND_DATA_BLOCK", f"{inyeccion}\nEND_DATA_BLOCK", 1,
-            )
-            textos_mlc.append({"id": nuevo_id, "es-ES": nuevo_comentario})
-            result.injected[indice] = nuevo_id
-            continue
-
-        # Indice existe. Procesar metadata + declaracion.
-        meta_str = match.group("meta") or ""
-        declaracion = match.group("decl")
-        bloque_completo = match.group(0)
-
-        mlc_match = _RE_ATRIBUTO_MLC.search(meta_str) if meta_str else None
-        id_existente = mlc_match.group("id") if mlc_match else None
-
-        # CASO B: eliminar comentario (texto vacio y MLC pre-existente).
-        if not nuevo_comentario and id_existente:
-            ids_a_eliminar.add(id_existente)
-            nuevos_meta = _RE_ATRIBUTO_MLC.sub("", meta_str).strip()
-            es_ancla_vacia = bool(re.search(r":=\s*\(\s*\)\s*;", declaracion))
-            if not nuevos_meta and es_ancla_vacia:
-                # Borrar la linea entera (bloque + asignacion ancla).
-                texto_dcl = texto_dcl.replace(bloque_completo, "", 1)
-            elif not nuevos_meta:
-                texto_dcl = texto_dcl.replace(
-                    bloque_completo, f"        {declaracion}", 1,
-                )
-            else:
-                texto_dcl = texto_dcl.replace(
-                    bloque_completo,
-                    f"{{\n            {nuevos_meta}\n        }}\n        {declaracion}",
-                    1,
-                )
-            result.removed.append(indice)
-            continue
-
-        # CASO C: actualizar texto de MLC pre-existente.
-        if nuevo_comentario and id_existente:
-            for item in textos_mlc:
-                if item.get("id") == id_existente:
-                    texto_actual = item.get("es-ES", "")
-                    if texto_actual == nuevo_comentario:
-                        result.noop.append(indice)
-                    else:
-                        item["es-ES"] = nuevo_comentario
-                        result.updated[indice] = id_existente
-                    break
-            else:
-                # MLC existe en .s7dcl pero no en .s7res (estado
-                # inconsistente, caso raro). Anadir entrada nueva.
-                textos_mlc.append(
-                    {"id": id_existente, "es-ES": nuevo_comentario}
-                )
-                result.updated[indice] = id_existente
-            continue
-
-        # CASO D: anadir MLC a un indice que existia sin MLC.
-        if nuevo_comentario and not id_existente:
-            nuevo_id = siguiente_id_mlc(ids_usados)
-            ids_usados.add(nuevo_id)
-            textos_mlc.append({"id": nuevo_id, "es-ES": nuevo_comentario})
-
-            if meta_str:
-                # Hay bloque { ... } con otros metadatos: anadir S7_MLC al inicio.
-                nuevo_meta = (
-                    f'{{ S7_MLC := "{nuevo_id}"; {meta_str.strip()} }}'
-                )
-                texto_dcl = texto_dcl.replace(
-                    bloque_completo, f"        {nuevo_meta}\n        {declaracion}", 1,
-                )
-            else:
-                # No hay bloque: crear uno nuevo.
-                nuevo_bloque = (
-                    f'        {{\n            S7_MLC := "{nuevo_id}"\n        }}\n'
-                    f"        {declaracion}"
-                )
-                texto_dcl = texto_dcl.replace(bloque_completo, nuevo_bloque, 1)
-            result.injected[indice] = nuevo_id
-            continue
-
-        # Sin MLC y texto vacio: no-op.
-        result.noop.append(indice)
+        texto_dcl, ids_usados, textos_mlc = _procesar_indice(
+            texto_dcl,
+            ids_usados,
+            textos_mlc,
+            result,
+            indice,
+            nuevo_comentario,
+            nombre_array,
+            tipo_array,
+            ruta_dcl,
+            ids_a_eliminar,
+        )
 
     # Limpiar entradas eliminadas del .s7res.
     datos_res["MultiLingualTexts"] = [
         t for t in textos_mlc if t.get("id") not in ids_a_eliminar
     ]
 
-    # Escribir archivos modificados (mismo prefijo que el script del
-    # operario: no tocamos los originales por defecto). Si el caller
-    # quiere acumular cambios sobre el mismo archivo (modo in-place,
-    # usado por ``el commit de procesos`` que itera 6 arrays),
-    # escribe sobre los originales.
-    if escribir_en_original:
-        salida_dcl = ruta_dcl
-        salida_res = ruta_res
-    else:
-        salida_dcl = ruta_dcl.parent / f"modificado_{ruta_dcl.name}"
-        salida_res = ruta_res.parent / f"modificado_{ruta_res.name}"
-    salida_dcl.write_text(texto_dcl, encoding=SD_ENCODING, newline=SD_NEWLINE)
-    salida_res.write_text(
-        yaml.dump(datos_res, allow_unicode=True, sort_keys=False),
-        encoding=SD_ENCODING,
-        newline=SD_NEWLINE,
+    _escribir_resultados(
+        ruta_dcl,
+        ruta_res,
+        texto_dcl,
+        datos_res,
+        escribir_en_original,
     )
 
     _logger.debug(
