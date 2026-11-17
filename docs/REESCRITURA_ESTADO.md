@@ -224,13 +224,13 @@ FB sobrepasa las 100 lineas (medidas por AST, incluida la docstring):
 - `funciones/procesos/sincronizar.py`: `sincronizar` 94 lineas.
 - `funciones/procesos/crear.py`: `crear` 81 lineas.
 
+- `_transaccion` vive en `funciones/_transaccion.py`: era el mismo codigo en
+  los tres sync, pero **no** podia vivir en `sincronizacion_comun.py` (puro
+  respecto a TIA y sin `job`).
+
 Las diferencias que se quedaron **sin unificar** (no son duplicados: la
 semantica no es la misma):
 
-- `_transaccion` se repite identico en los tres sync, pero **no** puede
-  vivir en `sincronizacion_comun.py`: el modulo comun es puro respecto a TIA
-  y no recibe el `job` (lo exigen `test_fronteras_dominio.py` y el contrato
-  de que solo `funciones/` recibe el job).
 - `_recalcular_prevision` llama a la `generar_prevision` de **su** dominio
   y el detalle del paso no es el mismo ("entradas en la vista unificada"
   contra "cambios en la vista").

@@ -56,6 +56,7 @@ from zc_suite.areas.alimentacion.dispositivos.sincronizacion import (
     disp_mapa_comentarios,
 )
 from zc_suite.areas.alimentacion.excel.almacen import AlmacenExcel
+from zc_suite.areas.alimentacion.funciones._transaccion import _transaccion
 from zc_suite.areas.alimentacion.funciones.dispositivos.generar_prevision import (
     generar_prevision,
 )
@@ -64,17 +65,13 @@ from zc_suite.areas.alimentacion.sincronizacion_comun import (
     ESTADO_NO_EJECUTADA,
     ESTADO_REVIRTIDA,
     compilar_con_aviso,
-    estado_confirmada,
     estado_no_ejecutada,
-    estado_revertida,
     estados_iniciales,
     resumen_transacciones,
 )
 from zc_suite.errores import OperacionError
 from zc_suite.nucleo.sesion import Sesion
-from zc_suite.nucleo.tia.errores import CanceladoError
 from zc_suite.nucleo.tia.job import Job
-from zc_suite.nucleo.tia.transaccion import transaccion
 from zc_suite.nucleo.tia.workdir import Workdir, workdir
 from zc_suite.simatic.sd import confirmar_comentarios_array
 from zc_suite.simatic.sd.cabecera import soporta_simaticsd
@@ -214,47 +211,6 @@ def sincronizar(
     return _armar_resultado(
         plc, ops_n_max, renombres, cambios, transacciones, detalle_compilacion, prevision
     )
-
-
-# ── las transacciones ───────────────────────────────────────────────────────
-
-
-def _transaccion(
-    job: Job,
-    transacciones: dict[str, dict[str, Any]],
-    clave: str,
-    texto: str,
-    operacion: Any,
-    resumen: str,
-) -> None:
-    """Ejecuta una transaccion y anota si se confirmo o se revirtio.
-
-    Args:
-        job: el trabajo en curso.
-        transacciones: el estado de las transacciones del sync.
-        clave: la clave de la transaccion dentro de ``transacciones``.
-        texto: el texto de la transaccion en TIA.
-        operacion: lo que se hace dentro de la transaccion.
-        resumen: lo que se cuenta en el detalle del paso.
-
-    Raises:
-        Exception: lo que falle dentro de la transaccion, con el estado de
-            las transacciones anadido al mensaje.
-    """
-    try:
-        with transaccion(job, texto):
-            operacion()
-    except CanceladoError:
-        # La cancelacion del operario no es un fallo: sale tal cual para que
-        # el trabajo termine como cancelado y no como error.
-        estado_revertida(transacciones, clave, "el trabajo fue cancelado")
-        raise
-    except Exception as exc:
-        estado_revertida(transacciones, clave, str(exc))
-        raise OperacionError(
-            f"{exc}. {resumen_transacciones(transacciones)}"
-        ) from exc
-    estado_confirmada(transacciones, clave, resumen)
 
 
 # ── los pasos, en helpers privados ─────────────────────────────────────────
