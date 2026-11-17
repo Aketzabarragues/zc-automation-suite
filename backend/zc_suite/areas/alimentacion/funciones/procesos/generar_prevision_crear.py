@@ -174,77 +174,26 @@ def _respuesta_sin_escaneo() -> dict[str, Any]:
     }
 
 
-def generar_prevision_crear(
+def _validar_proceso_y_escaneo(
     job: Job,
     proc_uid: int,
     plc: str,
     dir_plantilla_nombre: str,
-    almacen: AlmacenExcel,
-    config: ConfigArea,
-    sesion: Sesion | None = None,
-    plantillas_dir: Path | None = None,
-) -> dict[str, Any]:
-    """Genera el preview de crear un proceso desde una plantilla TIA.
+    proceso: dict[str, Any] | None,
+    sesion: Sesion | None,
+    carpeta: Path | None,
+) -> tuple[Path, Any] | None:
+    """El paso ``validar``: proceso, carpeta de plantillas y escaneo.
 
-    No escribe en TIA: el preview solo copia la plantilla al workdir, la
-    renombra en memoria y la cruza con el escaneo del PLC.
-
-    Args:
-        job: el trabajo en curso.
-        proc_uid: el ``uid`` del proceso nuevo (su base numerica).
-        plc: el PLC destino, cuyo escaneo se cruza.
-        dir_plantilla_nombre: el nombre de la subcarpeta de la plantilla
-            dentro de ``plantillas_dir`` (sin separadores).
-        almacen: la cache del Excel maestro.
-        config: el modelo del area.
-        sesion: la sesion del backend. La prevision se guarda en ella para
-            que sobreviva a un F5, y de su escaneo del PLC salen los bloques
-            con los que se cruzan colisiones y dependencias.
-        plantillas_dir: la carpeta con las plantillas. ``None`` para usar la
-            ruta relativa del config.
-
-    Returns:
-        El shape que consume la SPA: ``manifest_plantilla``, ``descripcion``,
-        ``dependencias_ok``, ``dependencias_faltantes``,
-        ``archivos_previstos``, ``colisiones``, ``colisiones_con``,
-        ``plantilla_copia_dir``, ``success``, ``precondiciones_ok``,
-        ``missing_blocks`` y ``warnings``.
-
-    Raises:
-        OperacionError: si el proceso no esta en el Excel, si el nombre de la
-            plantilla no vale (path traversal) o si falta la carpeta de
-            plantillas.
+    Devuelve ``(dir_plantilla, escaneo)`` si hay escaneo fresco; ``None`` si
+    no (el resultado ya se guardo en la sesion y el paso queda cerrado).
     """
-    job.empezar(
-        "Crear proceso desde plantilla",
-        [
-            ("validar", "Validar proceso y escaneo"),
-            ("manifest", "Leer el manifiesto"),
-            ("minimos", "Validar los minimos"),
-            ("copiar", "Copiar la plantilla"),
-            ("diccionarios", "Construir los diccionarios"),
-            ("colisiones", "Detectar colisiones"),
-            ("dependencias", "Validar dependencias"),
-            ("previstos", "Generar los previstos"),
-            ("respuesta", "Componer la respuesta"),
-        ],
-    )
-
-    datos = almacen.estado()["procesos"]
-    filas = modulo_prevision.filas_de(datos, "Procesos")
-    proceso = modulo_prevision.fila_de_proceso(filas, proc_uid)
-    codigo_nuevo = str(proceso.get("codigo", "") or "") if proceso else ""
-    nombre_nuevo = str(proceso.get("nombre", "") or "") if proceso else ""
-
-    manifest_plantilla: dict[str, Any] | None = None
-
     with job.paso("validar") as paso:
         if proceso is None:
             raise OperacionError(
                 f"No hay un proceso con uid={proc_uid} en el Excel: el dominio "
                 "'Procesos' no lo tiene."
             )
-        carpeta = carpeta_plantillas(plantillas_dir, config)
         if carpeta is None:
             raise OperacionError(
                 "La carpeta de plantillas no esta configurada: indica la "
@@ -270,25 +219,58 @@ def generar_prevision_crear(
                     },
                 )
             paso["detail"] = "sin escaneo fresco"
-            return resultado
+            return None
         paso["detail"] = f"proceso {proc_uid} y escaneo de {plc}"
+    return dir_plantilla, escaneo
 
-    # Manifest invalido o minimos insuficientes: como en ``main``, son fallos
-    # del trabajo. ``proc_leer_manifest`` y ``proc_validar_minimos`` lanzan
-    # (``ManifestInvalidoError`` / ``PlantillaMinimosNoCumplidosError``, que
-    # cuelgan de ``ZCError``) y el paso queda en error.
+
+def _leer_manifest(job: Job, dir_plantilla: Path) -> dict[str, Any]:
+    """El paso ``manifest``: el manifiesto de la plantilla y sus datos."""
     with job.paso("manifest") as paso:
         manifest_plantilla = proc_leer_manifest(dir_plantilla)
         base_vieja = int(manifest_plantilla["base"])
         codigo_viejo = str(manifest_plantilla["codigo"]).strip()
         nombre_viejo = str(manifest_plantilla.get("nombre", "") or "")
-        dependencias = [str(d).strip() for d in manifest_plantilla["dependencias"]]
+        dependencias = [
+            str(d).strip() for d in manifest_plantilla["dependencias"]
+        ]
         paso["detail"] = f"base={base_vieja} codigo={codigo_viejo}"
+    return {
+        "manifest": manifest_plantilla,
+        "base_vieja": base_vieja,
+        "codigo_viejo": codigo_viejo,
+        "nombre_viejo": nombre_viejo,
+        "dependencias": dependencias,
+    }
 
+
+def _minimos(job: Job, proceso: dict[str, Any], manifest: dict[str, Any]) -> None:
+    """El paso ``minimos``: los N_MAX del proceso cubren los de la plantilla."""
     with job.paso("minimos") as paso:
         minimos_usuario = proc_minimos_de_proceso(proceso)
-        proc_validar_minimos(manifest_plantilla, minimos_usuario)
+        proc_validar_minimos(manifest, minimos_usuario)
         paso["detail"] = "los N_MAX del proceso cubren los de la plantilla"
+
+
+def _copiar_y_componer(
+    job: Job,
+    dir_plantilla: Path,
+    datos_manifest: dict[str, Any],
+    proceso: dict[str, Any],
+    proc_uid: int,
+    plc: str,
+    dir_plantilla_nombre: str,
+    codigo_nuevo: str,
+    nombre_nuevo: str,
+    escaneo: Any,
+    sesion: Sesion | None,
+) -> dict[str, Any]:
+    """Del paso ``copiar`` a la respuesta, guardando la prevision en la sesion."""
+    manifest_plantilla = datos_manifest["manifest"]
+    base_vieja = datos_manifest["base_vieja"]
+    codigo_viejo = datos_manifest["codigo_viejo"]
+    nombre_viejo = datos_manifest["nombre_viejo"]
+    dependencias = datos_manifest["dependencias"]
 
     carpeta = workdir_crear()
     dir_plantilla_copia = carpeta.carpeta(CARPETA_PLANTILLA)
@@ -367,3 +349,103 @@ def generar_prevision_crear(
             },
         )
     return resultado
+
+
+def generar_prevision_crear(
+    job: Job,
+    proc_uid: int,
+    plc: str,
+    dir_plantilla_nombre: str,
+    almacen: AlmacenExcel,
+    config: ConfigArea,
+    sesion: Sesion | None = None,
+    plantillas_dir: Path | None = None,
+) -> dict[str, Any]:
+    """Genera el preview de crear un proceso desde una plantilla TIA.
+
+    No escribe en TIA: el preview solo copia la plantilla al workdir, la
+    renombra en memoria y la cruza con el escaneo del PLC.
+
+    Args:
+        job: el trabajo en curso.
+        proc_uid: el ``uid`` del proceso nuevo (su base numerica).
+        plc: el PLC destino, cuyo escaneo se cruza.
+        dir_plantilla_nombre: el nombre de la subcarpeta de la plantilla
+            dentro de ``plantillas_dir`` (sin separadores).
+        almacen: la cache del Excel maestro.
+        config: el modelo del area.
+        sesion: la sesion del backend. La prevision se guarda en ella para
+            que sobreviva a un F5, y de su escaneo del PLC salen los bloques
+            con los que se cruzan colisiones y dependencias.
+        plantillas_dir: la carpeta con las plantillas. ``None`` para usar la
+            ruta relativa del config.
+
+    Returns:
+        El shape que consume la SPA: ``manifest_plantilla``, ``descripcion``,
+        ``dependencias_ok``, ``dependencias_faltantes``,
+        ``archivos_previstos``, ``colisiones``, ``colisiones_con``,
+        ``plantilla_copia_dir``, ``success``, ``precondiciones_ok``,
+        ``missing_blocks`` y ``warnings``.
+
+    Raises:
+        OperacionError: si el proceso no esta en el Excel, si el nombre de la
+            plantilla no vale (path traversal) o si falta la carpeta de
+            plantillas.
+    """
+    job.empezar(
+        "Crear proceso desde plantilla",
+        [
+            ("validar", "Validar proceso y escaneo"),
+            ("manifest", "Leer el manifiesto"),
+            ("minimos", "Validar los minimos"),
+            ("copiar", "Copiar la plantilla"),
+            ("diccionarios", "Construir los diccionarios"),
+            ("colisiones", "Detectar colisiones"),
+            ("dependencias", "Validar dependencias"),
+            ("previstos", "Generar los previstos"),
+            ("respuesta", "Componer la respuesta"),
+        ],
+    )
+
+    datos = almacen.estado()["procesos"]
+    filas = modulo_prevision.filas_de(datos, "Procesos")
+    proceso = modulo_prevision.fila_de_proceso(filas, proc_uid)
+    codigo_nuevo = str(proceso.get("codigo", "") or "") if proceso else ""
+    nombre_nuevo = str(proceso.get("nombre", "") or "") if proceso else ""
+    carpeta = carpeta_plantillas(plantillas_dir, config)
+
+    # Sin escaneo fresco el helper ya cerro el paso y guardo la respuesta en
+    # la sesion: la funcion termina ahi.
+    validado = _validar_proceso_y_escaneo(
+        job,
+        proc_uid,
+        plc,
+        dir_plantilla_nombre,
+        proceso,
+        sesion,
+        carpeta,
+    )
+    if validado is None:
+        return _respuesta_sin_escaneo()
+    dir_plantilla, escaneo = validado
+
+    # Manifest invalido o minimos insuficientes: como en ``main``, son fallos
+    # del trabajo. ``proc_leer_manifest`` y ``proc_validar_minimos`` lanzan
+    # (``ManifestInvalidoError`` / ``PlantillaMinimosNoCumplidosError``, que
+    # cuelgan de ``ZCError``) y el paso queda en error.
+    datos_manifest = _leer_manifest(job, dir_plantilla)
+    _minimos(job, proceso, datos_manifest["manifest"])
+
+    return _copiar_y_componer(
+        job,
+        dir_plantilla,
+        datos_manifest,
+        proceso,
+        proc_uid,
+        plc,
+        dir_plantilla_nombre,
+        codigo_nuevo,
+        nombre_nuevo,
+        escaneo,
+        sesion,
+    )
