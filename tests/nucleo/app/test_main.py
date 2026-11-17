@@ -208,60 +208,41 @@ def test_el_log_de_arranque_dice_de_donde_sale_el_config(caplog: pytest.LogCaptu
     with caplog.at_level(logging.INFO):
         log_de_arranque(
             ConfigEnUso(Path("C:/app/config/config.json"), ORIGEN_USUARIO),
-            {
-                "alimentacion": {
-                    "device_tabs": [{"hw_type": "ed"}],
-                    "nmax": [{"name": "x"}],
-                }
-            },
+            ["alimentacion"],
         )
 
     mensajes = [registro.getMessage() for registro in caplog.records]
     ruta = str(Path("C:/app/config/config.json"))
     assert any(ruta in m and "usuario" in m for m in mensajes)
+    # El nucleo solo registra que area tiene, no el contenido de su catalogo.
+    assert any("Area registrada: alimentacion" in m for m in mensajes)
 
 
-def test_el_log_de_arranque_avisa_si_el_area_no_tiene_dispositivos(
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    """Un area sin tipos de dispositivo avisa: la vista saldria vacia."""
-    import logging
+def test_el_nucleo_no_conoce_las_claves_del_catalogo() -> None:
+    """El nucleo no conoce el contenido del catalogo de un area.
 
-    from zc_suite.nucleo.app.config import ORIGEN_USUARIO, ConfigEnUso
-    from zc_suite.nucleo.app.main import log_de_arranque
+    ``device_tabs``, ``"nmax"`` y la palabra ``dispositivo`` son de
+    alimentacion: el nucleo solo registra que areas tiene. El test busca la
+    clave JSON ``"nmax"`` (con comillas) para no pillar ``n_max`` ni
+    ``N_MAX``, que son legitimos en el nucleo.
+    """
+    import re
 
-    with caplog.at_level(logging.WARNING):
-        log_de_arranque(
-            ConfigEnUso(Path("C:/app/config/config.json"), ORIGEN_USUARIO),
-            {"alimentacion": {"device_tabs": [], "nmax": []}},
-        )
-
-    mensajes = [registro.getMessage() for registro in caplog.records]
-    assert any("no tiene tipos de dispositivo" in m for m in mensajes)
-    assert any("no tiene N_MAX" in m for m in mensajes)
-
-
-def test_el_log_de_arranque_no_avisa_con_el_catalogo_completo(
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    """Con el catalogo completo, no hay avisos."""
-    import logging
-
-    from zc_suite.nucleo.app.config import ORIGEN_PLANTILLA, ConfigEnUso
-    from zc_suite.nucleo.app.main import log_de_arranque
-
-    with caplog.at_level(logging.WARNING):
-        log_de_arranque(
-            ConfigEnUso(Path("C:/app/config/config.json"), ORIGEN_PLANTILLA),
-            {
-                "alimentacion": {
-                    "device_tabs": [{"hw_type": "ed"}, {"hw_type": "ea"}],
-                    "nmax": [{"name": "N_MAX_DISP_ED"}],
-                }
-            },
-        )
-
-    assert not [registro for registro in caplog.records if registro.levelno >= logging.WARNING]
+    nucleo = Path(__file__).resolve().parents[3] / "backend" / "zc_suite" / "nucleo"
+    patrones = (
+        ("device_tabs", re.compile(r"device_tabs", re.IGNORECASE)),
+        ('"nmax"', re.compile(r'"nmax"', re.IGNORECASE)),
+        ("dispositivo", re.compile(r"dispositivo", re.IGNORECASE)),
+    )
+    fallos: list[str] = []
+    for ruta in sorted(nucleo.rglob("*.py")):
+        if "__pycache__" in ruta.parts:
+            continue
+        texto = ruta.read_text(encoding="utf-8")
+        for nombre, patron in patrones:
+            if patron.search(texto):
+                fallos.append(f"{ruta.name} contiene {nombre}")
+    assert not fallos, "El nucleo no debe conocer el catalogo de un area: " + "; ".join(fallos)
 
 
 # ── recargar el config ──────────────────────────────────────────────────────

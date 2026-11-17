@@ -75,15 +75,15 @@ def _estado_de_tia(servicio: ServicioTIA) -> str:
     return "desconectado"
 
 
-def log_de_arranque(
-    config_en_uso: ConfigEnUso,
-    catalogos: dict[str, dict[str, Any]],
-) -> None:
+def log_de_arranque(config_en_uso: ConfigEnUso, ids_areas: list[str]) -> None:
     """Escribe en el log como esta la app.
+
+    El detalle del catalogo de cada area (tipos, N_MAX y sus avisos) lo
+    emite el propio area en su ``catalogo``: el nucleo no conoce esas claves.
 
     Args:
         config_en_uso: el ``config.json`` que se esta usando y de donde sale.
-        catalogos: el catalogo de cada area.
+        ids_areas: los identificadores de las areas registradas.
     """
     logger.info("=" * 60)
     logger.info("ZC Automation Suite %s", VERSION)
@@ -100,30 +100,8 @@ def log_de_arranque(
         config_en_uso.ruta,
         config_en_uso.origen,
     )
-    for id_area, catalogo in catalogos.items():
-        tipos = len(catalogo.get("device_tabs") or [])
-        n_max = len(catalogo.get("nmax") or [])
-        logger.info(
-            "Area '%s': %d tipos de dispositivo, %d N_MAX",
-            id_area,
-            tipos,
-            n_max,
-        )
-        if not tipos:
-            logger.warning(
-                "El area '%s' no tiene tipos de dispositivo en el catalogo: la "
-                "vista de dispositivos saldra vacia. Revisa el config.json en "
-                "uso (%s): puede que este vacio o incompleto.",
-                id_area,
-                config_en_uso.ruta,
-            )
-        if not n_max:
-            logger.warning(
-                "El area '%s' no tiene N_MAX en el catalogo: las tarjetas de "
-                "N_MAX saldran vacias. Revisa el config.json en uso (%s).",
-                id_area,
-                config_en_uso.ruta,
-            )
+    for id_area in ids_areas:
+        logger.info("Area registrada: %s", id_area)
     logger.info("=" * 60)
 
 
@@ -160,7 +138,7 @@ def montar_app(
     secciones = _secciones_de(config_app)
     catalogos: dict[str, Any] = {}
     session_areas: dict[str, Any] = {}
-    _montar_areas(app, secciones, catalogos, session_areas)
+    _montar_areas(app, secciones, catalogos, session_areas, config_en_uso)
     app.config[CLAVE_CONFIG] = config_app
     app.config[CLAVE_CONFIG_EN_USO] = config_en_uso
     app.config[CLAVE_RECARGA_CONFIG] = lambda id_area, clave_area, valor: recargar_config_app(
@@ -179,7 +157,7 @@ def montar_app(
     rutas_catalogo.registrar(app)
     rutas_config.registrar(app)
     rutas_sesion.registrar(app)
-    log_de_arranque(config_en_uso, catalogos)
+    log_de_arranque(config_en_uso, ids_areas)
     return app
 
 
@@ -212,6 +190,7 @@ def _montar_areas(
     secciones: dict[str, dict[str, Any]],
     catalogos: dict[str, Any],
     session_areas: dict[str, Any],
+    config_en_uso: ConfigEnUso,
 ) -> None:
     """Arranca las areas, refresca sus catalogos y registra sus rutas.
 
@@ -222,7 +201,7 @@ def _montar_areas(
     for area in AREAS:
         seccion = secciones[area.ID]
         area.al_arrancar(seccion)
-        catalogos[area.ID] = area.catalogo(seccion)
+        catalogos[area.ID] = area.catalogo(seccion, config_en_uso.ruta)
         session_areas[area.ID] = area.estado_sesion
         app.register_blueprint(area.rutas)
         logger.info("Area registrada: %s", area.ID)
@@ -234,6 +213,7 @@ def _refrescar_areas(
     secciones: dict[str, dict[str, Any]],
     catalogos: dict[str, Any],
     session_areas: dict[str, Any],
+    config_en_uso: ConfigEnUso,
 ) -> None:
     """Refresca las areas sin tocar las rutas ni la sesion.
 
@@ -243,7 +223,7 @@ def _refrescar_areas(
     for area in AREAS:
         seccion = secciones[area.ID]
         area.al_recargar_config(seccion)
-        catalogos[area.ID] = area.catalogo(seccion)
+        catalogos[area.ID] = area.catalogo(seccion, config_en_uso.ruta)
         session_areas[area.ID] = area.estado_sesion
         logger.info("Area refrescada: %s", area.ID)
 
@@ -305,6 +285,7 @@ def recargar_config_app(
             secciones,
             app.config["ZC_CATALOGO"],
             app.config[CLAVE_SESION_AREAS],
+            config_en_uso,
         )
         app.config[CLAVE_ESTADO_CONFIG] = _estado_completo(
             config_recargado, config_en_uso, secciones, ids_areas
@@ -320,6 +301,7 @@ def recargar_config_app(
             _secciones_de(config_anterior),
             app.config["ZC_CATALOGO"],
             app.config[CLAVE_SESION_AREAS],
+            config_en_uso,
         )
         raise
     return ruta

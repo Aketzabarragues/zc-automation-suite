@@ -5,7 +5,11 @@ El port de ``build_device_tabs`` y ``build_nmax_view`` de ``main``.
 
 from __future__ import annotations
 
+import logging
+from pathlib import Path
 from typing import Any
+
+import pytest
 
 from zc_suite.areas.alimentacion.config import ConfigArea
 from zc_suite.areas.alimentacion.dispositivos import catalogo as dispositivos_catalogo
@@ -79,6 +83,44 @@ def test_el_catalogo_del_area_lleva_pestanas_y_n_max(seccion: dict[str, Any]) ->
     assert catalogo["device_tabs"]
     assert catalogo["nmax"]
     assert catalogo["device_tabs"][0]["hw_type"] == "ed"
+
+
+def test_el_catalogo_emite_su_log_y_los_avisos(
+    caplog: pytest.LogCaptureFixture,
+    seccion: dict[str, Any],
+) -> None:
+    """El area emite su log y sus avisos, con su vocabulario.
+
+    El log del area (tipos de dispositivo y N_MAX) y los dos avisos se
+    emiten aqui, no en el nucleo: los textos son los que antes salian en
+    ``log_de_arranque``.
+    """
+    from zc_suite.areas import alimentacion
+
+    # Con el catalogo completo: solo el log, sin avisos.
+    with caplog.at_level(logging.INFO):
+        catalogo = alimentacion.catalogo(seccion, Path("C:/app/config/config.json"))
+    tipos = len(catalogo["device_tabs"])
+    n_max = len(catalogo["nmax"])
+    assert f"Area 'alimentacion': {tipos} tipos de dispositivo, {n_max} N_MAX" in [
+        registro.getMessage() for registro in caplog.records
+    ]
+    assert not [r for r in caplog.records if r.levelno >= logging.WARNING]
+
+    # Con el catalogo vacio: el log mas los dos avisos, con la ruta del
+    # config en uso.
+    caplog.clear()
+    with caplog.at_level(logging.INFO):
+        alimentacion.catalogo({}, Path("C:/app/config/config.json"))
+    mensajes = [registro.getMessage() for registro in caplog.records]
+    assert "Area 'alimentacion': 0 tipos de dispositivo, 0 N_MAX" in mensajes
+    assert "El area 'alimentacion' no tiene tipos de dispositivo en el " \
+        "catalogo: la vista de dispositivos saldra vacia. Revisa el " \
+        "config.json en uso (C:/app/config/config.json): puede que este " \
+        "vacio o incompleto." in mensajes
+    assert "El area 'alimentacion' no tiene N_MAX en el catalogo: las " \
+        "tarjetas de N_MAX saldran vacias. Revisa el config.json en uso " \
+        "(C:/app/config/config.json)." in mensajes
 
 
 def test_las_pestanas_no_cambian_con_el_formato_del_config(

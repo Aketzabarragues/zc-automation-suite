@@ -24,6 +24,7 @@ lista ``AREAS`` y monta su Blueprint.
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 from typing import Any
 
 from flask.sansio.blueprints import BlueprintSetupState
@@ -64,11 +65,17 @@ def _registrar_dependencias(estado: BlueprintSetupState) -> None:
     estado.app.config[CLAVE_ALMACEN] = ALMACEN
 
 
-def catalogo(config: dict[str, Any]) -> dict[str, Any]:
+def catalogo(config: dict[str, Any], ruta_config: Path | None = None) -> dict[str, Any]:
     """El catalogo del area: lo que la SPA necesita del backend.
+
+    El nucleo compone el catalogo de cada area en esta funcion, que es la
+    unica que conoce el contenido del catalogo: aqui se emite el log del
+    area y sus avisos (el nucleo solo registra que area tiene).
 
     Args:
         config: la seccion del area en el ``config.json``.
+        ruta_config: el ``config.json`` en uso, para el aviso cuando el
+            catalogo sale vacio.
 
     Returns:
         Solo datos primitivos: las pestañas por tipo de dispositivo y las
@@ -76,11 +83,43 @@ def catalogo(config: dict[str, Any]) -> dict[str, Any]:
     """
     modelo = _modelo(config)
     if modelo is None:
-        return {"device_tabs": [], "nmax": []}
-    return {
-        "device_tabs": dispositivos_catalogo.construir_pestanas(modelo),
-        "nmax": dispositivos_catalogo.construir_n_max(modelo),
-    }
+        catalogo = {"device_tabs": [], "nmax": []}
+    else:
+        catalogo = {
+            "device_tabs": dispositivos_catalogo.construir_pestanas(modelo),
+            "nmax": dispositivos_catalogo.construir_n_max(modelo),
+        }
+    _aviso_de_catalogo(catalogo, ruta_config)
+    return catalogo
+
+
+def _aviso_de_catalogo(catalogo: dict[str, Any], ruta_config: Path | None) -> None:
+    """El log del area y sus avisos: el nucleo no conoce las claves.
+
+    Args:
+        catalogo: el catalogo del area ya compuesto.
+        ruta_config: el ``config.json`` en uso, o ``None`` si no se sabe.
+    """
+    tipos = len(catalogo.get("device_tabs") or [])
+    n_max = len(catalogo.get("nmax") or [])
+    logger.info("Area '%s': %d tipos de dispositivo, %d N_MAX", ID, tipos, n_max)
+    if ruta_config is None:
+        return
+    if not tipos:
+        logger.warning(
+            "El area '%s' no tiene tipos de dispositivo en el catalogo: la "
+            "vista de dispositivos saldra vacia. Revisa el config.json en "
+            "uso (%s): puede que este vacio o incompleto.",
+            ID,
+            ruta_config,
+        )
+    if not n_max:
+        logger.warning(
+            "El area '%s' no tiene N_MAX en el catalogo: las tarjetas de "
+            "N_MAX saldran vacias. Revisa el config.json en uso (%s).",
+            ID,
+            ruta_config,
+        )
 
 
 def defaults(config: dict[str, Any]) -> dict[str, Any]:

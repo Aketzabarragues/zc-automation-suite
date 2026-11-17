@@ -164,8 +164,7 @@ def resolver_config(
     """Resuelve el ``config.json`` que debe usar la app, y de donde sale.
 
     Es ``resolver_ruta_config()`` pero ademas dice el origen: sin eso no se
-    puede explicar por que un ``config.json`` dejo de tener los tipos de
-    dispositivo.
+    puede explicar por que un ``config.json`` dejo de tener contenido.
 
     Returns:
         La ruta y el origen.
