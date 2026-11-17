@@ -748,7 +748,7 @@ describe("CrearProceso", () => {
   });
 
   describe("el resultado de crear", () => {
-    it("tras crear OK: panel verde con el proceso creado, el numero de archivos, las transacciones y la compilacion", async () => {
+    it("tras crear OK: panel verde con el proceso creado, el numero de archivos, las transacciones y sin aviso de compilacion", async () => {
       const { wrapper, trabajos } = await montarConPrevision(PROCESO, PREVISION_OK);
 
       await wrapper.find('[data-testid="crear-aplicar"]').trigger("click");
@@ -771,9 +771,8 @@ describe("CrearProceso", () => {
       expect(transacciones.text()).toContain("Compilar:");
       expect(transacciones.text()).toContain("no ejecutada");
 
-      const compilacion = wrapper.find('[data-testid="crear-compilacion"]');
-      expect(compilacion.text()).toContain("Compilación: compile=OK");
-      expect(compilacion.classes()).toContain("text-green-700");
+      // Compilacion OK: el aviso no se muestra.
+      expect(wrapper.find('[data-testid="crear-compilacion"]').exists()).toBe(false);
 
       expect(wrapper.find('[data-testid="crear-escaneo-aviso"]').exists()).toBe(false);
 
@@ -800,7 +799,8 @@ describe("CrearProceso", () => {
 
       expect(wrapper.find('[data-testid="crear-resultado"]').exists()).toBe(true);
       const compilacion = wrapper.find('[data-testid="crear-compilacion"]');
-      expect(compilacion.text()).toContain("Compilación: FB10101: warning 1");
+      expect(compilacion.exists()).toBe(true);
+      expect(compilacion.text()).toContain("⚠️ Compilación: FB10101: warning 1");
       expect(compilacion.classes()).toContain("text-amber-700");
     });
 

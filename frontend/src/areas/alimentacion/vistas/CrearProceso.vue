@@ -591,18 +591,13 @@ onMounted(() => {
         </ul>
       </div>
 
-      <!-- el resultado de la compilacion -->
+      <!-- el resultado de la compilacion, solo si fallo -->
       <p
-        v-if="crear.resultadoAplicar.compilacion"
-        class="mt-2"
-        :class="crear.resultadoAplicar.compilacion.ok ? 'text-green-700' : 'text-amber-700'"
+        v-if="crear.resultadoAplicar.compilacion && !crear.resultadoAplicar.compilacion.ok"
+        class="mt-2 text-amber-700"
         data-testid="crear-compilacion"
       >
-        {{
-          crear.resultadoAplicar.compilacion.ok
-            ? `Compilación: ${crear.resultadoAplicar.compilacion.detalle || "OK"}`
-            : `⚠️ Compilación: ${crear.resultadoAplicar.compilacion.error || "con errores"}`
-        }}
+        ⚠️ Compilación: {{ crear.resultadoAplicar.compilacion.error || "con errores" }}
       </p>
 
       <!-- el escaneo no se pudo refrescar -->
