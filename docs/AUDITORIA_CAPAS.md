@@ -12,7 +12,7 @@ van numerados y los lotes propuestos se ordenan de menor a mayor riesgo.
 ## 1. Resumen ejecutivo
 
 - **Pregunta**: ¿El core esta limpio? NO del todo. Un unico punto con codigo real (el log de arranque lee claves de catalogo de area) y el resto son comentarios. Confianza: alta.
-- **Pregunta**: ¿El area esta limpia? El area no se importa entre si areas y sus dominios no dependen de TIA; si depende de si misma: `dispositivos/diferencias.py` es tipo fundacional usado por `entidades/`, `procesos/` y el helper comun. Confianza: alta.
+- **Pregunta**: ¿El area esta limpia? Las areas no se importan entre si y sus dominios no dependen de TIA; si depende de si misma: `dispositivos/diferencias.py` es tipo fundacional usado por `entidades/`, `procesos/` y el helper comun. Confianza: alta.
 - **Pregunta**: ¿Las capas estan separadas? `simatic/` no depende de nada; `tia_ops/` solo depende del core por un simbolo (`proyecto_activo`), lo cual esta DECLARADO en el codigo. Confianza: alta.
 - **Pregunta**: ¿Una segunda area se podria anadir sin tocar el core? Si, salvo la lista `AREAS` de `main.py` (registro, declarado). Confianza: alta.
 - **Pregunta**: ¿Los nombres son coherentes? En general si; hay prefijos de dominio que faltan, sinonimos de verbos y residuos de `preview` en el backend. Confianza: media.
@@ -66,7 +66,7 @@ depende de TIA.
 
 | flecha | veredicto | nota |
 |---|---|---|
-| areas -> nucleo | correcta | El area usa `job.tia.portal`, `transaccion` y los stores de sesion: es el sentido allowed. |
+| areas -> nucleo | correcta | El area usa `job.tia.portal`, `transaccion` y los stores de sesion: es el sentido permitido. |
 | areas -> tia_ops | correcta | El area orchestra operaciones TIA. |
 | areas -> simatic | correcta | El area edita ficheros SimaticML/SimaticSD. |
 | areas -> errores | correcta | — |
