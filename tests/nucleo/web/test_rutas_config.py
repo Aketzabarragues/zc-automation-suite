@@ -111,13 +111,19 @@ def test_el_estado_dice_de_donde_sale_el_config(app: Flask) -> None:
 
 
 def test_el_estado_avisa_de_todas_las_areas_registradas() -> None:
-    """Cada area registrada tiene que estar en el config."""
+    """Cada area registrada tiene que estar en el config.
+
+    No fija cuantas areas hay: con el config del repo todas las registradas
+    deben estar en su sitio, para cuantas areas sea.
+    """
     config = cargar_config(RAIZ / "config" / "config.json")
     app = _app(config)
 
     estado = _estado(app.test_client())
 
-    assert len(AREAS) == 1
+    # El estado no expone las areas presentes, solo las faltantes: con el
+    # config del repo no debe faltar ninguna de las registradas.
+    assert not {area.ID for area in AREAS} - config.areas.keys()
     assert estado["areas_faltantes"] == []
 
 
