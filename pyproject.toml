@@ -63,7 +63,11 @@ ignore = [
 [tool.pytest.ini_options]
 minversion = "8.0"
 testpaths = ["tests"]
-pythonpath = ["backend"]
+# ``backend`` expone ``zc_suite``; ``.`` (la raiz del repo) expone
+# ``tests._dobles``, los dobles de TIA que comparten los conftest de
+# areas. Sin ``__init__.py`` en ``tests/``: el modo importlib de pytest
+# no necesita que sea paquete.
+pythonpath = ["backend", "."]
 # Los smokes viven en ``scripts/smoke/``: se lanzan a mano contra TIA Portal
 # real, no forman parte de la suite.
 # Modo importlib: dos modulos pueden llamarse igual en carpetas distintas
