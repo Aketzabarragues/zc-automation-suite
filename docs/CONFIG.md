@@ -70,9 +70,15 @@ La tabla de TIA donde viven las constantes de los N_MAX de los dispositivos
 
 #### plantillas_procesos
 
-La carpeta con las plantillas TIA para generar procesos. Es **relativa** a la
-carpeta de datos de la app (la del `.exe`), no una ruta absoluta: asi el
-config es portable entre maquinas. Por defecto, `plantillas`.
+La carpeta con las plantillas TIA para generar procesos. La ruta puede ser
+**absoluta o relativa**: la relativa se resuelve contra la carpeta de datos
+de la app. El valor por defecto es la **cadena vacia**, que significa "sin
+configurar": no se resuelve nada y la app lo dice.
+
+Se edita desde la web: `PUT /api/v1/areas/alimentacion/procesos/plantillas`
+con el cuerpo `{"plantillas_path": str}`. Se escribe en el `config.json` del
+usuario de forma atomica y se recarga el config en memoria, sin reiniciar;
+la cadena vacia resetea.
 
 #### dispositivos
 

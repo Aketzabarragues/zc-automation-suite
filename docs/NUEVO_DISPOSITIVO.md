@@ -49,9 +49,11 @@ Anade la definicion de columnas en `areas/<area>/excel/tablas.py`. El lector
 generico recorre la tabla del Excel y proyecta las columnas declaradas. La
 hoja y la tabla **no** se ponen aqui: las dice el config.
 
-Si la tabla no encaja en el modelo generico (estructura irregular, celdas
-combinadas, varias tablas en una hoja), su parser va a
-`areas/<area>/excel/especiales.py`.
+El parser es **uno solo** y es data-driven: `areas/<area>/excel/parser.py`
+lee las tablas genericas y `areas/<area>/excel/tablas.py` declara los campos
+de cada dominio. Si la estructura de una tabla es irregular (celdas
+combinadas, varias tablas en una hoja), se adaptan sus campos en
+`tablas.py`, no se escribe un parser aparte.
 
 ## 3. Titulos de las columnas
 

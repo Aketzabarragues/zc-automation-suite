@@ -124,23 +124,29 @@ Si aparece, mira el proyecto abierto: puede que sea una version de TIA
 distinta de la de produccion. Las tablas de tags no tienen ese problema: se
 exportan en XML SimaticML en cualquier version.
 
-### La compilación falla pero no dice qué falló
+### La compilación falla: cómo se leen los mensajes
 
-`compile_software()` y `block.compile()` devuelven **un booleano**: True si hay
-errores. El SDK **no expone el informe de compilación**: ni los mensajes, ni
-los avisos, ni que bloque los ha causado.
+El manual dice que `compile_software()` devuelve un booleano (§2.2.11;
+§2.29.4 no documenta el retorno de `block.compile()`), pero comprobado
+contra TIA las dos llamadas devuelven un `ExecutionResult` del SDK, nunca un
+booleano. Ese `ExecutionResult` expone `get_result_state()` (0 sin errores,
+20 con errores), `get_errors()`, `get_warnings()`, `get_information()` y
+`get_all_messages()`: el SDK **si** expone los mensajes, son textos de TIA,
+por ejemplo `Interface > Data type Boo is unknown.`.
 
-Lo he comprobado en el manual (§2.2.11 para el PLC, §2.29.4 para el bloque)
-y en la superficie real del modulo: `Plc` y `ProgramBlock` no tienen ningun
-metodo para leer las mensagens de compilacion.
+`tia_ops/compilar.py` los lee con `leer_resultado()`, que devuelve un dict
+con `estado`, `errores`, `avisos` y el resumen. `compilar_plc()` y
+`compilar_bloques()` compilan los bloques inconsistentes, se saltan los que
+ya son consistentes y anotan los que no se encuentran; tras compilar,
+`is_consistent()` hace de respaldo.
 
-Consecuencia: cuando el sync compila y falla, la app solo puede decir "la
-compilacion tiene errores". Para el detalle hay que mirar la ventana de TIA
-Portal o el log de TIA.
+Por eso el aviso ya lista cada bloque con el mensaje de TIA recortado, por
+ejemplo: `1 bloque(s) con errores: DB_NO_OK (Interface > Data type Boo is
+unknown.)`. Si no llega a llegar el detalle, lo hay en el log (`logs/zc.log`),
+que anota los mensajes de cada compilacion.
 
-Lo que si se puede decir es que bloques se han compilado, cuales se han
-saltado por estar ya consistentes y cuales han fallado al compilar. Eso es lo
-que devuelve `compilar_bloques()`.
+Ojo: la compilacion se hace **fuera** de la transaccion: TIA no la admite
+dentro.
 
 ### "No hay ningún TIA Portal abierto (o su versión no es compatible)"
 

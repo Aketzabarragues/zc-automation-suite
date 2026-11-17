@@ -19,7 +19,7 @@ Eres el especialista en como se empaqueta la app y en como se verifica.
   - `frontend/src/**/__tests__/*.spec.js` — tests de Vitest.
   - `scripts/smoke/` — smokes contra TIA real (se lanzan a mano).
   - `docs/` — `INSTALAR.md`, `NUEVA_AREA.md`, `NUEVO_DISPOSITIVO.md`,
-    `PROBLEMAS.md`, `MAPA_FB.md`, `FLUJOS_ALMENTACION.md`.
+    `PROBLEMAS.md`, `MAPA_FB.md`, `FLUJOS_ALIMENTACION.md`.
 - **Don't own:** la logica del nucleo, de TIA o de las areas, ni las vistas.
 
 ## How you work
