@@ -223,8 +223,8 @@ def test_el_nucleo_no_conoce_las_claves_del_catalogo() -> None:
 
     ``device_tabs``, ``"nmax"`` y la palabra ``dispositivo`` son de
     alimentacion: el nucleo solo registra que areas tiene. El test busca la
-    clave JSON ``"nmax"`` (con comillas) para no pillar ``n_max`` ni
-    ``N_MAX``, que son legitimos en el nucleo.
+    clave JSON ``nmax`` (con comilla dobla o simple) para no pillar ``n_max``
+    ni ``N_MAX``, que son legitimos en el nucleo.
     """
     import re
 
@@ -232,6 +232,7 @@ def test_el_nucleo_no_conoce_las_claves_del_catalogo() -> None:
     patrones = (
         ("device_tabs", re.compile(r"device_tabs", re.IGNORECASE)),
         ('"nmax"', re.compile(r'"nmax"', re.IGNORECASE)),
+        ("'nmax'", re.compile(r"'nmax'", re.IGNORECASE)),
         ("dispositivo", re.compile(r"dispositivo", re.IGNORECASE)),
     )
     fallos: list[str] = []

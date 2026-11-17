@@ -9,6 +9,9 @@ Informe sobre `backend/zc_suite/` (66 ficheros) y `frontend/src/`. La matriz
 de imports se ha medido con un recorrido AST de todo el paquete; los hallazgos
 van numerados y los lotes propuestos se ordenan de menor a mayor riesgo.
 
+Nota (2026-11-17): el informe recoge el estado tras aplicar los lotes A-K,
+segun la revision final; cada hallazgo y cada lote llevan su linea de estado.
+
 ## 1. Resumen ejecutivo
 
 - **Pregunta**: ¿El core esta limpio? NO del todo. Un unico punto con codigo real (el log de arranque lee claves de catalogo de area) y el resto son comentarios. Confianza: alta.
@@ -87,6 +90,7 @@ depende de TIA.
 - **Evidencia**: `backend/zc_suite/nucleo/app/main.py:104` (`catalogo.get("device_tabs")`), `backend/zc_suite/nucleo/app/main.py:105` (`catalogo.get("nmax")`), `backend/zc_suite/nucleo/app/main.py:107` (log "Area '%s': %d tipos de dispositivo, %d N_MAX"), `backend/zc_suite/nucleo/app/main.py:112-119` y `backend/zc_suite/nucleo/app/main.py:120-126` (avisos sobre dispositivos y N_MAX).
 - **Por que importa**: es la unica fuga de dominio CON CODIGO del core. El core asume que toda area devuelve un catalogo con `device_tabs` y `nmax` (claves de alimentacion). Una segunda area con otra forma de catalogo recibira avisos que no le corresponden. No lo vigila ningun test: `tests/test_vocabulario.py` solo busca literales en el texto, no claves de JSON.
 - **Propuesta**: que el area exponga en su `catalogo()` un bloque generico (por ejemplo `"resumen": {"tarjetas": N, "grupos": N}`) y que el core lea ese bloque generico; o que el aviso se derive de las claves que el area declare. **DECISION** (cambia la forma del JSON del catalogo, que es contrato con la SPA).
+- **Estado**: HECHO (`8b73514`).
 
 ### Hallazgo 2 — `dispositivos/diferencias.py` es un modulo fundacional del area y no lo parece
 
@@ -97,6 +101,7 @@ depende de TIA.
   - (a) Extraer `DiffNMax`/`DiffTabla` a un modulo comun del area (por ejemplo `backend/zc_suite/areas/alimentacion/diferencias.py`), moviendo tambien el calculo de N_MAX que los usa.
   - (b) Dejarlo y documentar que `dispositivos/diferencias.py` es el modulo de tipos compartidos del area.
   - (c) Anadir un test de frontera que prohiva el cruce entre subdominios, obligando a decidir.
+- **Estado**: HECHO (`0530e5e`). Los tipos y el calculo de N_MAX viven ahora en `backend/zc_suite/areas/alimentacion/diferencias.py`.
 
 ### Hallazgo 3 — El core asume el numero de areas
 
@@ -105,6 +110,7 @@ depende de TIA.
 - **Evidencia**: `tests/nucleo/web/test_rutas_config.py:120` (`assert len(AREAS) == 1`). Con una segunda area, ese test falla aunque el codigo sea correcto.
 - **Por que importa**: un test que se rompe al hacer lo correcto desincentiva anadir areas. No es un fallo del producto: es una fragilidad del test.
 - **Propuesta**: parametrizar el test sobre `AREAS` en vez de fijar el numero, o quitar la asercion y comprobar que las areas registradas aparecen.
+- **Estado**: HECHO (`9577e2a`).
 
 ### Hallazgo 4 — Los helpers comunes de sync no se pueden reutilizar desde otra area
 
@@ -119,6 +125,7 @@ depende de TIA.
   - (c) Dejarlo hasta que exista una segunda area.
 
   NO mover nada sin orden del operario.
+- **Estado**: APLAZADO por decision del operario (era el Lote H): pendiente de que exista una segunda area.
 
 ### Hallazgo 5 — Prefijos de dominio que faltan
 
@@ -126,6 +133,7 @@ depende de TIA.
 - **Evidencia**: `backend/zc_suite/areas/alimentacion/dispositivos/catalogo.py` expone `etiqueta_de_n_max`, `construir_pestanas` y `construir_n_max` sin el prefijo `disp_`, mientras los otros nueve modulos de dominio si lo llevan (`dispositivos/diferencias.py`, `dispositivos/sincronizacion.py`, `entidades/diferencias.py`, `entidades/sincronizacion.py`, `procesos/clonacion.py`, `procesos/diferencias.py`, `procesos/mapa.py`, `procesos/plantillas.py`, `procesos/sincronizacion.py`).
 - **Por que importa**: la regla de `.operator-shared/operator.md` ("prefijo de dominio primero") no tiene excepciones declaradas, y este modulo es el unico que se aparta. Matiz: el modulo se usa siempre como MODULO (`backend/zc_suite/areas/alimentacion/__init__.py:32` y `tests/areas/alimentacion/dispositivos/test_catalogo.py:11` lo importan como `dispositivos_catalogo` y llaman `dispositivos_catalogo.construir_pestanas`), no importando nombres sueltos: por eso el prefijo no es necesario para evitar colisiones, y por eso la excepcion es defendible si se DECLARA.
 - **Propuesta**: o renombrar las tres funciones con `disp_`, o (recomendado, barato) declarar la excepcion en la regla: "un modulo de dominio que se usa como modulo no necesita prefijo en sus funciones".
+- **Estado**: HECHO por la via de DECLARAR la excepcion (`fa8a266`, regla; `d7327de`, glosario de verbos).
 
 ### Hallazgo 6 — Sinonimos de verbos para la misma idea
 
@@ -135,6 +143,7 @@ depende de TIA.
   - `backend/zc_suite/tia_ops/constantes.py:55` `cambiar_valor` y `backend/zc_suite/tia_ops/constantes.py:99` `renombrar` frente a `backend/zc_suite/tia_ops/bloques.py:199` `cambiar_propiedad` y `backend/zc_suite/tia_ops/bloques.py:248` `aplicar_cambios`.
 - **Por que importa**: `cambiar_valor` y `cambiar_propiedad` son el mismo verbo con objetos distintos, y `cambiar`/`renombrar`/`aplicar_cambios` conviven en el mismo modulo `tia_ops/constantes.py` frente a `tia_ops/bloques.py`. Dificulta buscar "quien cambia algo".
 - **Propuesta**: fijar un mini-glosario de verbos en `CONTRIBUTING.md` (calcular = diff; generar = prevision; construir = estructura; aplicar = escribir en TIA) y renombrar lo que no encaje. No hace falta renombrar de golpe: basta con que la regla exista y se aplique a lo nuevo.
+- **Estado**: HECHO por la via del glosario de verbos, sin renombrar nada existente (`d7327de`).
 
 ### Hallazgo 7 — `preview` sigue en el backend
 
@@ -143,6 +152,7 @@ depende de TIA.
 - **Por que importa**: el Lote 10 renombro el frontend de `preview` a `prevision`; el backend se quedo a medias. Ahora el mismo concepto se llama `prevision` en la SPA y `preview` en las rutas y en el workdir.
 - **Matiz importante**: `preview/` es el NOMBRE DE UNA CARPETA EN DISCO (`.build_cache/<area>/<contexto>/preview/`): cambiarlo es tocar el disco y no es solo renombrar. Y las URLs `/preview` son contrato con la SPA.
 - **Propuesta**: renombrar solo los NOMBRES INTERNOS de las funciones de ruta (`preview_dispositivos` -> `prevision_dispositivos`), que no son contrato. La carpeta en disco y las URLs quedan como estan, con un comentario que lo explique. **HECHO**: se renombraron las cuatro funciones de ruta y se anadio el comentario en `workdir.py` junto a la propiedad `preview`.
+- **Estado**: HECHO (parcial) (`6d2b944`): los nombres de las funciones de ruta pasan a `prevision_*`; las URLs `/preview` y la carpeta en disco `preview/` se mantienen a proposito.
 
 ### Hallazgo 8 — Ingles residual en `simatic/`
 
@@ -150,6 +160,7 @@ depende de TIA.
 - **Evidencia**: `backend/zc_suite/simatic/ml/constantes_parser.py:63` metodo privado `_extract_constants`; `backend/zc_suite/simatic/ml/constantes_modificador.py:47` parametro `xml_path`; `backend/zc_suite/simatic/ml/constantes_modificador.py:241` y `:304` variable `start`; `backend/zc_suite/simatic/ml/constantes_modificador.py:304` y `:419` parametro `elem`; `backend/zc_suite/simatic/ml/constantes_parser.py:59` y `:63` parametro `root`; `backend/zc_suite/simatic/sd/mlc.py:141` parametro `out`.
 - **Por que importa**: el Lote 5 renombro los parametros publicos de `simatic/` a espanol, pero dejo estos. `root`/`elem`/`start`/`out` son nombres de la API de `xml.etree.ElementTree`, que en Python son `Element`; `xml_path` es una ruta de fichero.
 - **Propuesta**: renombrar lo que no toque la API: `root`->`raiz`, `elem`->`elemento`, `start`->`inicio`, `out`->`salida`, `xml_path`->`ruta_xml`, `_extract_constants`->`_extraer_constantes`. Son cambios locales, sin contrato.
+- **Estado**: HECHO (parcial) (`960c979` y el commit que renombra las variables locales que quedaban en ingles): quedan solo las locales que reflejan tags XML o APIs externas (`name_el`, `value_el`, `mlti`, `mlt`, `buffer`, `tree`, `match`, `pattern`).
 
 ### Hallazgo 9 — El core publica un helper que consume `tia_ops`
 
@@ -160,6 +171,7 @@ depende de TIA.
 - **Propuesta**: **DECISION**.
   - (a) Dejarlo y anadir una linea al indice del repo (`docs/AUDITORIA_CAPAS.md` o el mapa) que explique que `transaccion.py` es tambien el punto de resolucion del proyecto. Coste: cero.
   - (b) Mover `proyecto_activo` a `tia_ops/_resolver.py` (donde ya vive `nombre_plc`) y dejar en el nucleo solo el uso de la transaccion. Coste: mueve un simbolo entre capas y toca `scripts/smoke/exportar.py:47`.
+- **Estado**: APLAZADO por decision del operario (era el Lote H).
 
 ### Hallazgo 10 — Datos de demo de alimentacion en el shell del frontend
 
@@ -170,6 +182,7 @@ depende de TIA.
   - (a) No tocar hasta que haya una segunda area.
   - (b) Mover los datos de demo al area y que el shell los pida al store de areas.
   - (c) Dejar los datos genericos en el shell y sacar solo los especificos.
+- **Estado**: APLAZADO por decision del operario (era el Lote J).
 
 ### Hallazgo 11 — Reglas de arquitectura sin test
 
@@ -178,6 +191,7 @@ depende de TIA.
 - Ademas de `CONTRIBUTING.md`: "solo el hilo de `tia.py` importa `siemens_tia_scripting`" sin test, y "ninguna funcion supera las 100 lineas" sin test.
 - **Por que importa**: las reglas que no se vigilan se degradan sin que nadie lo note. Varias se cumplen hoy (verificado: `siemens_tia_scripting` solo se importa en `backend/zc_suite/nucleo/tia/servicio.py:176`; no hay `.pyd`/`.dll`; no hay asyncio; `target_folder_path` no se pasa nunca con `""` en el codigo), pero nada impide que se rompan.
 - **Propuesta**: la seccion 6 de este informe lista las reglas nuevas candidatas, todas comprobables con AST.
+- **Estado**: HECHO (parcial) (`49e90c7` anade 4 reglas vigiladas). `test_ninguna_funcion_supera_las_100_lineas` NO se anade por decision del operario: quedan 5 funciones por encima de 100 lineas.
 
 ### Hallazgo 12 — No hay glosario de siglas
 
@@ -185,6 +199,7 @@ depende de TIA.
 - **Evidencia**: en `backend/zc_suite/` se usan `TIA` (522 ocurrencias), `plc`/`PLC` (369+270), `N_MAX` (176), `DB` (114), `proc_uid` (94), `s7res`/`s7dcl` (54+50, extensiones de fichero), `uid` (45), `MLC` (37), `n_max` (28), `dcl`/`res` (26+22), `sd`/`ml` (17+12). No existe ningun glosario en `docs/` ni en `.operator-shared/`.
 - **Por que importa**: la mayoria son terminos del dominio de TIA o del Excel maestro (contrato, intocables). Pero `n_max`, `dcl`, `res`, `sd`, `ml` y `uid` son abreviaturas internas sin significado evidente para quien llega. `docs/TIA_OPENNESS.md` explica parte del vocabulario de TIA, pero no hay una lista unica.
 - **Propuesta**: anadir a `docs/AUDITORIA_CAPAS.md` (o a `docs/NUEVA_AREA.md`) un glosario corto con las siglas que NO son de TIA ni del Excel, y marcar explicitamente cuales son contrato y no se tocan.
+- **Estado**: HECHO (`7066d18`), con `docs/GLOSARIO.md`.
 
 ## 4. Lo que esta bien
 
@@ -214,17 +229,17 @@ depende de TIA.
 | J | Datos de demo del shell (hallazgo 10) | bajo | NO | NO |
 | K | Glosario de siglas (hallazgo 12) | bajo | NO | NO |
 
-- **Lote A — Acoplamiento subdominio-a-subdominio del area** (hallazgo 2). Riesgo medio. Toca contrato: NO (los tipos `DiffNMax`/`DiffTabla` son internos; si se mueven, cambian los imports de 4 ficheros y sus tests). V21: NO. **HECHO** con la opcion (a) del hallazgo 2: los tipos y el calculo de N_MAX se movieron a `backend/zc_suite/areas/alimentacion/diferencias.py` y se actualizo `sincronizacion_comun.py`.
-- **Lote B — El core no debe conocer la forma del catalogo de un area** (hallazgo 1). Riesgo medio. Toca contrato: SI (la forma del JSON del catalogo que consume la SPA). V21: NO. El area expone un bloque generico en su `catalogo()` y el core lee ese bloque; hay que actualizar `backend/zc_suite/areas/alimentacion/__init__.py` (el `catalogo()`) y `backend/zc_suite/nucleo/app/main.py:103-126`. La SPA no deberia notar nada si el bloque nuevo es adicional.
-- **Lote C — Reglas de arquitectura vigiladas por test** (hallazgo 11 y seccion 6). Riesgo bajo. Toca contrato: NO. V21: NO. Anadir los tests de la seccion 6 (AST puro). Ojo: las reglas de encoding y `target_folder_path` necesitan fixtures byte a byte: NO las metas en este lote.
-- **Lote D — Nombres de dominio en `dispositivos/catalogo.py`** (hallazgo 5). Riesgo bajo. Toca contrato: NO. V21: NO. Renombrar las tres funciones con `disp_`, o declarar la excepcion (recomendado: mas barato y deja la regla escrita).
-- **Lote E — Verbos: glosario minimo** (hallazgo 6). Riesgo bajo. Toca contrato: NO. V21: NO. Anadir el mini-glosario a `CONTRIBUTING.md` y renombrar solo lo que mas estorbe (`cambiar_valor`/`cambiar_propiedad`).
-- **Lote F — `preview` -> `prevision` en el backend** (hallazgo 7). Riesgo bajo. Toca contrato: NO si solo se renombran los nombres de las funciones de ruta; SI si se toca la carpeta en disco `preview/` o las URLs `/preview` (NO se tocan). V21: NO. **HECHO**: se renombraron las cuatro funciones de ruta en `backend/zc_suite/areas/alimentacion/rutas.py` y se anadio el comentario en `workdir.py`; la carpeta en disco y las URLs quedan.
-- **Lote G — Ingles residual en `simatic/`** (hallazgo 8). Riesgo bajo. Toca contrato: NO. V21: NO. Renombrar `root`, `elem`, `start`, `out`, `xml_path` y `_extract_constants`. El test de paridad byte a byte (`tests/simatic/test_paridad_simatic.py`) sale verde solo si no se toca el contenido del XML.
-- **Lote H — El helper comun de sync, reusable** (hallazgos 4 y 9). Riesgo medio. Toca contrato: NO. V21: NO. DECISION del operario. Si se mueve `backend/zc_suite/areas/alimentacion/sincronizacion_comun.py` a un sitio compartido, hay que revisar el test "solo `funciones/` recibe el job" y el caso de `DiffNMax`.
-- **Lote I — Tests fragiles frente a una segunda area** (hallazgo 3). Riesgo bajo. Toca contrato: NO. V21: NO. Parametrizar `tests/nucleo/web/test_rutas_config.py:120` sobre `AREAS`; revisar `tests/nucleo/web/test_rutas_catalogo.py:49-51`, `tests/nucleo/app/test_main.py:34,42` y `tests/nucleo/web/test_rutas_sesion.py:26,108-109`.
-- **Lote J — Datos de demo del shell** (hallazgo 10). Riesgo bajo. Toca contrato: NO. V21: NO. DECISION del operario; no tocar hasta que haya segunda area.
-- **Lote K — Glosario de siglas** (hallazgo 12). Riesgo bajo. Toca contrato: NO. V21: NO. Anadir la lista de siglas al final de este mismo documento.
+- **Lote A — Acoplamiento subdominio-a-subdominio del area** (hallazgo 2). Riesgo medio. Toca contrato: NO (los tipos `DiffNMax`/`DiffTabla` son internos; si se mueven, cambian los imports de 4 ficheros y sus tests). V21: NO. **HECHO** con la opcion (a) del hallazgo 2: los tipos y el calculo de N_MAX se movieron a `backend/zc_suite/areas/alimentacion/diferencias.py` y se actualizo `sincronizacion_comun.py`. **Estado**: HECHO (`0530e5e`).
+- **Lote B — El core no debe conocer la forma del catalogo de un area** (hallazgo 1). Riesgo medio. Toca contrato: SI (la forma del JSON del catalogo que consume la SPA). V21: NO. El area expone un bloque generico en su `catalogo()` y el core lee ese bloque; hay que actualizar `backend/zc_suite/areas/alimentacion/__init__.py` (el `catalogo()`) y `backend/zc_suite/nucleo/app/main.py:103-126`. La SPA no deberia notar nada si el bloque nuevo es adicional. **Estado**: HECHO (`8b73514`).
+- **Lote C — Reglas de arquitectura vigiladas por test** (hallazgo 11 y seccion 6). Riesgo bajo. Toca contrato: NO. V21: NO. Anadir los tests de la seccion 6 (AST puro). Ojo: las reglas de encoding y `target_folder_path` necesitan fixtures byte a byte: NO las metas en este lote. **Estado**: HECHO (`49e90c7`).
+- **Lote D — Nombres de dominio en `dispositivos/catalogo.py`** (hallazgo 5). Riesgo bajo. Toca contrato: NO. V21: NO. Renombrar las tres funciones con `disp_`, o declarar la excepcion (recomendado: mas barato y deja la regla escrita). **Estado**: HECHO (`fa8a266`).
+- **Lote E — Verbos: glosario minimo** (hallazgo 6). Riesgo bajo. Toca contrato: NO. V21: NO. Anadir el mini-glosario a `CONTRIBUTING.md` y renombrar solo lo que mas estorbe (`cambiar_valor`/`cambiar_propiedad`). **Estado**: HECHO (`d7327de`).
+- **Lote F — `preview` -> `prevision` en el backend** (hallazgo 7). Riesgo bajo. Toca contrato: NO si solo se renombran los nombres de las funciones de ruta; SI si se toca la carpeta en disco `preview/` o las URLs `/preview` (NO se tocan). V21: NO. **HECHO**: se renombraron las cuatro funciones de ruta en `backend/zc_suite/areas/alimentacion/rutas.py` y se anadio el comentario en `workdir.py`; la carpeta en disco y las URLs quedan. **Estado**: HECHO (`6d2b944`).
+- **Lote G — Ingles residual en `simatic/`** (hallazgo 8). Riesgo bajo. Toca contrato: NO. V21: NO. Renombrar `root`, `elem`, `start`, `out`, `xml_path` y `_extract_constants`. El test de paridad byte a byte (`tests/simatic/test_paridad_simatic.py`) sale verde solo si no se toca el contenido del XML. **Estado**: HECHO (`960c979` y el commit que renombra las variables locales que quedaban en ingles).
+- **Lote H — El helper comun de sync, reusable** (hallazgos 4 y 9). Riesgo medio. Toca contrato: NO. V21: NO. DECISION del operario. Si se mueve `backend/zc_suite/areas/alimentacion/sincronizacion_comun.py` a un sitio compartido, hay que revisar el test "solo `funciones/` recibe el job" y el caso de `DiffNMax`. **Estado**: APLAZADO por decision del operario (hallazgos 4 y 9).
+- **Lote I — Tests fragiles frente a una segunda area** (hallazgo 3). Riesgo bajo. Toca contrato: NO. V21: NO. Parametrizar `tests/nucleo/web/test_rutas_config.py:120` sobre `AREAS`; revisar `tests/nucleo/web/test_rutas_catalogo.py:49-51`, `tests/nucleo/app/test_main.py:34,42` y `tests/nucleo/web/test_rutas_sesion.py:26,108-109`. **Estado**: HECHO (`9577e2a`).
+- **Lote J — Datos de demo del shell** (hallazgo 10). Riesgo bajo. Toca contrato: NO. V21: NO. DECISION del operario; no tocar hasta que haya segunda area. **Estado**: APLAZADO por decision del operario (hallazgo 10).
+- **Lote K — Glosario de siglas** (hallazgo 12). Riesgo bajo. Toca contrato: NO. V21: NO. Anadir la lista de siglas al final de este mismo documento. **Estado**: HECHO (`7066d18`), con `docs/GLOSARIO.md`.
 
 El Lote 14 de la auditoria previa (fusionar las parejas previsualizar/aplicar) sigue cerrado sin tocar codigo: la norma ya se reescribio en el Lote 11 y el codigo ya usa parejas de FBs.
 
