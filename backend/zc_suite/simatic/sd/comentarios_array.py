@@ -63,7 +63,6 @@ import logging
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
 
 import yaml
 
@@ -85,20 +84,6 @@ SD_ENCODING = "utf-8-sig"
 # TIA exporta con saltos CRLF. Se escriben siempre con CRLF, en cualquier
 # sistema operativo, para que el resultado no dependa de la maquina.
 SD_NEWLINE = "\r\n"
-
-
-# Regex a nivel de modulo para encontrar TODAS las asignaciones de un
-# array (usado por ``indices_de_array``). Captura array name y indice.
-# NOTA: NO usamos ``str.format()`` para evitar colision con los
-# ``{...}`` del regex; usamos concatenacion directa.
-_ASSIGNMENT_RE = re.compile(
-    r"^\s*"
-    r"(?:\{\s*(?P<meta>[^}]+?)\s*\}\s*)?"
-    r"(?P<array>(?:[A-Za-z_][A-Za-z0-9_]*\.)*[A-Za-z_][A-Za-z0-9_]*)"
-    r"\s*\[\s*(?P<idx>\d+)\s*\]"
-    r"\s*:=\s*[^;]+;",
-    re.MULTILINE,
-)
 
 
 def _patron_de_indice(array_name: str, indice: int, array_type: str) -> re.Pattern[str]:
@@ -142,33 +127,6 @@ class ResultadoArray:
     updated: dict[int, str] = field(default_factory=dict)
     removed: list[int] = field(default_factory=list)
     noop: list[int] = field(default_factory=list)
-
-    def to_dict(self) -> dict[str, Any]:
-        """Serializa a dict para JSON (consumidores: routers Flask).
-
-        Shape:
-          {
-            "array_name": "PReal",
-            "reused": {indice: texto},
-            "inserted": {indice: MLC_id},
-            "satellite_reused": {},
-            "satellite_inserted": {},
-            "total_mlcs_in_res": int,
-          }
-        """
-        return {
-            "array_name": self.array_name,
-            "reused": dict(self.reused),
-            "inserted": dict(self.injected),
-            "satellite_reused": {},
-            "satellite_inserted": {},
-            "total_mlcs_in_res": (
-                len(self.injected)
-                + len(self.reused)
-                + len(self.updated)
-                + len(self.removed)
-            ),
-        }
 
 
 # ── API publica ─────────────────────────────────────────────────────

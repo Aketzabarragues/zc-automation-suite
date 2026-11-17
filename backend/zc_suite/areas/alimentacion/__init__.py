@@ -16,6 +16,7 @@ Contrato del area:
 - ``estado_sesion()``  lo que el area tiene en la sesion: el Excel cargado.
 - ``valida_config(config)``  el motivo por el que su seccion del
   ``config.json`` no vale, o ``None`` si vale.
+- ``ALMACEN``  la cache del Excel maestro del area.
 
 El area no se importa desde el nucleo: ``zc_suite.nucleo.app.main`` la registra en la
 lista ``AREAS`` y monta su Blueprint.
@@ -35,8 +36,7 @@ from zc_suite.areas.alimentacion.rutas import CLAVE_ALMACEN, ID, rutas
 logger = logging.getLogger(__name__)
 
 __all__ = [
-    "DESCRIPCION",
-    "ICONO",
+    "ALMACEN",
     "ID",
     "NOMBRE",
     "al_arrancar",
@@ -50,12 +50,6 @@ __all__ = [
 
 #: Nombre del area, como lo ve el operario.
 NOMBRE = "Alimentacion"
-
-#: Descripcion corta, para la tarjeta del selector de areas.
-DESCRIPCION = "Dispositivos, sincronización e inspección de PLCs del área de alimentación."
-
-#: Icono del area.
-ICONO = "📁"
 
 #: La cache del Excel maestro del area.
 ALMACEN = AlmacenExcel()

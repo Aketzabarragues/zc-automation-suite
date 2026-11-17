@@ -5,7 +5,7 @@ contra TIA y sus vistas. Ejemplos: `alimentacion`, `envasado`.
 
 ## 1. Paquete del area
 
-Crea `backend/zc_suite/areas/<id>/__init__.py`. El contrato son siete cosas:
+Crea `backend/zc_suite/areas/<id>/__init__.py`. El contrato son ocho cosas:
 
 ```python
 """<id> — <nombre legible>."""
@@ -57,6 +57,8 @@ def valida_config(config: Any) -> str | None:
 - `valida_config(config)` devuelve el motivo por el que la seccion del area no
   vale, o `None` si vale. El nucleo lo enseña en el banner de config
   incompatible.
+- `ALMACEN` es la cache del Excel maestro del area, en la memoria del
+  backend. La recarga de config depende de el.
 
 ## 2. Registro
 
@@ -77,8 +79,8 @@ el unico sitio donde el nucleo conoce las areas.
 Layout recomendado dentro de `areas/<id>/`:
 
 ```
-__init__.py     ID, NOMBRE, rutas, catalogo(), defaults(), al_arrancar(),
-                estado_sesion(), valida_config()
+__init__.py     ID, NOMBRE, ALMACEN, rutas, catalogo(), defaults(),
+                al_arrancar(), estado_sesion(), valida_config()
 config.py       el modelo del config del area: lo valida y lo describe
 rutas.py        el Blueprint del area
 funciones/      un FB por fichero: funciones/<dominio>/<verbo>.py

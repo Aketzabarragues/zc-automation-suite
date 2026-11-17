@@ -10,7 +10,6 @@ tipos, para que las fases siguientes los usen tal cual.
 """
 from __future__ import annotations
 
-from zc_suite.areas.alimentacion.config import ConfigArea
 from zc_suite.areas.alimentacion.excel.modelo import (
     CAMPOS_DISPOSITIVO,
     CAMPOS_PLC,
@@ -373,19 +372,3 @@ DIMENSIONES = Dominio(
     exigir_plc=False,
     campos=(),
 )
-
-
-def destino_de_dispositivo(clave: str, config: ConfigArea) -> tuple[str, str]:
-    """La hoja y la tabla del Excel de un tipo de dispositivo.
-
-    Args:
-        clave: la clave del tipo en el ``config.json``.
-        config: el modelo del area.
-
-    Returns:
-        La tupla ``(hoja, tabla)``. Vacia si el config no tiene ese tipo.
-    """
-    dispositivo = config.dispositivos.get(clave)
-    if dispositivo is None:
-        return "", ""
-    return dispositivo.excel.hoja, dispositivo.excel.tabla

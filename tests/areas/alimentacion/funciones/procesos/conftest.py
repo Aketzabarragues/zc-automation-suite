@@ -847,24 +847,6 @@ CARPETA_BLOQUES_APPLY = "Bloques de programa"
 CARPETA_VARIABLES_APPLY = "Variables PLC"
 
 
-class BloqueDatoFalso:
-    """Un bloque del PLC, lo minimo que ``escanear_bloques`` necesita."""
-
-    def __init__(self, nombre: str) -> None:
-        self._nombre = nombre
-
-    def get_name(self) -> str:
-        return self._nombre
-
-    def get_property(self, name: str) -> Any:
-        if name == "Name":
-            return self._nombre
-        return None
-
-    def get_properties(self) -> list[str]:
-        return ["Name"]
-
-
 class BloqueCompilableFalso:
     """Un bloque que se puede compilar (``compilar_bloques``)."""
 

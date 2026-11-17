@@ -415,44 +415,6 @@ class ModificadorConstantesUsuario:
         )
         return False
 
-    def actualizar_valor_por_nombre(self, plc_name: str, new_value: int) -> bool:
-        """Actualiza el ``<Value>`` del PlcUserConstant identificado por ``<Name>``.
-
-        True si encontro y modifico la constant. False si no existe.
-        Variante offline de ``_h_update_user_constant_value`` (TIA Portal
-        online): opera directamente en el XML FLAT. Usado por stage 7
-        (D.4) del sync de entidades para el dimension (aunque el dimension
-        normalmente va por Tx A online en stage 4).
-
-        Args:
-            plc_name: ``<Name>`` de la PlcUserConstant a actualizar.
-            new_value: nuevo ``<Value>``.
-
-        Returns:
-            True si modifico, False si no encontro.
-        """
-        for const in self._root.findall(f".//{USER_CONSTANT_TAG}"):
-            name_el = const.find(f".//{NAME_TAG}")
-            if name_el is None or name_el.text is None:
-                continue
-            if name_el.text.strip() != plc_name:
-                continue
-            value_el = const.find(f".//{VALUE_TAG}")
-            if value_el is None:
-                continue
-            value_el.text = str(int(new_value))
-            self._modified = True
-            _logger.debug(
-                f"ModificadorConstantesUsuario.actualizar_valor_por_nombre: "
-                f"'{plc_name}' value -> {new_value} en '{self._path.name}'"
-            )
-            return True
-        _logger.warning(
-            f"ModificadorConstantesUsuario.actualizar_valor_por_nombre: "
-            f"'{plc_name}' no encontrado en '{self._path.name}'"
-        )
-        return False
-
     @staticmethod
     def _copiar_elemento(elem: ET.Element) -> ET.Element:
         """Devuelve una copia profunda de un Element."""
