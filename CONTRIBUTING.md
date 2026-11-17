@@ -48,6 +48,28 @@
 - **Sin singletons dentro de la logica.** Las funciones de dominio son puras y
   reciben kwargs explicitos.
 
+### Glosario de verbos
+
+| Verbo | Que significa |
+|---|---|
+| `generar_` | Prevision sin efectos en TIA: calcula el diff y exporta a la carpeta de previsualizacion, nunca al disco de salida |
+| `calcular_` | Diff o derivado puro: devuelve datos, no escribe |
+| `construir_` | Estructura de datos en memoria |
+| `sincronizar_` | Escribe en TIA, siempre dentro de `transaccion(job, ...)` |
+| `aplicar_` | Escribe: en TIA dentro de transaccion, o en disco offline (la clonacion de plantillas) |
+| `listar_`, `leer_` | Consulta: no escribe |
+| `cambiar_`, `renombrar_` | Operacion de escritura atomica en TIA (`tia_ops`); el llamador debe envolverla en transaccion |
+
+- **Excepcion historica**: `proc_aplicar_diccionario` y `proc_aplicar_clonacion`
+  (`areas/alimentacion/procesos/clonacion.py`) usan `aplicar_` pero solo editan
+  ficheros en disco, sin TIA ni transaccion.
+- **Excepcion historica**: `generar_prevision` escribe en la carpeta de
+  previsualizacion del workdir (`.build_cache/<area>/preview/`), no en TIA ni
+  en el disco de salida.
+
+El glosario se aplica a lo nuevo; lo que ya existe con otra palabra se deja
+como esta.
+
 ## 3. Reglas arquitectónicas críticas
 
 | Regla | Detalle | Doc |
