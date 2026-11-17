@@ -18,7 +18,7 @@ from zc_suite.nucleo.app.config import (
     config_incompatible,
     escribir_config,
     estado_config,
-    resolve_config_path,
+    resolver_ruta_config,
     ruta_plantilla,
 )
 
@@ -57,20 +57,20 @@ def test_en_desarrollo_la_plantilla_es_la_del_repo() -> None:
 def test_en_desarrollo_se_usa_el_config_del_repo(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("ZC_CONFIG_DIR", raising=False)
 
-    assert resolve_config_path() == RAIZ / "config" / "config.json"
+    assert resolver_ruta_config() == RAIZ / "config" / "config.json"
 
 
 def test_la_variable_de_entorno_manda(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("ZC_CONFIG_DIR", str(tmp_path))
 
-    assert resolve_config_path() == tmp_path / "config.json"
+    assert resolver_ruta_config() == tmp_path / "config.json"
 
 
 # ── copia de la plantilla ──────────────────────────────────────────────────
 
 
 def test_en_empaquetado_se_copia_la_plantilla_junto_al_exe(congelado: Path) -> None:
-    destino = resolve_config_path()
+    destino = resolver_ruta_config()
 
     assert destino.parent.name == "config"
     assert destino.parent.parent.name == "instalacion"
@@ -80,22 +80,22 @@ def test_en_empaquetado_se_copia_la_plantilla_junto_al_exe(congelado: Path) -> N
 
 
 def test_el_config_del_usuario_manda_siempre(congelado: Path) -> None:
-    destino = resolve_config_path()
+    destino = resolver_ruta_config()
     destino.write_text(
         json.dumps({"areas": {"alimentacion": {"tabla_nmax": "EL_MIO"}}}),
         encoding="utf-8",
     )
 
-    assert resolve_config_path() == destino
+    assert resolver_ruta_config() == destino
     copia = json.loads(destino.read_text(encoding="utf-8"))
     assert copia["areas"]["alimentacion"]["tabla_nmax"] == "EL_MIO"
 
 
 def test_un_config_invalido_no_se_pisa(congelado: Path) -> None:
-    destino = resolve_config_path()
+    destino = resolver_ruta_config()
     destino.write_text("{esto no es json", encoding="utf-8")
 
-    assert resolve_config_path() == destino
+    assert resolver_ruta_config() == destino
     assert destino.read_text(encoding="utf-8") == "{esto no es json"
 
 
@@ -108,7 +108,7 @@ def test_sin_permisos_se_usa_la_plantilla_en_solo_lectura(
 
     monkeypatch.setattr("zc_suite.nucleo.app.config.shutil.copy2", _falla)
 
-    assert resolve_config_path() == congelado
+    assert resolver_ruta_config() == congelado
 
 
 def test_sin_plantilla_ni_config_falla(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -118,7 +118,7 @@ def test_sin_plantilla_ni_config_falla(monkeypatch: pytest.MonkeyPatch, tmp_path
     monkeypatch.delenv("ZC_CONFIG_DIR", raising=False)
 
     with pytest.raises(FileNotFoundError):
-        resolve_config_path()
+        resolver_ruta_config()
 
 
 # ── validacion ─────────────────────────────────────────────────────────────

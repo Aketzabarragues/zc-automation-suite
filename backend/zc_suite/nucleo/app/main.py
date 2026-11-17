@@ -74,14 +74,6 @@ def carpeta_del_executable() -> Path:
     return Path(__file__).resolve().parents[4]
 
 
-def carpeta_de_datos() -> Path:
-    """La carpeta donde la app guarda sus datos.
-
-    Empaquetado: junto al ejecutable. Desarrollo: el repo.
-    """
-    return carpeta_del_executable()
-
-
 def _estado_de_tia(servicio: ServicioTIA) -> str:
     """El estado de TIA, como texto para el globo de la bandeja."""
     estado = servicio.estado()
@@ -110,7 +102,7 @@ def log_de_arranque(
         bool(getattr(sys, "frozen", False)),
     )
     logger.info("Ejecutable: %s", carpeta_del_executable())
-    logger.info("Datos: %s", carpeta_de_datos())
+    logger.info("Datos: %s", carpeta_del_executable())
     logger.info("Log: %s", logs.ruta_log())
     logger.info(
         "Config en uso: %s (origen: %s)",

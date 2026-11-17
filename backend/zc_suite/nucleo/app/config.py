@@ -163,7 +163,7 @@ def resolver_config(
 ) -> ConfigEnUso:
     """Resuelve el ``config.json`` que debe usar la app, y de donde sale.
 
-    Es ``resolve_config_path()`` pero ademas dice el origen: sin eso no se
+    Es ``resolver_ruta_config()`` pero ademas dice el origen: sin eso no se
     puede explicar por que un ``config.json`` dejo de tener los tipos de
     dispositivo.
 
@@ -207,7 +207,7 @@ def resolver_config(
     return ConfigEnUso(plantilla, ORIGEN_PLANTILLA)
 
 
-def resolve_config_path(
+def resolver_ruta_config(
     env_var: str = ENV_CONFIG_DIR,
     subcarpeta: str = SUBCARPETA_CONFIG,
     nombre: str = NOMBRE_CONFIG,
@@ -365,7 +365,7 @@ def cargar_config(ruta: Path | None = None) -> Config:
 
     Args:
         ruta: fichero a leer. Por defecto, el que resuelve
-            ``resolve_config_path()``.
+            ``resolver_ruta_config()``.
 
     Returns:
         La configuracion validada.
@@ -374,7 +374,7 @@ def cargar_config(ruta: Path | None = None) -> Config:
         ConfigError: si el fichero no existe, no es JSON valido o no cumple
             el esquema.
     """
-    destino = ruta or resolve_config_path()
+    destino = ruta or resolver_ruta_config()
     if not destino.is_file():
         raise ConfigError(f"No se encontro el {NOMBRE_CONFIG} en {destino}.")
     try:
