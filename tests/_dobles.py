@@ -88,6 +88,48 @@ class PortalWebFalso:
         pass
 
 
+class TsFalso:
+    """Doble minimo del modulo ``siemens_tia_scripting``."""
+
+    def __init__(self, modo_usuario: str = "cualquier") -> None:
+        class _PortalMode:
+            # El literal varia entre los ficheros que lo definian; los tests
+            # y el servicio no lo leen, asi que se queda como parametro.
+            AnyUserInterface = modo_usuario
+            WithGraphicalUserInterface = "con_gui"
+            WithoutGraphicalUserInterface = "sin_gui"
+
+        class _Enums:
+            PortalMode = _PortalMode
+
+        self.Enums = _Enums
+
+    def set_logging(self, path: str, console: bool) -> None:
+        pass
+
+
+class TsRutasFalso:
+    """El modulo del SDK de las rutas web: un portal minimo, ya conectado."""
+
+    class Enums:
+        class PortalMode:
+            AnyUserInterface = "cualquier"
+            WithGraphicalUserInterface = "con_gui"
+            WithoutGraphicalUserInterface = "sin_gui"
+
+    def __init__(self) -> None:
+        self.portal = PortalWebFalso()
+
+    def attach_portal(self, portal_mode: str | None = None) -> PortalWebFalso:
+        return self.portal
+
+    def open_portal(self, portal_mode: str | None = None) -> PortalWebFalso:
+        return self.portal
+
+    def set_logging(self, path: str, console: bool) -> None:
+        pass
+
+
 class PlcSyncFalso:
     """El PLC del sync: tablas de tags, bloques y la importacion."""
 

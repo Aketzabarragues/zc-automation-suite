@@ -10,6 +10,7 @@ from typing import Any
 
 import pytest
 from flask import Flask, jsonify
+from tests._dobles import TsFalso
 
 from zc_suite.nucleo.tia.eventos import BusEventos
 from zc_suite.nucleo.tia.servicio import ServicioTIA
@@ -30,19 +31,6 @@ BASE = "http://localhost:9484"
 
 
 # ── dobles ─────────────────────────────────────────────────────────────────
-
-
-class TsFalso:
-    """Doble minimo del modulo ``siemens_tia_scripting``."""
-
-    class Enums:
-        class PortalMode:
-            AnyUserInterface = "cualquier"
-            WithGraphicalUserInterface = "con_gui"
-            WithoutGraphicalUserInterface = "sin_gui"
-
-    def set_logging(self, path: str, console: bool) -> None:
-        pass
 
 
 def _app(desarrollo: bool = False) -> Flask:

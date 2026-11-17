@@ -7,7 +7,7 @@ from typing import Any
 
 import pytest
 from flask import Flask, jsonify
-from tests._dobles import PortalWebFalso
+from tests._dobles import TsRutasFalso
 
 from zc_suite.nucleo.sesion import CLAVE_SESION, Sesion
 from zc_suite.nucleo.tia.eventos import BusEventos
@@ -18,35 +18,13 @@ from zc_suite.nucleo.web.rutas import plc
 BASE = "http://localhost:9484"
 
 
-class TsFalso:
-    """Doble minimo del modulo ``siemens_tia_scripting``."""
-
-    class Enums:
-        class PortalMode:
-            AnyUserInterface = "cualquier"
-            WithGraphicalUserInterface = "con_gui"
-            WithoutGraphicalUserInterface = "sin_gui"
-
-    def __init__(self) -> None:
-        self.portal = PortalWebFalso()
-
-    def attach_portal(self, portal_mode: str | None = None) -> PortalWebFalso:
-        return self.portal
-
-    def open_portal(self, portal_mode: str | None = None) -> PortalWebFalso:
-        return self.portal
-
-    def set_logging(self, path: str, console: bool) -> None:
-        pass
-
-
 @pytest.fixture
 def app() -> Flask:
     """App con el hilo de TIA, el bus y las rutas del PLC montadas."""
     bus_eventos = BusEventos()
     servicio_tia = ServicioTIA(
         publicador=bus_eventos.publicar,
-        cargador=lambda: TsFalso(),
+        cargador=lambda: TsRutasFalso(),
     )
     aplicacion = crear_app(servicio_tia, bus_eventos)
     aplicacion.config["TESTING"] = True

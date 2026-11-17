@@ -11,6 +11,7 @@ from typing import Any
 
 import pytest
 from flask import Flask
+from tests._dobles import TsFalso
 
 from zc_suite.nucleo.app.config import Config, cargar_config
 from zc_suite.nucleo.app.main import AREAS, montar_app
@@ -18,19 +19,6 @@ from zc_suite.nucleo.tia.eventos import BusEventos
 from zc_suite.nucleo.tia.servicio import ServicioTIA
 
 RAIZ = Path(__file__).resolve().parents[3]
-
-
-class TsFalso:
-    """Doble minimo del modulo ``siemens_tia_scripting``."""
-
-    class Enums:
-        class PortalMode:
-            AnyUserInterface = "cualquier_interfaz"
-            WithGraphicalUserInterface = "con_gui"
-            WithoutGraphicalUserInterface = "sin_gui"
-
-    def set_logging(self, path: str, console: bool) -> None:
-        pass
 
 
 def _app(config: Config) -> Flask:
