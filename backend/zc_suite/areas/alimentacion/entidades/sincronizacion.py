@@ -191,65 +191,29 @@ def ent_copiar_y_editar(
     comentarios = 0
 
     # ── 1. la copia filtrada de las variables ───────────────────────────
-    if variables_export.is_dir():
-        shutil.copytree(
-            variables_export,
-            variables_modified,
-            ignore=_ignorar_tabla_de_n_max(tabla_config),
-            dirs_exist_ok=True,
-        )
-    else:
-        aviso = f"No existe la exportacion de variables: {variables_export}."
-        logger.warning("[ent sync] %s", aviso)
-        avisos.append(aviso)
+    _copiar_variables(
+        variables_export, variables_modified, tabla_config, avisos
+    )
 
     # ── 2. la edicion offline del XML de las constantes ─────────────────
     if operaciones_constantes:
-        ruta_xml = _localizar_xml(variables_modified, tabla_tags, carpeta_tia)
-        if ruta_xml is None:
-            aviso = (
-                f"El XML de '{tabla_tags}' no esta en {variables_modified}: "
-                "las constantes se omiten del sync."
-            )
-            logger.warning("[ent sync] %s", aviso)
-            avisos.append(aviso)
-        else:
-            anadidos, eliminados = _editar_constantes(
-                ruta_xml, tabla_tags, operaciones_constantes
-            )
+        anadidos, eliminados = _editar_xml_de_constantes(
+            variables_modified,
+            tabla_tags,
+            carpeta_tia,
+            operaciones_constantes,
+            avisos,
+        )
 
     # ── 3. la copia simple de los bloques ───────────────────────────────
-    if bloques_export.is_dir():
-        shutil.copytree(bloques_export, bloques_modified, dirs_exist_ok=True)
-    else:
-        aviso = f"No existe la exportacion de bloques: {bloques_export}."
-        logger.warning("[ent sync] %s", aviso)
-        avisos.append(aviso)
+    _copiar_bloques(bloques_export, bloques_modified, avisos)
 
     # ── 4. la edicion offline de los comentarios del DB ─────────────────
-    mapa = ent_mapa_de_comentarios(operaciones_comentarios)
-    if mapa:
-        base = bloques_modified / carpeta_tia if carpeta_tia else bloques_modified
-        dcl = base / f"{db}.s7dcl"
-        res = base / f"{db}.s7res"
-        if not dcl.is_file() or not res.is_file():
-            aviso = (
-                f"No se encontro el bloque '{db}' en la exportacion: "
-                "sus comentarios se omiten."
-            )
-            logger.warning("[ent sync] %s", aviso)
-            avisos.append(aviso)
-        else:
-            resultado = confirmar_comentarios_array(
-                dcl,
-                res,
-                array,
-                mapa,
-                tipo_array=TIPO_ARRAY,
-                escribir_en_original=True,
-            )
-            if resultado.injected or resultado.updated or resultado.removed:
-                comentarios = 1
+    if operaciones_comentarios:
+        comentarios = _editar_comentarios_db(
+            bloques_modified, carpeta_tia, db, array,
+            operaciones_comentarios, avisos,
+        )
 
     return {
         "anadidos": anadidos,
@@ -309,6 +273,100 @@ def _editar_constantes(
     if modificador.modificado():
         modificador.guardar(ruta_xml)
     return anadidos, eliminados
+
+
+def _copiar_variables(
+    variables_export: Path,
+    variables_modified: Path,
+    tabla_config: str,
+    avisos: list[str],
+) -> None:
+    """Copia filtrada de ``variables/export/`` a ``variables/modified/``.
+
+    Se excluye el XML de la tabla de N_MAX: su valor ya se aplico en linea y
+    reimportarlo dejaria el PLC con el valor previo.
+    """
+    if variables_export.is_dir():
+        shutil.copytree(
+            variables_export,
+            variables_modified,
+            ignore=_ignorar_tabla_de_n_max(tabla_config),
+            dirs_exist_ok=True,
+        )
+        return
+    aviso = f"No existe la exportacion de variables: {variables_export}."
+    logger.warning("[ent sync] %s", aviso)
+    avisos.append(aviso)
+
+
+def _editar_xml_de_constantes(
+    variables_modified: Path,
+    tabla_tags: str,
+    carpeta_tia: str,
+    operaciones: list[dict[str, Any]],
+    avisos: list[str],
+) -> tuple[int, int]:
+    """Localiza y edita el XML de la tabla de tags; sin XML, avisa y no hace nada."""
+    ruta_xml = _localizar_xml(variables_modified, tabla_tags, carpeta_tia)
+    if ruta_xml is None:
+        aviso = (
+            f"El XML de '{tabla_tags}' no esta en {variables_modified}: "
+            "las constantes se omiten del sync."
+        )
+        logger.warning("[ent sync] %s", aviso)
+        avisos.append(aviso)
+        return 0, 0
+    return _editar_constantes(ruta_xml, tabla_tags, operaciones)
+
+
+def _copiar_bloques(
+    bloques_export: Path, bloques_modified: Path, avisos: list[str]
+) -> None:
+    """Copia simple de ``bloques/export/`` a ``bloques/modified/``."""
+    if bloques_export.is_dir():
+        shutil.copytree(bloques_export, bloques_modified, dirs_exist_ok=True)
+        return
+    aviso = f"No existe la exportacion de bloques: {bloques_export}."
+    logger.warning("[ent sync] %s", aviso)
+    avisos.append(aviso)
+
+
+def _editar_comentarios_db(
+    bloques_modified: Path,
+    carpeta_tia: str,
+    db: str,
+    array: str,
+    operaciones_comentarios: list[dict[str, Any]],
+    avisos: list[str],
+) -> int:
+    """Aplica los comentarios del DB sobre el par ``.s7dcl``/``.s7res``.
+
+    Returns:
+        ``1`` si se aplico al menos un comentario, ``0`` en caso contrario.
+    """
+    mapa = ent_mapa_de_comentarios(operaciones_comentarios)
+    if not mapa:
+        return 0
+    base = bloques_modified / carpeta_tia if carpeta_tia else bloques_modified
+    dcl = base / f"{db}.s7dcl"
+    res = base / f"{db}.s7res"
+    if not dcl.is_file() or not res.is_file():
+        aviso = (
+            f"No se encontro el bloque '{db}' en la exportacion: "
+            "sus comentarios se omiten."
+        )
+        logger.warning("[ent sync] %s", aviso)
+        avisos.append(aviso)
+        return 0
+    resultado = confirmar_comentarios_array(
+        dcl,
+        res,
+        array,
+        mapa,
+        tipo_array=TIPO_ARRAY,
+        escribir_en_original=True,
+    )
+    return 1 if resultado.injected or resultado.updated or resultado.removed else 0
 
 
 def _localizar_xml(base: Path, tabla: str, carpeta_tia: str) -> Path | None:
