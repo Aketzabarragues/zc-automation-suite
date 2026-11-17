@@ -99,7 +99,7 @@ const textoAplicar = computed(() =>
  * interpretable: `false` (no se inventa la advertencia sin dato).
  */
 const notaVersionVisible = computed(() => {
-  const numero = Number(tia.version_tia.match(/\d+/)?.[0]);
+  const numero = Number((tia.version_tia ?? "").match(/\d+/)?.[0]);
   return Number.isInteger(numero) && numero < 21;
 });
 

@@ -774,6 +774,16 @@ describe("CrearProceso", () => {
       tia.version_tia = "V21.1";
       await flushPromises();
       expect(wrapper.find('[data-testid="crear-nota-version"]').exists()).toBe(false);
+
+      // V21 exacto: no se muestra.
+      tia.version_tia = "V21";
+      await flushPromises();
+      expect(wrapper.find('[data-testid="crear-nota-version"]').exists()).toBe(false);
+
+      // Version no numérica: no se muestra.
+      tia.version_tia = "sin version";
+      await flushPromises();
+      expect(wrapper.find('[data-testid="crear-nota-version"]').exists()).toBe(false);
     });
   });
 

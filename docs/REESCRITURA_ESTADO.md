@@ -176,12 +176,13 @@ futura).
 - Mensajes de error de los stores ("No se pudo ...", `frontend/src/nucleo/stores/tia.js`,
   `plc.js` y `frontend/src/areas/alimentacion/stores/{excel,procesos,entidades,dispositivos,crear_proceso}.js`):
   main mostraba `alert()` inline o nada.
-- "Recargar plantillas", "N archivos generados" y el aviso de escaneo no
+- "Recargar plantillas", "N archivos generados" (en pantalla, con el
+  conteo interpolado: `4 archivos generados`) y el aviso de escaneo no
   refrescado ("No se pudo refrescar el escaneo: vuelve a escanear el PLC."):
   `frontend/src/areas/alimentacion/vistas/CrearProceso.vue`.
 - "Subiendo el Excel..." y "Sin filas.":
   `frontend/src/areas/alimentacion/vistas/DefinicionProgramacion.vue`.
-- "ver/ocultar traceback":
+- "ver traceback" / "ocultar traceback":
   `frontend/src/nucleo/componentes/ConsolaLogs.vue`.
 
 ## Como se revisa una entrega
