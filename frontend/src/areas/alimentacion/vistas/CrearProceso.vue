@@ -91,7 +91,7 @@ const textoGenerar = computed(() =>
 
 /** El texto del boton de aplicar. */
 const textoAplicar = computed(() =>
-  crear.aplicando ? "⏳ Creando…" : "✅ Crear en TIA Portal",
+  crear.aplicando ? "⏳ Aplicando…" : "✅ Aplicar Cambios en TIA Portal",
 );
 
 /** `true` mientras el dialogo de confirmacion esta abierto. */
@@ -563,7 +563,7 @@ onMounted(() => {
     >
       <p class="text-sm font-semibold flex items-center gap-2">
         <span>✅</span>
-        <span>Proceso {{ crear.resultadoAplicar.process_label }} creado</span>
+        <span>Proceso {{ crear.resultadoAplicar.process_label }} creado correctamente.</span>
       </p>
       <p class="mt-1">
         {{ (crear.resultadoAplicar.archivos_generados || []).length }} archivos generados

@@ -672,7 +672,7 @@ describe("CrearProceso", () => {
 
       const boton = wrapper.find('[data-testid="crear-aplicar"]');
       expect(boton.attributes("disabled")).toBeUndefined();
-      expect(boton.text()).toContain("Crear en TIA Portal");
+      expect(boton.text()).toContain("Aplicar Cambios en TIA Portal");
 
       await boton.trigger("click");
       await flushPromises();
@@ -760,7 +760,7 @@ describe("CrearProceso", () => {
 
       const panel = wrapper.find('[data-testid="crear-resultado"]');
       expect(panel.exists()).toBe(true);
-      expect(panel.text()).toContain("Proceso 100_CPR creado");
+      expect(panel.text()).toContain("Proceso 100_CPR creado correctamente.");
       expect(panel.text()).toContain("4 archivos generados");
 
       const transacciones = wrapper.find('[data-testid="crear-transacciones"]');
