@@ -11,9 +11,11 @@ from typing import Any
 
 import pytest
 
-from zc_suite.areas.alimentacion.funciones.procesos.sincronizar import (
-    CONFIRMADA,
-    NO_EJECUTADA,
+from zc_suite.areas.alimentacion.sincronizacion_comun import (
+    ESTADO_CONFIRMADA as CONFIRMADA,
+)
+from zc_suite.areas.alimentacion.sincronizacion_comun import (
+    ESTADO_NO_EJECUTADA as NO_EJECUTADA,
 )
 from zc_suite.nucleo.sesion import Sesion
 from zc_suite.nucleo.tia.errores import CanceladoError

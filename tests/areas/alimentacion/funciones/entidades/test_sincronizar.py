@@ -12,9 +12,11 @@ import pytest
 from zc_suite.areas.alimentacion.funciones.entidades import (
     sincronizar as modulo_sync,
 )
-from zc_suite.areas.alimentacion.funciones.entidades.sincronizar import (
-    CONFIRMADA,
-    NO_EJECUTADA,
+from zc_suite.areas.alimentacion.sincronizacion_comun import (
+    ESTADO_CONFIRMADA as CONFIRMADA,
+)
+from zc_suite.areas.alimentacion.sincronizacion_comun import (
+    ESTADO_NO_EJECUTADA as NO_EJECUTADA,
 )
 from zc_suite.nucleo.sesion import Sesion
 from zc_suite.nucleo.tia.errores import CanceladoError

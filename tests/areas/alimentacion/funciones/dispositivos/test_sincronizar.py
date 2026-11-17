@@ -12,9 +12,11 @@ import pytest
 from zc_suite.areas.alimentacion.funciones.dispositivos import (
     sincronizar as modulo_sync,
 )
-from zc_suite.areas.alimentacion.funciones.dispositivos.sincronizar import (
-    CONFIRMADA,
-    NO_EJECUTADA,
+from zc_suite.areas.alimentacion.sincronizacion_comun import (
+    ESTADO_CONFIRMADA as CONFIRMADA,
+)
+from zc_suite.areas.alimentacion.sincronizacion_comun import (
+    ESTADO_NO_EJECUTADA as NO_EJECUTADA,
 )
 from zc_suite.nucleo.sesion import Sesion
 from zc_suite.nucleo.tia.errores import CanceladoError
@@ -262,8 +264,8 @@ def test_el_dict_completo_fija_los_nombres_y_valores_de_cada_transaccion(
     vienen de ``_transacciones_iniciales``: si cambian, cambia el contrato
     de la vista y del mensaje de fallo.
     """
-    from zc_suite.areas.alimentacion.funciones.dispositivos.sincronizar import (
-        CONFIRMADA as CONFIRMADA_CONST,
+    from zc_suite.areas.alimentacion.sincronizacion_comun import (
+        ESTADO_CONFIRMADA as CONFIRMADA_CONST,
     )
 
     evento = entorno_sync.sincronizar()

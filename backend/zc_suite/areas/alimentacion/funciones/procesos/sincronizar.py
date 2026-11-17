@@ -81,9 +81,6 @@ from zc_suite.areas.alimentacion.procesos.sincronizacion import (
     proc_tipo_array,
 )
 from zc_suite.areas.alimentacion.sincronizacion_comun import (
-    ESTADO_CONFIRMADA,
-    ESTADO_NO_EJECUTADA,
-    ESTADO_REVIRTIDA,
     calcular_operaciones_n_max,
     compilar_con_aviso,
     estado_no_ejecutada,
@@ -108,15 +105,6 @@ CONTEXTO = "procesos"
 
 #: Segundos que se espera a que TIA consolide tras la transaccion de N_MAX.
 PAUSA_CONSOLIDACION_S = 2.0
-
-#: La transaccion se confirmo: TIA guardo los cambios.
-CONFIRMADA = ESTADO_CONFIRMADA
-
-#: La transaccion fallo y se revirtio: TIA no guardo nada.
-REVIRTIDA = ESTADO_REVIRTIDA
-
-#: La transaccion no llego a ejecutarse.
-NO_EJECUTADA = ESTADO_NO_EJECUTADA
 
 #: La cola final del aviso de una compilacion con errores de los procesos.
 #: Singular (``ese``): se compilan los dos DBs del proceso.
