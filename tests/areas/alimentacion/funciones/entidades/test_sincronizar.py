@@ -13,10 +13,8 @@ from zc_suite.areas.alimentacion.funciones.entidades import (
     sincronizar as modulo_sync,
 )
 from zc_suite.areas.alimentacion.sincronizacion_comun import (
-    ESTADO_CONFIRMADA as CONFIRMADA,
-)
-from zc_suite.areas.alimentacion.sincronizacion_comun import (
-    ESTADO_NO_EJECUTADA as NO_EJECUTADA,
+    ESTADO_CONFIRMADA,
+    ESTADO_NO_EJECUTADA,
 )
 from zc_suite.nucleo.sesion import Sesion
 from zc_suite.nucleo.tia.errores import CanceladoError
@@ -95,7 +93,7 @@ def test_las_tres_transacciones_se_confirman(entorno_sync: Any) -> None:
 
     resultado = evento["resultado"]
     for transaccion in resultado["transacciones"]:
-        assert transaccion["estado"] == CONFIRMADA, transaccion
+        assert transaccion["estado"] == ESTADO_CONFIRMADA, transaccion
     assert resultado["prevision"] is not None
 
 
@@ -181,7 +179,7 @@ def test_los_comentarios_no_se_ejecutan_en_tia_v18(entorno_sync_v18: Any) -> Non
     assert evento["estado"] == "ok", evento.get("error")
     resultado = evento["resultado"]
     comentarios = _transaccion_por_nombre(resultado, "Comentarios")
-    assert comentarios["estado"] == NO_EJECUTADA
+    assert comentarios["estado"] == ESTADO_NO_EJECUTADA
     assert "V21" in comentarios["detalle"]
     assert entorno_sync_v18.plc.importaciones_bloques == []
 
@@ -201,14 +199,14 @@ def test_el_dict_completo_fija_los_nombres_y_valores_de_cada_transaccion(
     resultado = evento["resultado"]
     transacciones = {t["nombre"]: t for t in resultado["transacciones"]}
     assert list(transacciones) == ["N_MAX", "Constantes", "Comentarios"]
-    assert transacciones["N_MAX"]["estado"] == CONFIRMADA
+    assert transacciones["N_MAX"]["estado"] == ESTADO_CONFIRMADA
     assert transacciones["N_MAX"]["detalle"] == "1 N_MAX"
-    assert transacciones["Constantes"]["estado"] == CONFIRMADA
+    assert transacciones["Constantes"]["estado"] == ESTADO_CONFIRMADA
     # El detalle cuenta las operaciones de constantes (alta, bajas,
     # renombres, borrado de sobrantes).
     assert transacciones["Constantes"]["detalle"].endswith("operaciones")
     assert transacciones["Constantes"]["detalle"].split(" ", 1)[0].isdigit()
-    assert transacciones["Comentarios"]["estado"] == CONFIRMADA
+    assert transacciones["Comentarios"]["estado"] == ESTADO_CONFIRMADA
     assert transacciones["Comentarios"]["detalle"] == "DB de entidades"
     # Las claves de primer nivel del resultado, sin mas ni menos.
     assert set(resultado) == {
@@ -253,7 +251,7 @@ def test_la_compilacion_con_errores_no_tumba_y_fija_su_dict(
     assert compilacion == "compile=WARN"
     # La tx de comentarios no se salta por el fallo de compilacion.
     comentarios = _transaccion_por_nombre(evento["resultado"], "Comentarios")
-    assert comentarios["estado"] == CONFIRMADA
+    assert comentarios["estado"] == ESTADO_CONFIRMADA
     assert entorno_sync.plc.importaciones_bloques
 
 
@@ -277,7 +275,7 @@ def test_si_la_compilacion_lanza_los_cambios_se_quedan(
     assert compilacion == "compile=WARN"
     # El sync se quedo: las transacciones anteriores siguen confirmadas.
     for transaccion in evento["resultado"]["transacciones"]:
-        assert transaccion["estado"] == CONFIRMADA, transaccion
+        assert transaccion["estado"] == ESTADO_CONFIRMADA, transaccion
 
 
 def test_si_falla_la_importacion_de_comentarios_se_revierte(
@@ -320,10 +318,10 @@ def test_en_v18_el_dict_fija_el_estado_de_cada_transaccion(
     assert evento["estado"] == "ok", evento.get("error")
     resultado = evento["resultado"]
     transacciones = {t["nombre"]: t for t in resultado["transacciones"]}
-    assert transacciones["N_MAX"]["estado"] == CONFIRMADA
+    assert transacciones["N_MAX"]["estado"] == ESTADO_CONFIRMADA
     assert transacciones["N_MAX"]["detalle"] == "1 N_MAX"
-    assert transacciones["Constantes"]["estado"] == CONFIRMADA
-    assert transacciones["Comentarios"]["estado"] == NO_EJECUTADA
+    assert transacciones["Constantes"]["estado"] == ESTADO_CONFIRMADA
+    assert transacciones["Comentarios"]["estado"] == ESTADO_NO_EJECUTADA
     assert transacciones["Comentarios"]["detalle"] == (
         "los comentarios por instancia necesitan TIA Portal V21 o superior"
     )

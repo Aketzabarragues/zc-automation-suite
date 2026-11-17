@@ -44,7 +44,7 @@ def test_carpeta_datos_en_desarrollo_es_el_repo() -> None:
     assert carpeta_datos() == RAIZ
 
 
-def test_carpeta_datos_en_empaquetado_es_la_carpeta_del_exe(
+def test_carpeta_del_ejecutable_es_la_de_datos(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

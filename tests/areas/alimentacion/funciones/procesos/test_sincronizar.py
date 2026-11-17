@@ -12,10 +12,8 @@ from typing import Any
 import pytest
 
 from zc_suite.areas.alimentacion.sincronizacion_comun import (
-    ESTADO_CONFIRMADA as CONFIRMADA,
-)
-from zc_suite.areas.alimentacion.sincronizacion_comun import (
-    ESTADO_NO_EJECUTADA as NO_EJECUTADA,
+    ESTADO_CONFIRMADA,
+    ESTADO_NO_EJECUTADA,
 )
 from zc_suite.nucleo.sesion import Sesion
 from zc_suite.nucleo.tia.errores import CanceladoError
@@ -108,8 +106,8 @@ def test_las_dos_transacciones_se_confirman(entorno_sync: Any) -> None:
     resultado = evento["resultado"]
     n_max = _transaccion_por_nombre(resultado, "N_MAX")
     comentarios = _transaccion_por_nombre(resultado, "Comentarios")
-    assert n_max["estado"] == CONFIRMADA, n_max
-    assert comentarios["estado"] == CONFIRMADA, comentarios
+    assert n_max["estado"] == ESTADO_CONFIRMADA, n_max
+    assert comentarios["estado"] == ESTADO_CONFIRMADA, comentarios
     assert resultado["prevision"] is not None
 
 
@@ -177,7 +175,7 @@ def test_con_n_max_y_sin_cambios_de_comentarios_compila_antes_de_reexportar(
     # Sin cambios de comentarios: ni import ni transaccion de comentarios.
     assert entorno_sync.plc.importaciones_bloques == []
     comentarios = _transaccion_por_nombre(evento["resultado"], "Comentarios")
-    assert comentarios["estado"] == NO_EJECUTADA
+    assert comentarios["estado"] == ESTADO_NO_EJECUTADA
 
     # Pero los DBs se han compilado igual: el N_MAX redimensiono los arrays.
     compilados = _db_compilados(entorno_sync)
@@ -209,7 +207,7 @@ def test_sin_cambios_no_hay_transaccion_de_comentarios(
 
     assert evento["estado"] == "ok", evento.get("error")
     comentarios = _transaccion_por_nombre(evento["resultado"], "Comentarios")
-    assert comentarios["estado"] == NO_EJECUTADA
+    assert comentarios["estado"] == ESTADO_NO_EJECUTADA
     assert entorno_sync.plc.importaciones_bloques == []
 
 
@@ -378,9 +376,9 @@ def test_el_sync_en_tia_v18_no_exporta_bloques(
     # El doble V18 lanza si se le pide export SimaticSD: si el sync llegara
     # a exportar, el trabajo fallaria.
     resultado = evento["resultado"]
-    assert _transaccion_por_nombre(resultado, "N_MAX")["estado"] == CONFIRMADA
+    assert _transaccion_por_nombre(resultado, "N_MAX")["estado"] == ESTADO_CONFIRMADA
     comentarios = _transaccion_por_nombre(resultado, "Comentarios")
-    assert comentarios["estado"] == NO_EJECUTADA
+    assert comentarios["estado"] == ESTADO_NO_EJECUTADA
     assert "V21" in comentarios["detalle"]
     assert entorno_sync_v18.plc.importaciones_bloques == []
 
@@ -392,11 +390,11 @@ def test_los_comentarios_no_se_ejecutan_en_tia_v18(entorno_sync_v18: Any) -> Non
     assert evento["estado"] == "ok", evento.get("error")
     resultado = evento["resultado"]
     comentarios = _transaccion_por_nombre(resultado, "Comentarios")
-    assert comentarios["estado"] == NO_EJECUTADA
+    assert comentarios["estado"] == ESTADO_NO_EJECUTADA
     assert "V21" in comentarios["detalle"]
     assert entorno_sync_v18.plc.importaciones_bloques == []
     # El N_MAX, en cambio, si se aplico: no depende de SimaticSD.
-    assert _transaccion_por_nombre(resultado, "N_MAX")["estado"] == CONFIRMADA
+    assert _transaccion_por_nombre(resultado, "N_MAX")["estado"] == ESTADO_CONFIRMADA
 
 
 def test_sin_escaneo_fresco_no_hay_sync(entorno_sync: Any) -> None:
@@ -446,9 +444,9 @@ def test_el_dict_completo_fija_claves_y_valores(entorno_sync: Any) -> None:
     assert resultado["proc_uid"] == PROC_UID
     transacciones = {t["nombre"]: t for t in resultado["transacciones"]}
     assert list(transacciones) == ["N_MAX", "Comentarios"]
-    assert transacciones["N_MAX"]["estado"] == CONFIRMADA
+    assert transacciones["N_MAX"]["estado"] == ESTADO_CONFIRMADA
     assert transacciones["N_MAX"]["detalle"] == "2 N_MAX"
-    assert transacciones["Comentarios"]["estado"] == CONFIRMADA
+    assert transacciones["Comentarios"]["estado"] == ESTADO_CONFIRMADA
     assert transacciones["Comentarios"]["detalle"] == "DBs del proceso"
     # Los contadores: dos N_MAX (PREAL 3->2, ALM_HMI 1->2) y el resumen de
     # comentarios (``proc_resumen``), que cuenta agregados, renombrados y
@@ -497,7 +495,7 @@ def test_la_compilacion_con_errores_no_tumba_y_fija_su_dict(
     assert evento["resultado"]["compilacion"] == "compile=WARN"
     # El fallo de compilacion no revierte las transacciones.
     for transaccion in evento["resultado"]["transacciones"]:
-        assert transaccion["estado"] == CONFIRMADA, transaccion
+        assert transaccion["estado"] == ESTADO_CONFIRMADA, transaccion
     # El aviso lleva el cuerpo exacto: el bloque con el mensaje recortado y
     # la cola final de los procesos (singular: ese bloque).
     avisos = [
@@ -551,7 +549,7 @@ def test_si_la_compilacion_lanza_los_cambios_se_quedan(
     ]
     # El sync se quedo: las transacciones siguen confirmadas.
     for transaccion in evento["resultado"]["transacciones"]:
-        assert transaccion["estado"] == CONFIRMADA, transaccion
+        assert transaccion["estado"] == ESTADO_CONFIRMADA, transaccion
 
 
 def test_si_falla_la_importacion_de_comentarios_fija_el_error(
@@ -593,9 +591,9 @@ def test_en_v18_el_dict_fija_el_estado_de_cada_transaccion(
     assert evento["estado"] == "ok", evento.get("error")
     resultado = evento["resultado"]
     transacciones = {t["nombre"]: t for t in resultado["transacciones"]}
-    assert transacciones["N_MAX"]["estado"] == CONFIRMADA
+    assert transacciones["N_MAX"]["estado"] == ESTADO_CONFIRMADA
     assert transacciones["N_MAX"]["detalle"] == "2 N_MAX"
-    assert transacciones["Comentarios"]["estado"] == NO_EJECUTADA
+    assert transacciones["Comentarios"]["estado"] == ESTADO_NO_EJECUTADA
     assert transacciones["Comentarios"]["detalle"] == (
         "los comentarios por instancia necesitan TIA Portal V21 o superior"
     )
