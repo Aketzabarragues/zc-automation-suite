@@ -38,6 +38,7 @@ read_if: "Antes de leer o modificar codigo del proyecto; para saber que modulo e
 ### `docs/` — Guias de uso, arquitectura y mantenimiento
 
 - `CONFIG.md` — Formato de la seccion de config de un area.
+- `GLOSARIO.md` — Significado de las siglas del repo y cuales son contrato.
 - `NUEVA_AREA.md` — Como anadir un area.
 - `NUEVO_DISPOSITIVO.md` — Como anadir un tipo de dispositivo.
 - `FLUJOS_ALIMENTACION.md` — Los flujos de main y los cambios deliberados respecto a main.
