@@ -102,9 +102,12 @@ futura).
   `mensaje_corto` y `localizar_xml` viven en
   `backend/zc_suite/areas/alimentacion/sincronizacion_comun.py`; los FB de
   dispositivos y entidades ya lo usan.
-- `resultado["compilacion"]` es un **detalle string** (`compile=OK (...)` /
-  `compile=WARN`) en el sync de dispositivos, como en entidades. El frontend
-  no lo lee: el aviso con errores va al log.
+- En el sync de dispositivos, entidades y procesos,
+  `resultado["compilacion"]` es un **detalle string** (`compile=OK (...)` /
+  `compile=WARN` / `compile=no-op`). El frontend no lo lee: el aviso con
+  errores va al log. En **crear proceso** (`funciones/procesos/crear.py`) se
+  conserva el shape `{ok, error, detalle}`: `CrearProceso.vue` lo lee, y desde
+  este cambio la vista solo lo muestra cuando `ok` es falso.
 - **No unificados** (difieren y se dejan):
   - `_aplicar_comentarios`/`_confirmar_comentarios` de dispositivos reexportan
     los bloques, los copian a `modified/` y editan los `.s7dcl`/`.s7res`
@@ -164,6 +167,22 @@ futura).
   main muestra un banner rojo.
 - Nunca poner el exe de main y el de la reescritura en la misma carpeta: el
   de la reescritura leeria el `config.json` de main.
+
+### Textos nuevos deliberados (no en main)
+
+- Dialogo de confirmacion y sus botones ("Cancelar" / "Si, aplicar",
+  `frontend/src/nucleo/componentes/DialogoConfirmacion.vue`): main usaba
+  `confirm()` nativo.
+- Mensajes de error de los stores ("No se pudo ...", `frontend/src/nucleo/stores/tia.js`,
+  `plc.js` y `frontend/src/areas/alimentacion/stores/{excel,procesos,entidades,dispositivos,crear_proceso}.js`):
+  main mostraba `alert()` inline o nada.
+- "Recargar plantillas", "N archivos generados" y el aviso de escaneo no
+  refrescado ("No se pudo refrescar el escaneo: vuelve a escanear el PLC."):
+  `frontend/src/areas/alimentacion/vistas/CrearProceso.vue`.
+- "Subiendo el Excel..." y "Sin filas.":
+  `frontend/src/areas/alimentacion/vistas/DefinicionProgramacion.vue`.
+- "ver/ocultar traceback":
+  `frontend/src/nucleo/componentes/ConsolaLogs.vue`.
 
 ## Como se revisa una entrega
 
