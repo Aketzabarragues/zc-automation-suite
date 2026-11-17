@@ -20,7 +20,7 @@ const ID_AREA = "alimentacion";
 const CLAVE_PREVISION = "prevision_entidades";
 
 /** Ruta del endpoint de la prevision. */
-export const RUTA_PREVIEW = "/api/v1/areas/alimentacion/entidades/preview";
+export const RUTA_PREVISION = "/api/v1/areas/alimentacion/entidades/preview";
 
 /** Ruta del endpoint que aplica los cambios en TIA Portal. */
 export const RUTA_SINCRONIZAR = "/api/v1/areas/alimentacion/entidades/sincronizar";
@@ -44,9 +44,9 @@ export const useEntidadesStore = defineStore("entidades", {
     /** El catalogo del area: solo la etiqueta del N_MAX. */
     catalog: null,
     /** La ultima prevision, con su shape del backend. */
-    preview: null,
+    prevision: null,
     /** El PLC de la prevision: solo vale mientras siga seleccionado. */
-    previewPlc: "",
+    previsionPlc: "",
     /** `true` cuando ya se aplico la prevision de la sesion (una vez). */
     hidratado: false,
     /** `true` mientras se genera la prevision. */
@@ -65,14 +65,14 @@ export const useEntidadesStore = defineStore("entidades", {
      * conectado. Si cambia el PLC o se pierde TIA, deja de verse.
      */
     vigente(state) {
-      if (!state.preview) return null;
+      if (!state.prevision) return null;
       if (!useTiaStore().conectado) return null;
-      if (state.previewPlc !== usePlcStore().seleccionado) return null;
-      return state.preview;
+      if (state.previsionPlc !== usePlcStore().seleccionado) return null;
+      return state.prevision;
     },
 
     /** `true` si hay prevision con las precondiciones cumplidas. */
-    hayPreview() {
+    hayPrevision() {
       const prevision = this.vigente;
       return Boolean(prevision && prevision.precondiciones_ok === true);
     },
@@ -91,7 +91,7 @@ export const useEntidadesStore = defineStore("entidades", {
      * valor y el mismo comentario.
      */
     resumen() {
-      if (!this.hayPreview) {
+      if (!this.hayPrevision) {
         return { agregados: 0, renombrados: 0, eliminados: 0, sin_cambios: 0, total: 0 };
       }
       const ops = this.ops;
@@ -135,7 +135,7 @@ export const useEntidadesStore = defineStore("entidades", {
      * renombran o se eliminan, mas los N_MAX que hay que actualizar.
      */
     numeroDeCambios() {
-      if (!this.hayPreview) return 0;
+      if (!this.hayPrevision) return 0;
       const resumen = this.resumen;
       const nmax = this.resumenNMax;
       return (
@@ -153,7 +153,7 @@ export const useEntidadesStore = defineStore("entidades", {
      * Excel; una de baja solo tiene lo que hay en TIA.
      */
     filas() {
-      if (!this.hayPreview) return [];
+      if (!this.hayPrevision) return [];
       const filas = this.ops.map((op) => {
         if (op.kind === "delete") {
           return {
@@ -229,8 +229,8 @@ export const useEntidadesStore = defineStore("entidades", {
       const estado = useSesionStore().area(ID_AREA);
       const guardada = estado && estado[CLAVE_PREVISION];
       if (guardada && guardada.resultado) {
-        this.preview = guardada.resultado;
-        this.previewPlc = guardada.plc || "";
+        this.prevision = guardada.resultado;
+        this.previsionPlc = guardada.plc || "";
       }
     },
 
@@ -260,15 +260,15 @@ export const useEntidadesStore = defineStore("entidades", {
       this.error = null;
       this.generando = true;
       try {
-        const datos = await pedir(RUTA_PREVIEW, {
+        const datos = await pedir(RUTA_PREVISION, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ plc }),
         });
         const job = await useTrabajosStore().esperar(datos.job_id);
         if (job.estado === "ok") {
-          this.preview = job.resultado;
-          this.previewPlc = plc;
+          this.prevision = job.resultado;
+          this.previsionPlc = plc;
           this.hidratado = true;
           return true;
         }
@@ -310,8 +310,8 @@ export const useEntidadesStore = defineStore("entidades", {
           const resultado = job.resultado || {};
           // Si el backend no pudo recalcular la prevision, esta viene vacia:
           // la vista se queda sin ella.
-          this.preview = resultado.prevision || null;
-          this.previewPlc = plc;
+          this.prevision = resultado.prevision || null;
+          this.previsionPlc = plc;
           this.transacciones = resultado.transacciones || [];
           this.hidratado = true;
           return true;
@@ -328,8 +328,8 @@ export const useEntidadesStore = defineStore("entidades", {
 
     /** Limpia la prevision, las transacciones y el error. */
     limpiar() {
-      this.preview = null;
-      this.previewPlc = "";
+      this.prevision = null;
+      this.previsionPlc = "";
       this.transacciones = [];
       this.error = null;
     },

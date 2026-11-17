@@ -198,10 +198,10 @@ async function montarConTodo(proceso) {
 /** La vista con una prevision valida del proceso/PLC/plantilla actuales. */
 async function montarConPrevision(proceso, prev = PREVISION_OK) {
   const { wrapper, crear, plc, tia, trabajos } = await montarConTodo(proceso);
-  crear.preview = prev;
-  crear.previewPlc = plc.seleccionado;
-  crear.previewProcUid = (proceso ?? PROCESO).uid;
-  crear.previewPlantilla = "PLANTILLA_A";
+  crear.prevision = prev;
+  crear.previsionPlc = plc.seleccionado;
+  crear.previsionProcUid = (proceso ?? PROCESO).uid;
+  crear.previsionPlantilla = "PLANTILLA_A";
   await flushPromises();
   return { wrapper, crear, plc, tia, trabajos };
 }
@@ -538,7 +538,7 @@ describe("CrearProceso", () => {
       trabajos.aplicar({ type: "job", job: "j1", estado: "ok", resultado: PREVISION_OK, error: null });
       await flushPromises();
 
-      expect(crear.preview).toStrictEqual(PREVISION_OK);
+      expect(crear.prevision).toStrictEqual(PREVISION_OK);
       expect(wrapper.find('[data-testid="crear-generar"]').text()).toContain("Generar Previsión");
       expect(wrapper.find('[data-testid="crear-generar"]').attributes("disabled")).toBeUndefined();
     });
@@ -566,7 +566,7 @@ describe("CrearProceso", () => {
     });
   });
 
-  describe("la preview", () => {
+  describe("la prevision", () => {
     it("con colisiones: banner rojo con las colisiones y el bloque del PLC, y crear deshabilitado", async () => {
       const { wrapper } = await montarConPrevision(PROCESO, PREVISION_COLISION);
 
@@ -628,11 +628,11 @@ describe("CrearProceso", () => {
       expect(wrapper.find('[data-testid="crear-aplicar"]').attributes("disabled")).toBeDefined();
     });
 
-    it("la preview de otro proceso no se ve: aviso gris y sin resultado ni boton habilitado", async () => {
+    it("la prevision de otro proceso no se ve: aviso gris y sin resultado ni boton habilitado", async () => {
       const { wrapper } = await montarConPrevision(PROCESO, PREVISION_OK);
       expect(wrapper.find('[data-testid="crear-preview"]').exists()).toBe(true);
 
-      // El proceso cambia: la preview ya no vale.
+      // El proceso cambia: la prevision ya no vale.
       wrapper.setProps({ proceso: { uid: 200, nombre: "PUM", codigo: "PUM", preal: 12, pint: 6, alarmas: 25, alm_hmi: 8 } });
       await flushPromises();
 
@@ -643,7 +643,7 @@ describe("CrearProceso", () => {
       expect(wrapper.find('[data-testid="crear-aplicar"]').attributes("disabled")).toBeDefined();
     });
 
-    it("la preview de otro PLC no se ve", async () => {
+    it("la prevision de otro PLC no se ve", async () => {
       const { wrapper, plc } = await montarConPrevision(PROCESO, PREVISION_OK);
       plc.seleccionado = "OTRO_PLC";
       await flushPromises();
@@ -653,10 +653,10 @@ describe("CrearProceso", () => {
       expect(wrapper.find('[data-testid="crear-aplicar"]').attributes("disabled")).toBeDefined();
     });
 
-    it("la preview de otra plantilla no se ve", async () => {
+    it("la prevision de otra plantilla no se ve", async () => {
       const { wrapper, crear } = await montarConPrevision(PROCESO, PREVISION_OK);
-      // La preview es de la A pero la elegida ahora es la B (el operario
-      // cambio la plantilla sin regenerar): la preview no vale.
+      // La prevision es de la A pero la elegida ahora es la B (el operario
+      // cambio la plantilla sin regenerar): la prevision no vale.
       crear.plantillaSeleccionada = "PLANTILLA_B";
       await flushPromises();
 
@@ -667,7 +667,7 @@ describe("CrearProceso", () => {
   });
 
   describe("crear en TIA Portal", () => {
-    it("con preview valida el boton esta habilitado y al pulsarlo el dialogo se abre con el texto exacto", async () => {
+    it("con prevision valida el boton esta habilitado y al pulsarlo el dialogo se abre con el texto exacto", async () => {
       const { wrapper } = await montarConPrevision(PROCESO, PREVISION_OK);
 
       const boton = wrapper.find('[data-testid="crear-aplicar"]');

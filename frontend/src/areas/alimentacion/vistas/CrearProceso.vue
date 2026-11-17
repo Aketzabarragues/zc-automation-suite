@@ -30,9 +30,9 @@ const procesoLabel = computed(
   () => (props.proceso ? `${props.proceso.uid}_${props.proceso.codigo}` : ""),
 );
 
-/** `true` si hay una preview para el PLC y el proceso actuales. */
-const previewActual = computed(() =>
-  props.proceso ? crear.previewVale(plc.seleccionado, props.proceso.uid) : false,
+/** `true` si hay una prevision para el PLC y el proceso actuales. */
+const previsionActual = computed(() =>
+  props.proceso ? crear.previsionVale(plc.seleccionado, props.proceso.uid) : false,
 );
 
 /** Los N_MAX del proceso que no cubren los minimos de la plantilla elegida. */
@@ -114,8 +114,8 @@ const textoConfirmacion = computed(() => {
   const p = props.proceso;
   const planta = crear.plantilla;
   const nBloques = crear.bloquesPrevistos.length;
-  const nDeps = (crear.preview && crear.preview.dependencias_ok &&
-    crear.preview.dependencias_ok.length) || 0;
+  const nDeps = (crear.prevision && crear.prevision.dependencias_ok &&
+    crear.prevision.dependencias_ok.length) || 0;
   return (
     `¿Crear el proceso ${p ? `${p.uid}_${p.codigo}` : ""} en TIA Portal?\n\n` +
     `Plantilla: ${planta ? planta.carpeta : ""}\n` +
@@ -415,20 +415,20 @@ onMounted(() => {
       ✗ {{ crear.error }}
     </div>
 
-    <!-- ── la preview, solo si vale para el PLC/proceso/plantilla ──── -->
-    <div v-if="previewActual" class="flex flex-col gap-3" data-testid="crear-preview">
+    <!-- ── la prevision, solo si vale para el PLC/proceso/plantilla ──── -->
+    <div v-if="previsionActual" class="flex flex-col gap-3" data-testid="crear-preview">
       <!-- el aviso de bloques ausentes y warnings -->
       <div
         v-if="
-          (crear.preview && crear.preview.missing_blocks && crear.preview.missing_blocks.length) ||
-          (crear.preview && crear.preview.warnings && crear.preview.warnings.length)
+          (crear.prevision && crear.prevision.missing_blocks && crear.prevision.missing_blocks.length) ||
+          (crear.prevision && crear.prevision.warnings && crear.prevision.warnings.length)
         "
         class="bg-surface-raised border border-amber-300 rounded p-3 text-xs text-amber-800"
         data-testid="crear-preview-aviso"
       >
         <p v-for="linea in [
-          ...(crear.preview ? crear.preview.missing_blocks || [] : []),
-          ...(crear.preview ? crear.preview.warnings || [] : []),
+          ...(crear.prevision ? crear.prevision.missing_blocks || [] : []),
+          ...(crear.prevision ? crear.prevision.warnings || [] : []),
         ]" :key="linea">
           ⚠️ {{ linea }}
         </p>
@@ -446,8 +446,8 @@ onMounted(() => {
         <ul class="list-disc list-inside font-mono mb-1">
           <li v-for="c in crear.colisiones" :key="c">
             {{ c }}
-            <span v-if="crear.preview && crear.preview.colisiones_con && crear.preview.colisiones_con[c]">
-              ({{ crear.preview.colisiones_con[c] }})
+            <span v-if="crear.prevision && crear.prevision.colisiones_con && crear.prevision.colisiones_con[c]">
+              ({{ crear.prevision.colisiones_con[c] }})
             </span>
           </li>
         </ul>
@@ -503,8 +503,8 @@ onMounted(() => {
       <div data-testid="crear-dependencias">
         <h3 class="text-sm font-semibold text-ink mb-2">
           Dependencias ({{
-            ((crear.preview && crear.preview.dependencias_ok &&
-              crear.preview.dependencias_ok.length) || 0) +
+            ((crear.prevision && crear.prevision.dependencias_ok &&
+              crear.prevision.dependencias_ok.length) || 0) +
               crear.dependenciasFaltantes.length
           }})
         </h3>
@@ -519,7 +519,7 @@ onMounted(() => {
             <tbody>
               <tr
                 v-for="dep in [
-                  ...(crear.preview ? crear.preview.dependencias_ok || [] : []).map((d) => ({ dep: d, falta: false })),
+                  ...(crear.prevision ? crear.prevision.dependencias_ok || [] : []).map((d) => ({ dep: d, falta: false })),
                   ...(crear.dependenciasFaltantes || []).map((d) => ({ dep: d, falta: true })),
                 ]"
                 :key="dep.dep"
@@ -533,7 +533,7 @@ onMounted(() => {
                   {{ dep.falta ? "FALTA" : "OK" }}
                 </td>
               </tr>
-              <tr v-if="!crear.preview || ((crear.preview.dependencias_ok || []).length + (crear.dependenciasFaltantes || []).length === 0)">
+              <tr v-if="!crear.prevision || ((crear.prevision.dependencias_ok || []).length + (crear.dependenciasFaltantes || []).length === 0)">
                 <td colspan="2" class="px-3 py-4 text-center text-ink-muted italic">
                   (la plantilla no declara dependencias externas)
                 </td>
@@ -544,9 +544,9 @@ onMounted(() => {
       </div>
     </div>
 
-    <!-- la preview no vale para el PLC/proceso/plantilla actuales -->
+    <!-- la prevision no vale para el PLC/proceso/plantilla actuales -->
     <div
-      v-if="crear.hayPreview && !previewActual"
+      v-if="crear.hayPrevision && !previsionActual"
       class="bg-surface-raised border border-line rounded p-3 text-xs text-ink-muted"
       data-testid="crear-preview-invalida"
     >

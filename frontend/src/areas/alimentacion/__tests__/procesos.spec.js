@@ -185,8 +185,8 @@ function montarConTodo() {
 /** Monta la vista con una prevision vigente del proceso 100. */
 function montarConPrevision(prevision = PREVISION) {
   const montado = montarConTodo();
-  montado.procesos.preview = prevision;
-  montado.procesos.previewPlc = "ZC_PLC_STD";
+  montado.procesos.prevision = prevision;
+  montado.procesos.previsionPlc = "ZC_PLC_STD";
   return montado;
 }
 
@@ -744,7 +744,7 @@ describe("Procesos", () => {
     procesos.elegir(200);
     await flushPromises();
 
-    expect(procesos.preview).toBe(null);
+    expect(procesos.prevision).toBe(null);
     expect(wrapper.find('[data-testid="procesos-tabla"]').exists()).toBe(false);
   });
 

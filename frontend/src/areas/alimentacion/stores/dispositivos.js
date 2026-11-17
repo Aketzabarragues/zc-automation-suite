@@ -20,7 +20,7 @@ const ID_AREA = "alimentacion";
 const CLAVE_PREVISION = "prevision_dispositivos";
 
 /** Ruta del endpoint de la prevision. */
-export const RUTA_PREVIEW = "/api/v1/areas/alimentacion/dispositivos/preview";
+export const RUTA_PREVISION = "/api/v1/areas/alimentacion/dispositivos/preview";
 
 /** Ruta del endpoint que aplica los cambios en TIA Portal. */
 export const RUTA_SINCRONIZAR = "/api/v1/areas/alimentacion/dispositivos/sincronizar";
@@ -41,9 +41,9 @@ export const useDispositivosStore = defineStore("dispositivos", {
     /** El catalogo del area: las pestañas y las etiquetas de los N_MAX. */
     catalog: null,
     /** La ultima prevision, con su shape del backend. */
-    preview: null,
+    prevision: null,
     /** El PLC de la prevision: solo vale mientras siga seleccionado. */
-    previewPlc: "",
+    previsionPlc: "",
     /** `true` cuando ya se aplico la prevision de la sesion (una vez). */
     hidratado: false,
     /** `true` mientras se genera la prevision. */
@@ -60,17 +60,17 @@ export const useDispositivosStore = defineStore("dispositivos", {
     /**
      * La prevision que vale ahora: la del PLC seleccionado y con TIA
      * conectado. Si cambia el PLC o se pierde TIA, deja de verse (como main:
-     * `area_clear_disp_preview`).
+     * `area_clear_disp_prevision`).
      */
     vigente(state) {
-      if (!state.preview) return null;
+      if (!state.prevision) return null;
       if (!useTiaStore().conectado) return null;
-      if (state.previewPlc !== usePlcStore().seleccionado) return null;
-      return state.preview;
+      if (state.previsionPlc !== usePlcStore().seleccionado) return null;
+      return state.prevision;
     },
 
     /** `true` si hay prevision. */
-    hayPreview() {
+    hayPrevision() {
       return Boolean(this.vigente && Array.isArray(this.vigente.todos));
     },
 
@@ -123,7 +123,7 @@ export const useDispositivosStore = defineStore("dispositivos", {
      * renombran o se eliminan, mas los N_MAX que hay que actualizar.
      */
     numeroDeCambios() {
-      if (!this.hayPreview) return 0;
+      if (!this.hayPrevision) return 0;
       const resumen = this.resumen;
       const nmax = this.resumenNMax;
       return (
@@ -159,8 +159,8 @@ export const useDispositivosStore = defineStore("dispositivos", {
       const estado = useSesionStore().area(ID_AREA);
       const guardada = estado && estado[CLAVE_PREVISION];
       if (guardada && guardada.resultado) {
-        this.preview = guardada.resultado;
-        this.previewPlc = guardada.plc || "";
+        this.prevision = guardada.resultado;
+        this.previsionPlc = guardada.plc || "";
       }
     },
 
@@ -190,15 +190,15 @@ export const useDispositivosStore = defineStore("dispositivos", {
       this.error = null;
       this.generando = true;
       try {
-        const datos = await pedir(RUTA_PREVIEW, {
+        const datos = await pedir(RUTA_PREVISION, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ plc }),
         });
         const job = await useTrabajosStore().esperar(datos.job_id);
         if (job.estado === "ok") {
-          this.preview = job.resultado;
-          this.previewPlc = plc;
+          this.prevision = job.resultado;
+          this.previsionPlc = plc;
           this.hidratado = true;
           return true;
         }
@@ -240,8 +240,8 @@ export const useDispositivosStore = defineStore("dispositivos", {
           const resultado = job.resultado || {};
           // Si el backend no pudo recalcular la prevision, esta viene vacia:
           // la vista se queda sin ella.
-          this.preview = resultado.prevision || null;
-          this.previewPlc = plc;
+          this.prevision = resultado.prevision || null;
+          this.previsionPlc = plc;
           this.transacciones = resultado.transacciones || [];
           this.hidratado = true;
           return true;
@@ -258,8 +258,8 @@ export const useDispositivosStore = defineStore("dispositivos", {
 
     /** Limpia la prevision, las transacciones y el error. */
     limpiar() {
-      this.preview = null;
-      this.previewPlc = "";
+      this.prevision = null;
+      this.previsionPlc = "";
       this.transacciones = [];
       this.error = null;
     },

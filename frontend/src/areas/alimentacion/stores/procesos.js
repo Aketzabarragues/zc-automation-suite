@@ -22,7 +22,7 @@ const ID_AREA = "alimentacion";
 const CLAVE_PREVISION = "prevision_procesos";
 
 /** Ruta del endpoint de la prevision. */
-export const RUTA_PREVIEW = "/api/v1/areas/alimentacion/procesos/preview";
+export const RUTA_PREVISION = "/api/v1/areas/alimentacion/procesos/preview";
 
 /** Ruta del endpoint que aplica los cambios en TIA Portal. */
 export const RUTA_SINCRONIZAR = "/api/v1/areas/alimentacion/procesos/sincronizar";
@@ -62,9 +62,9 @@ export const useProcesosStore = defineStore("procesos", {
     /** El uid del proceso seleccionado en la vista. */
     procUid: null,
     /** La ultima prevision, con su shape del backend. */
-    preview: null,
+    prevision: null,
     /** El PLC de la prevision: solo vale mientras siga seleccionado. */
-    previewPlc: "",
+    previsionPlc: "",
     /** `true` cuando ya se aplico la prevision de la sesion (una vez). */
     hidratado: false,
     /** `true` mientras se genera la prevision. */
@@ -85,37 +85,37 @@ export const useProcesosStore = defineStore("procesos", {
      * conectado. Si cambia el PLC o se pierde TIA, deja de verse.
      */
     vigente(state) {
-      if (!state.preview) return null;
+      if (!state.prevision) return null;
       if (!useTiaStore().conectado) return null;
-      if (state.previewPlc !== usePlcStore().seleccionado) return null;
-      return state.preview;
+      if (state.previsionPlc !== usePlcStore().seleccionado) return null;
+      return state.prevision;
     },
 
     /** `true` si hay prevision. */
-    hayPreview() {
-      const preview = this.vigente;
-      return Boolean(preview && preview.precondiciones_ok);
+    hayPrevision() {
+      const prevision = this.vigente;
+      return Boolean(prevision && prevision.precondiciones_ok);
     },
 
     /** El resumen de la prevision: cuantos hay de cada. */
     resumen() {
-      const preview = this.vigente;
-      if (!preview) return { agregados: 0, renombrados: 0, eliminados: 0, sin_cambios: 0, total: 0 };
-      return preview.summary || { agregados: 0, renombrados: 0, eliminados: 0, sin_cambios: 0, total: 0 };
+      const prevision = this.vigente;
+      if (!prevision) return { agregados: 0, renombrados: 0, eliminados: 0, sin_cambios: 0, total: 0 };
+      return prevision.summary || { agregados: 0, renombrados: 0, eliminados: 0, sin_cambios: 0, total: 0 };
     },
 
     /** Las tarjetas de N_MAX: todas las del resultado. */
     tarjetasNMax() {
-      const preview = this.vigente;
-      if (!preview || !preview.nmax) return [];
-      return preview.nmax.todos || [];
+      const prevision = this.vigente;
+      if (!prevision || !prevision.nmax) return [];
+      return prevision.nmax.todos || [];
     },
 
     /** El resumen de los N_MAX. */
     resumenNMax() {
-      const preview = this.vigente;
-      if (!preview || !preview.nmax) return { actualizar: 0, sin_cambios: 0, total: 0 };
-      return preview.nmax.summary || { actualizar: 0, sin_cambios: 0, total: 0 };
+      const prevision = this.vigente;
+      if (!prevision || !prevision.nmax) return { actualizar: 0, sin_cambios: 0, total: 0 };
+      return prevision.nmax.summary || { actualizar: 0, sin_cambios: 0, total: 0 };
     },
 
     /**
@@ -134,7 +134,7 @@ export const useProcesosStore = defineStore("procesos", {
      * o se eliminan, mas los N_MAX que hay que actualizar.
      */
     numeroDeCambios() {
-      if (!this.hayPreview) return 0;
+      if (!this.hayPrevision) return 0;
       const resumen = this.resumen;
       const nmax = this.resumenNMax;
       return (
@@ -152,9 +152,9 @@ export const useProcesosStore = defineStore("procesos", {
      * @returns {Array<{slot: number, current: string|null, desired: string|null, action: string}>}
      */
     filasDe: (state) => (array) => {
-      const preview = state.vigente || state.preview;
-      if (!preview || !preview.arrays) return [];
-      const arr = preview.arrays[array];
+      const prevision = state.vigente || state.prevision;
+      if (!prevision || !prevision.arrays) return [];
+      const arr = prevision.arrays[array];
       if (!arr || !arr.slot_map) return [];
       return Object.keys(arr.slot_map)
         .map((clave) => {
@@ -176,8 +176,8 @@ export const useProcesosStore = defineStore("procesos", {
      * @param {string} array uno de `PReal`, `PInt` o `ALM`.
      */
     cambiosDe: (state) => (array) => {
-      const preview = state.vigente || state.preview;
-      const arr = preview && preview.arrays && preview.arrays[array];
+      const prevision = state.vigente || state.prevision;
+      const arr = prevision && prevision.arrays && prevision.arrays[array];
       const summary = (arr && arr.summary) || {};
       return (
         (summary.agregados || 0) + (summary.renombrados || 0) + (summary.eliminados || 0)
@@ -196,8 +196,8 @@ export const useProcesosStore = defineStore("procesos", {
       const estado = useSesionStore().area(ID_AREA);
       const guardada = estado && estado[CLAVE_PREVISION];
       if (guardada && guardada.resultado) {
-        this.preview = guardada.resultado;
-        this.previewPlc = guardada.plc || "";
+        this.prevision = guardada.resultado;
+        this.previsionPlc = guardada.plc || "";
         this.procUid = guardada.proc_uid ?? null;
       }
     },
@@ -212,8 +212,8 @@ export const useProcesosStore = defineStore("procesos", {
       if (uid === this.procUid) return;
       this.procUid = uid;
       if (uid === null) return;
-      this.preview = null;
-      this.previewPlc = "";
+      this.prevision = null;
+      this.previsionPlc = "";
       this.transacciones = [];
       this.aplicadoEn = null;
       this.error = null;
@@ -238,15 +238,15 @@ export const useProcesosStore = defineStore("procesos", {
       this.error = null;
       this.generando = true;
       try {
-        const datos = await pedir(RUTA_PREVIEW, {
+        const datos = await pedir(RUTA_PREVISION, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ plc, proc_uid: procUid }),
         });
         const job = await useTrabajosStore().esperar(datos.job_id);
         if (job.estado === "ok") {
-          this.preview = job.resultado;
-          this.previewPlc = plc;
+          this.prevision = job.resultado;
+          this.previsionPlc = plc;
           this.procUid = procUid;
           this.hidratado = true;
           return true;
@@ -294,8 +294,8 @@ export const useProcesosStore = defineStore("procesos", {
           const resultado = job.resultado || {};
           // Si el backend no pudo recalcular la prevision, esta viene vacia:
           // la vista se queda sin ella.
-          this.preview = resultado.prevision || null;
-          this.previewPlc = plc;
+          this.prevision = resultado.prevision || null;
+          this.previsionPlc = plc;
           this.procUid = procUid;
           this.transacciones = resultado.transacciones || [];
           this.aplicadoEn = new Date().toISOString();
@@ -314,8 +314,8 @@ export const useProcesosStore = defineStore("procesos", {
 
     /** Limpia la prevision, las transacciones y el error. */
     limpiar() {
-      this.preview = null;
-      this.previewPlc = "";
+      this.prevision = null;
+      this.previsionPlc = "";
       this.transacciones = [];
       this.aplicadoEn = null;
       this.error = null;

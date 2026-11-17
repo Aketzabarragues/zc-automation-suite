@@ -21,7 +21,7 @@ const CLAVE_PREVISION = "prevision_crear_proceso";
 export const RUTA_PLANTILLAS = "/api/v1/areas/alimentacion/procesos/plantillas";
 
 /** Ruta del endpoint de la prevision de creacion. */
-export const RUTA_PREVIEW = "/api/v1/areas/alimentacion/procesos/crear/preview";
+export const RUTA_PREVISION = "/api/v1/areas/alimentacion/procesos/crear/preview";
 
 /** Ruta del endpoint que crea el proceso en TIA Portal. */
 export const RUTA_APLICAR = "/api/v1/areas/alimentacion/procesos/crear/aplicar";
@@ -42,16 +42,16 @@ const CLAVES_N_MAX = Object.freeze([
  * Si una prevision deja crear el proceso: precondiciones cumplidas, sin
  * colisiones y sin dependencias faltantes.
  *
- * @param {object|null} preview la prevision, o `null`.
+ * @param {object|null} prevision la prevision, o `null`.
  * @returns {boolean}
  */
-function puedeCrearDe(preview) {
+function puedeCrearDe(prevision) {
   return Boolean(
-    preview &&
-      preview.precondiciones_ok &&
-      preview.success &&
-      ((preview.colisiones || []).length === 0) &&
-      ((preview.dependencias_faltantes || []).length === 0),
+    prevision &&
+      prevision.precondiciones_ok &&
+      prevision.success &&
+      ((prevision.colisiones || []).length === 0) &&
+      ((prevision.dependencias_faltantes || []).length === 0),
   );
 }
 
@@ -68,13 +68,13 @@ export const useCrearProcesoStore = defineStore("crearProceso", {
     /** La carpeta de la plantilla elegida, o `""` si no hay ninguna. */
     plantillaSeleccionada: "",
     /** La ultima prevision, con su shape del backend. */
-    preview: null,
+    prevision: null,
     /** El PLC de la prevision: solo vale para ese PLC. */
-    previewPlc: "",
+    previsionPlc: "",
     /** El uid del proceso de la prevision: solo vale para ese proceso. */
-    previewProcUid: null,
+    previsionProcUid: null,
     /** La carpeta de la plantilla con la que se genero la prevision. */
-    previewPlantilla: "",
+    previsionPlantilla: "",
     /** `true` mientras se genera la prevision. */
     generando: false,
     /** `true` mientras se crea el proceso en TIA Portal. */
@@ -95,23 +95,23 @@ export const useCrearProcesoStore = defineStore("crearProceso", {
 
   getters: {
     /** `true` si hay una prevision generada. */
-    hayPreview: (state) => Boolean(state.preview),
+    hayPrevision: (state) => Boolean(state.prevision),
 
     /**
      * Si la prevision vale para la combinacion elegida en la vista: es la
-     * del PLC, el proceso y la plantilla indicados. Un preview viejo no
+     * del PLC, el proceso y la plantilla indicados. Una prevision vieja no
      * habilita el crear para otra cosa.
      *
      * @param {string} plc el PLC elegido.
      * @param {number} procUid el uid del proceso elegido.
      * @returns {boolean} si la prevision es de ese PLC, proceso y plantilla.
      */
-    previewVale: (state) => (plc, procUid) => {
+    previsionVale: (state) => (plc, procUid) => {
       return Boolean(
-        state.preview &&
-          state.previewPlc === plc &&
-          state.previewProcUid === procUid &&
-          state.previewPlantilla === state.plantillaSeleccionada,
+        state.prevision &&
+          state.previsionPlc === plc &&
+          state.previsionProcUid === procUid &&
+          state.previsionPlantilla === state.plantillaSeleccionada,
       );
     },
 
@@ -123,29 +123,29 @@ export const useCrearProcesoStore = defineStore("crearProceso", {
 
     /** Los bloques que se generarian, en el orden del backend. */
     bloquesPrevistos(state) {
-      return (state.preview && state.preview.archivos_previstos) || [];
+      return (state.prevision && state.prevision.archivos_previstos) || [];
     },
 
     /** Los nombres que colisionan con bloques ya presentes en el PLC. */
     colisiones(state) {
-      return (state.preview && state.preview.colisiones) || [];
+      return (state.prevision && state.prevision.colisiones) || [];
     },
 
     /** Las dependencias del manifest que faltan en el PLC. */
     dependenciasFaltantes(state) {
-      return (state.preview && state.preview.dependencias_faltantes) || [];
+      return (state.prevision && state.prevision.dependencias_faltantes) || [];
     },
 
     /** `true` si la prevision tiene al menos una colision. */
     hayColisiones(state) {
-      return (state.preview && state.preview.colisiones || []).length > 0;
+      return (state.prevision && state.prevision.colisiones || []).length > 0;
     },
 
     /**
      * Si se puede crear el proceso: hay prevision, sus precondiciones estan
      * cumplidas, no colisiona nada y no faltan dependencias.
      */
-    puedeCrear: (state) => puedeCrearDe(state.preview),
+    puedeCrear: (state) => puedeCrearDe(state.prevision),
 
     /**
      * Si se puede crear **para la combinacion elegida**: la prevision vale
@@ -155,13 +155,13 @@ export const useCrearProcesoStore = defineStore("crearProceso", {
      * @param {number} procUid el uid del proceso elegido.
      */
     puedeCrearPara: (state) => (plc, procUid) => {
-      const preview = state.preview;
+      const prevision = state.prevision;
       const vale =
-        preview &&
-        state.previewPlc === plc &&
-        state.previewProcUid === procUid &&
-        state.previewPlantilla === state.plantillaSeleccionada;
-      return vale && puedeCrearDe(preview);
+        prevision &&
+        state.previsionPlc === plc &&
+        state.previsionProcUid === procUid &&
+        state.previsionPlantilla === state.plantillaSeleccionada;
+      return vale && puedeCrearDe(prevision);
     },
 
     /**
@@ -204,11 +204,11 @@ export const useCrearProcesoStore = defineStore("crearProceso", {
       const estado = useSesionStore().area(ID_AREA);
       const guardada = estado && estado[CLAVE_PREVISION];
       if (guardada && guardada.resultado) {
-        this.preview = guardada.resultado;
-        this.previewPlc = guardada.plc || "";
-        this.previewProcUid = guardada.proc_uid ?? null;
+        this.prevision = guardada.resultado;
+        this.previsionPlc = guardada.plc || "";
+        this.previsionProcUid = guardada.proc_uid ?? null;
         const plantilla = guardada.dir_plantilla_nombre || "";
-        this.previewPlantilla = plantilla;
+        this.previsionPlantilla = plantilla;
         this.plantillaSeleccionada = plantilla;
       }
     },
@@ -227,7 +227,7 @@ export const useCrearProcesoStore = defineStore("crearProceso", {
         this.plantillasPath = datos.plantillas_path || "";
         this.aviso = datos.aviso || null;
         // La plantilla elegida ya no esta en el listado: es una seleccion
-        // fantasma (la ruta cambio) y su preview tampoco vale.
+        // fantasma (la ruta cambio) y su prevision tampoco vale.
         if (
           this.plantillaSeleccionada &&
           !this.plantillas.some((p) => p.carpeta === this.plantillaSeleccionada)
@@ -281,17 +281,17 @@ export const useCrearProcesoStore = defineStore("crearProceso", {
      * Elige la plantilla con la que se creara el proceso.
      *
      * Cambiar de plantilla limpia la prevision y el resultado del aplicar:
-     * un preview viejo no vale para otra plantilla.
+     * una prevision vieja no vale para otra plantilla.
      *
      * @param {string} carpeta el nombre de la subcarpeta de la plantilla.
      */
     seleccionarPlantilla(carpeta) {
       if (carpeta === this.plantillaSeleccionada) return;
       this.plantillaSeleccionada = carpeta;
-      this.preview = null;
-      this.previewPlc = "";
-      this.previewProcUid = null;
-      this.previewPlantilla = "";
+      this.prevision = null;
+      this.previsionPlc = "";
+      this.previsionProcUid = null;
+      this.previsionPlantilla = "";
       this.resultadoAplicar = null;
       this.transacciones = [];
       this.error = null;
@@ -320,7 +320,7 @@ export const useCrearProcesoStore = defineStore("crearProceso", {
       this.error = null;
       this.generando = true;
       try {
-        const datos = await pedir(RUTA_PREVIEW, {
+        const datos = await pedir(RUTA_PREVISION, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -331,18 +331,18 @@ export const useCrearProcesoStore = defineStore("crearProceso", {
         });
         const job = await useTrabajosStore().esperar(datos.job_id);
         if (job.estado === "ok") {
-          this.preview = job.resultado;
-          this.previewPlc = plc;
-          this.previewProcUid = procUid;
-          this.previewPlantilla = this.plantillaSeleccionada;
+          this.prevision = job.resultado;
+          this.previsionPlc = plc;
+          this.previsionProcUid = procUid;
+          this.previsionPlantilla = this.plantillaSeleccionada;
           return true;
         }
         // El manifest invalido o los N_MAX insuficientes terminan el trabajo
         // en error: no hay resultado que guardar.
-        this.preview = null;
-        this.previewPlc = "";
-        this.previewProcUid = null;
-        this.previewPlantilla = "";
+        this.prevision = null;
+        this.previsionPlc = "";
+        this.previsionProcUid = null;
+        this.previsionPlantilla = "";
         this.error = job.error || "No se pudo generar la prevision.";
         return false;
       } catch (error) {
@@ -377,7 +377,7 @@ export const useCrearProcesoStore = defineStore("crearProceso", {
         this.error = "Elige una plantilla antes de crear el proceso.";
         return false;
       }
-      if (!this.previewVale(plc, procUid)) {
+      if (!this.previsionVale(plc, procUid)) {
         this.error =
           "La prevision no corresponde al proceso, PLC o plantilla elegidos: " +
           "genera la prevision otra vez.";
@@ -399,15 +399,15 @@ export const useCrearProcesoStore = defineStore("crearProceso", {
         if (job.estado === "ok") {
           // El proceso ya existe: la prevision deja de valer para este
           // proceso. El resultado del aplicar se conserva.
-          this.preview = null;
-          this.previewPlc = "";
-          this.previewProcUid = null;
-          this.previewPlantilla = "";
+          this.prevision = null;
+          this.previsionPlc = "";
+          this.previsionProcUid = null;
+          this.previsionPlantilla = "";
           this.resultadoAplicar = job.resultado;
           this.transacciones = (job.resultado && job.resultado.transacciones) || [];
           return true;
         }
-        // Si el aplicar fallo, el preview no se toca: puede reintentarse.
+        // Si el aplicar fallo, la prevision no se toca: puede reintentarse.
         this.error = job.error || "No se pudo crear el proceso.";
         return false;
       } catch (error) {

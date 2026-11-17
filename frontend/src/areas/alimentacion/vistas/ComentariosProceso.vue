@@ -43,7 +43,7 @@ const procUid = computed(() =>
  * El store ya la filtra por PLC y por conexion con TIA: si el operario
  * cambia de PLC o se pierde TIA, la prevision deja de valer.
  */
-const preview = computed(() => {
+const prevision = computed(() => {
   const p = procesos.vigente;
   if (!p) return null;
   if (procUid.value == null) return null;
@@ -58,8 +58,8 @@ const preview = computed(() => {
  * El boton de aplicar y los avisos usan esta: el operario tiene que ver
  * por que no puede aplicar aunque el PLC se haya deseleccionado.
  */
-const previewProceso = computed(() => {
-  const p = procesos.preview;
+const previsionProceso = computed(() => {
+  const p = procesos.prevision;
   if (!p) return null;
   if (procUid.value == null) return null;
   if (p.proc_uid !== procUid.value) return null;
@@ -67,11 +67,11 @@ const previewProceso = computed(() => {
 });
 
 /** `true` si hay prevision con las precondiciones cumplidas. */
-const hayPreview = computed(() => Boolean(preview.value && preview.value.precondiciones_ok));
+const hayPrevision = computed(() => Boolean(prevision.value && prevision.value.precondiciones_ok));
 
 /** `true` si la prevision del proceso tiene las precondiciones cumplidas. */
-const hayPreviewProceso = computed(() =>
-  Boolean(previewProceso.value && previewProceso.value.precondiciones_ok),
+const hayPrevisionProceso = computed(() =>
+  Boolean(previsionProceso.value && previsionProceso.value.precondiciones_ok),
 );
 
 /** La pestana activa: uno de `PReal`, `PInt` o `ALM`. */
@@ -87,7 +87,7 @@ const codigoProceso = computed(() => (props.proceso ? props.proceso.codigo : "")
  * El banner de precondiciones: los bloques que faltan en el PLC.
  */
 const precondError = computed(() => {
-  const p = previewProceso.value;
+  const p = previsionProceso.value;
   if (!p) return null;
   if (p.precondiciones_ok) return null;
   return p.missing_blocks && p.missing_blocks.length > 0
@@ -100,7 +100,7 @@ const precondError = computed(() => {
  * el PLC. `existe` es `null` cuando el backend no lo dice.
  */
 const nombresTiaConEstado = computed(() => {
-  const p = previewProceso.value;
+  const p = previsionProceso.value;
   if (!p || !p.db_param_name) return [];
   const dp = p.db_present;
   return [
@@ -140,21 +140,21 @@ function cambiosDe(array) {
  * que el unico cambio posible es el N_MAX.
  */
 const nmaxAAplicar = computed(() => {
-  const p = previewProceso.value;
+  const p = previsionProceso.value;
   if (!p || !p.nmax || !p.nmax.summary) return 0;
   return p.nmax.summary.actualizar || 0;
 });
 
 /** El total de slots analizados. */
 const totalOps = computed(() => {
-  const p = previewProceso.value;
+  const p = previsionProceso.value;
   if (!p || !p.summary) return 0;
   return p.summary.total || 0;
 });
 
 /** El resumen de la prevision del proceso. */
 const resumen = computed(() => {
-  const p = previewProceso.value;
+  const p = previsionProceso.value;
   if (!p || !p.summary) {
     return { total: 0, agregados: 0, renombrados: 0, eliminados: 0, sin_cambios: 0 };
   }
@@ -163,7 +163,7 @@ const resumen = computed(() => {
 
 /** Las tarjetas de N_MAX de la prevision del proceso. */
 const tarjetasNMax = computed(() => {
-  const p = previewProceso.value;
+  const p = previsionProceso.value;
   if (!p || !p.nmax) return [];
   return p.nmax.todos || [];
 });
@@ -179,7 +179,7 @@ const hayPlc = computed(() => Boolean(plc.seleccionado));
  */
 const puedeAplicar = computed(
   () =>
-    hayPreviewProceso.value &&
+    hayPrevisionProceso.value &&
     tia.conectado &&
     excel.cargado &&
     hayPlc.value &&
@@ -296,7 +296,7 @@ function claseDeTransaccion(estado) {
 
         <!-- el resumen de la prevision -->
         <p
-          v-if="hayPreviewProceso"
+          v-if="hayPrevisionProceso"
           class="text-xs text-ink-muted mt-0.5"
           data-testid="procesos-resumen"
         >
@@ -353,7 +353,7 @@ function claseDeTransaccion(estado) {
 
     <!-- ── los bloques TIA objetivo ───────────────────────────────── -->
     <div
-      v-if="previewProceso && previewProceso.db_param_name"
+      v-if="previsionProceso && previsionProceso.db_param_name"
       class="mb-3 bg-surface-raised border border-line rounded p-3 text-xs"
       data-testid="procesos-bloques-tia"
     >
@@ -410,7 +410,7 @@ function claseDeTransaccion(estado) {
 
     <!-- ── las pestanas de los arrays ─────────────────────────────── -->
     <div
-      v-if="hayPreview"
+      v-if="hayPrevision"
       class="flex border-b border-line bg-surface-sunken overflow-x-auto"
       data-testid="procesos-pestanas"
     >
@@ -438,7 +438,7 @@ function claseDeTransaccion(estado) {
 
     <!-- ── la tabla del diff ──────────────────────────────────────── -->
     <div
-      v-if="hayPreview"
+      v-if="hayPrevision"
       class="flex-1 min-h-[14rem] bg-surface-raised border border-line rounded overflow-auto mt-2"
     >
       <table class="w-full text-xs" data-testid="procesos-tabla">
@@ -492,7 +492,7 @@ function claseDeTransaccion(estado) {
     </div>
 
     <!-- ── el boton de aplicar ────────────────────────────────────── -->
-    <div v-if="hayPreviewProceso" class="mt-3">
+    <div v-if="hayPrevisionProceso" class="mt-3">
       <div
         v-if="procesos.aplicadoEn"
         class="flex justify-end items-center gap-3 mb-2"

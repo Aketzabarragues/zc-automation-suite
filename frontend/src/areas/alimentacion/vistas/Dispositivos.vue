@@ -34,7 +34,7 @@ const puedeGenerar = computed(
 /** `true` si se puede aplicar la prevision en TIA Portal. */
 const puedeAplicar = computed(
   () =>
-    dispositivos.hayPreview &&
+    dispositivos.hayPrevision &&
     tia.conectado &&
     excel.cargado &&
     Boolean(plc.seleccionado) &&
@@ -142,7 +142,7 @@ onMounted(() => {
   <section class="flex-1 min-h-0 flex flex-col gap-4" data-testid="dispositivos">
     <!-- ── la tarjeta de arriba: resumen y boton ────────────────────── -->
     <section class="bg-surface-raised border border-line rounded p-4 flex justify-between items-center">
-      <p v-if="dispositivos.hayPreview" class="text-xs text-ink-muted" data-testid="dispositivos-resumen">
+      <p v-if="dispositivos.hayPrevision" class="text-xs text-ink-muted" data-testid="dispositivos-resumen">
         {{ dispositivos.resumen.total }} dispositivos analizados —
         <span class="text-accent">{{ dispositivos.resumen.agregados }} a agregar</span> ·
         <span class="text-amber-700">{{ dispositivos.resumen.renombrados }} a renombrar</span> ·
@@ -177,7 +177,7 @@ onMounted(() => {
     >
       <!-- las tarjetas de N_MAX -->
       <div
-        v-if="dispositivos.hayPreview && dispositivos.tarjetasNMax.length > 0"
+        v-if="dispositivos.hayPrevision && dispositivos.tarjetasNMax.length > 0"
         class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2 mb-3"
         data-testid="dispositivos-nmax"
       >
@@ -211,7 +211,7 @@ onMounted(() => {
 
       <!-- las pestañas por tipo -->
       <div
-        v-if="dispositivos.hayPreview"
+        v-if="dispositivos.hayPrevision"
         class="flex border-b border-line bg-surface-sunken overflow-x-auto mb-3"
         data-testid="dispositivos-pestanas"
       >
@@ -239,7 +239,7 @@ onMounted(() => {
       <div
         class="flex-1 min-h-0 overflow-auto bg-surface-raised border border-line rounded mt-2"
       >
-        <table v-if="dispositivos.hayPreview" class="w-full text-xs" data-testid="dispositivos-tabla">
+        <table v-if="dispositivos.hayPrevision" class="w-full text-xs" data-testid="dispositivos-tabla">
           <thead class="sticky top-0 bg-surface-sunken text-[10px] uppercase">
             <tr>
               <th class="px-3 py-2 text-left text-ink-muted w-14">#</th>

@@ -34,7 +34,7 @@ const puedeGenerar = computed(
 /** `true` si se puede aplicar la prevision en TIA Portal. */
 const puedeAplicar = computed(
   () =>
-    entidades.hayPreview &&
+    entidades.hayPrevision &&
     tia.conectado &&
     excel.cargado &&
     Boolean(plc.seleccionado) &&
@@ -115,7 +115,7 @@ onMounted(() => {
   <section class="flex-1 min-h-0 flex flex-col gap-4" data-testid="entidades">
     <!-- ── la tarjeta de arriba: resumen y boton ────────────────────── -->
     <section class="bg-surface-raised border border-line rounded p-4 flex justify-between items-center">
-      <p v-if="entidades.hayPreview" class="text-xs text-ink-muted" data-testid="entidades-resumen">
+      <p v-if="entidades.hayPrevision" class="text-xs text-ink-muted" data-testid="entidades-resumen">
         {{ entidades.resumen.total }} entidades analizadas —
         <span class="text-accent">{{ entidades.resumen.agregados }} a agregar</span> ·
         <span class="text-amber-700">{{ entidades.resumen.renombrados }} a renombrar</span> ·
@@ -150,7 +150,7 @@ onMounted(() => {
     >
       <!-- la tarjeta de N_MAX -->
       <div
-        v-if="entidades.hayPreview && entidades.tarjetasNMax.length > 0"
+        v-if="entidades.hayPrevision && entidades.tarjetasNMax.length > 0"
         class="grid grid-cols-1 md:grid-cols-2 gap-2 mb-3"
         data-testid="entidades-nmax"
       >
@@ -186,7 +186,7 @@ onMounted(() => {
       <div
         class="flex-1 min-h-0 overflow-auto bg-surface-raised border border-line rounded mt-2"
       >
-        <table v-if="entidades.hayPreview" class="w-full text-xs" data-testid="entidades-tabla">
+        <table v-if="entidades.hayPrevision" class="w-full text-xs" data-testid="entidades-tabla">
           <thead class="sticky top-0 bg-surface-sunken text-[10px] uppercase">
             <tr>
               <th class="px-3 py-2 text-left text-ink-muted w-14">#</th>

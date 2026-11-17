@@ -155,8 +155,8 @@ function montarConPrevision() {
   const montado = montar();
   montado.tia.conectado = true;
   montado.plc.seleccionado = "ZC_PLC_STD";
-  montado.dispositivos.preview = PREVISION;
-  montado.dispositivos.previewPlc = "ZC_PLC_STD";
+  montado.dispositivos.prevision = PREVISION;
+  montado.dispositivos.previsionPlc = "ZC_PLC_STD";
   return montado;
 }
 
