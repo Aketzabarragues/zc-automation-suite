@@ -6,6 +6,10 @@ Reglas:
   unica excepcion es ``zc_suite.nucleo.app.main``, que registra las areas en su lista
   ``AREAS``.
 - Las areas no se importan entre si.
+- ``simatic/`` (ficheros TIA offline) no depende del nucleo ni de ``tia_ops``.
+- ``tia_ops/`` (SDK) no importa areas.
+- El SDK ``siemens_tia_scripting`` solo se importa en el hilo de TIA
+  (``nucleo/tia/servicio.py``).
 
 El comprobador recorre los ``import`` de cada fichero con ``ast``, asi que
 detecta tambien los imports relativos (``from ..otra_area import x``).
@@ -141,6 +145,47 @@ def test_el_nucleo_no_importa_el_frontend() -> None:
     assert not fallos, "; ".join(fallos)
 
 
+SIMATIC = f"{PAQUETE}.simatic"
+TIA_OPS = f"{PAQUETE}.tia_ops"
+NUCLEO = f"{PAQUETE}.nucleo"
+SDK = "siemens_tia_scripting"
+HILO_TIA = f"{PAQUETE}.nucleo.tia.servicio"
+
+
+def test_simatic_no_importa_nucleo_ni_tia_ops() -> None:
+    """``simatic/`` es logica offline: no sabe del nucleo ni del SDK."""
+    fallos: list[str] = []
+    for ruta in _modulos(PAQUETE_DIR / "simatic"):
+        for importado in _importaciones(ruta):
+            if importado in {NUCLEO, TIA_OPS} or importado.startswith(
+                (f"{NUCLEO}.", f"{TIA_OPS}.")
+            ):
+                fallos.append(f"{_modulo_de(ruta)} importa {importado}")
+    assert not fallos, "simatic no depende del nucleo ni de tia_ops: " + "; ".join(fallos)
+
+
+def test_tia_ops_no_importa_areas() -> None:
+    """El SDK no sabe de areas: cada area es logica de negocio propia."""
+    fallos: list[str] = []
+    for ruta in _modulos(PAQUETE_DIR / "tia_ops"):
+        for importado in _importaciones(ruta):
+            if importado == AREAS or importado.startswith(f"{AREAS}."):
+                fallos.append(f"{_modulo_de(ruta)} importa {importado}")
+    assert not fallos, "tia_ops no importa areas: " + "; ".join(fallos)
+
+
+def test_solo_el_hilo_de_tia_importa_el_sdk() -> None:
+    """``siemens_tia_scripting`` solo se importa en el hilo de TIA."""
+    fallos: list[str] = []
+    for ruta in _modulos(PAQUETE_DIR):
+        if _modulo_de(ruta) == HILO_TIA:
+            continue
+        for importado in _importaciones(ruta):
+            if importado == SDK or importado.startswith(f"{SDK}."):
+                fallos.append(f"{_modulo_de(ruta)} importa {importado}")
+    assert not fallos, "El SDK solo se importa en el hilo de TIA: " + "; ".join(fallos)
+
+
 # ── autocomprobacion del comprobador ───────────────────────────────────────
 
 
@@ -174,3 +219,27 @@ def test_el_comprobador_ignora_los_imports_de_su_propia_area() -> None:
 
     assert "zc_suite.areas.alimentacion.datos" in modulos
     assert "zc_suite.areas.alimentacion.datos.hermanos" in modulos
+
+
+def test_el_comprobador_detecta_un_import_de_simatic_a_nucleo() -> None:
+    codigo = "from zc_suite.nucleo.tia.transaccion import transaccion\n"
+
+    modulos = _importaciones_de_codigo(codigo, ["zc_suite", "simatic"])
+
+    assert "zc_suite.nucleo.tia.transaccion" in modulos
+
+
+def test_el_comprobador_detecta_un_import_de_tia_ops_a_un_area() -> None:
+    codigo = "from zc_suite.areas.alimentacion import config\n"
+
+    modulos = _importaciones_de_codigo(codigo, ["zc_suite", "tia_ops"])
+
+    assert "zc_suite.areas.alimentacion" in modulos
+
+
+def test_el_comprobador_detecta_el_import_del_sdk() -> None:
+    codigo = "import siemens_tia_scripting as ts\n"
+
+    modulos = _importaciones_de_codigo(codigo, ["zc_suite", "nucleo", "tia"])
+
+    assert "siemens_tia_scripting" in modulos

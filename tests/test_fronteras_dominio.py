@@ -6,6 +6,8 @@ Reglas:
   fuera de ``funciones/``) no importan ``zc_suite.nucleo.tia`` ni
   ``zc_suite.tia_ops``: son logica pura y se prueban sin TIA. Para lanzar un
   fallo esperado usan ``zc_suite.errores``.
+- Un subdominio de un area no importa otro subdominio del mismo area: los
+  tipos comunes comparten raiz del area, no subdominio.
 - Solo los modulos de ``funciones/`` (y los de ``nucleo/tia/``) reciben el
   ``job``: son los unicos que declaran pasos y abren transacciones.
 - Cada FB vive en su propio fichero y la funcion de dentro se llama como el
@@ -229,6 +231,25 @@ def test_cada_fb_vive_en_su_propio_fichero() -> None:
     assert not fallos, "Cada FB tiene su funcion: " + "; ".join(fallos)
 
 
+def test_un_subdominio_no_importa_otro_subdominio_del_area() -> None:
+    """Un subdominio de un area no usa codigo de otro subdominio.
+
+    Lo que se comparte entre subdominios vive en la raiz del area
+    (``zc_suite.areas.<area>.<modulo>``), no en un subdominio ajeno.
+    """
+    fallos: list[str] = []
+    for area in sorted(p for p in AREAS_DIR.iterdir() if p.is_dir()):
+        raiz = f"zc_suite.areas.{area.name}"
+        for carpeta in _dominios():
+            if carpeta.parent != area:
+                continue
+            for ruta in _modulos(carpeta):
+                for importado in _importaciones(ruta):
+                    if _subdominio_ajeno(raiz, carpeta.name, importado):
+                        fallos.append(f"{_modulo_de(ruta)} importa {importado}")
+    assert not fallos, "Un subdominio no importa otro subdominio: " + "; ".join(fallos)
+
+
 # ── autocomprobacion del comprobador ───────────────────────────────────────
 
 
@@ -256,3 +277,32 @@ def test_el_comprobador_detecta_el_job_recibido() -> None:
     codigo = "def buscar(job: Job) -> dict[str, str]:\n    return {}\n"
 
     assert _funciones_que_reciben_job_de_codigo(codigo) == ["buscar"]
+
+
+def _subdominio_ajeno(raiz: str, origen: str, importado: str) -> bool:
+    """La logica de la regla: el import es de otro subdominio del area.
+
+    Raiz del area: 4 partes (``zc_suite.areas.<area>.<modulo>``), permitido.
+    Subdominio: 5 o mas partes; si el subdominio no es el propio, viola.
+    """
+    if not importado.startswith(f"{raiz}."):
+        return False
+    partes = importado.split(".")
+    if len(partes) < 5:
+        return False
+    return partes[3] != origen
+
+
+def test_el_comprobador_detecta_un_import_de_subdominio_ajeno() -> None:
+    raiz = "zc_suite.areas.alimentacion"
+
+    assert _subdominio_ajeno(raiz, "dispositivos", f"{raiz}.procesos.mapa")
+    # Raiz del area: permitido.
+    assert not _subdominio_ajeno(raiz, "dispositivos", f"{raiz}.diferencias")
+    # Propio subdominio: permitido.
+    assert not _subdominio_ajeno(
+        raiz, "dispositivos", f"{raiz}.dispositivos.diferencias"
+    )
+    assert not _subdominio_ajeno(raiz, "dispositivos", f"{raiz}.dispositivos")
+    # Fuera del area: no es de este test.
+    assert not _subdominio_ajeno(raiz, "dispositivos", "zc_suite.simatic.ml")
