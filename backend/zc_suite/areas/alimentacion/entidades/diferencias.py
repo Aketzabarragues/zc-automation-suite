@@ -403,13 +403,13 @@ def ent_calcular_diff_comentarios(
     Returns:
         El ``DiffComentarios`` con los cuatro vectores.
     """
-    slots_tia = indices_de_array(texto_dcl, array, array_type=TIPO_ARRAY)
+    slots_tia = indices_de_array(texto_dcl, array, tipo_array=TIPO_ARRAY)
     actuales = comentarios_actuales(
-        res_text=texto_res,
-        array_name=array,
+        texto_res=texto_res,
+        nombre_array=array,
         indices=sorted(slots_tia),
-        dcl_text=texto_dcl,
-        array_type=TIPO_ARRAY,
+        texto_dcl=texto_dcl,
+        tipo_array=TIPO_ARRAY,
     )
 
     deseados: dict[int, str | None] = {}

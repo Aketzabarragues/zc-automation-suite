@@ -56,7 +56,7 @@ def test_caso_a_inyecta_slot_nuevo_udt(tmp_path: Path) -> None:
     """
     dcl_p, res_p = _write_pair(tmp_path, _BASE_DCL, _BASE_RES)
     result = confirmar_comentarios_array(
-        dcl_p, res_p, "PReal", {1: "PR 1"}, array_type="UDT",
+        dcl_p, res_p, "PReal", {1: "PR 1"}, tipo_array="UDT",
     )
     assert 1 in result.injected
     new_id = result.injected[1]
@@ -80,7 +80,7 @@ def test_caso_a_inyecta_multiples_slots(tmp_path: Path) -> None:
     """Multiples indices NUEVOS: cada uno recibe su propio MLC ID."""
     dcl_p, res_p = _write_pair(tmp_path, _BASE_DCL, _BASE_RES)
     result = confirmar_comentarios_array(
-        dcl_p, res_p, "PReal", {1: "PR 1", 2: "PR 2", 3: "PR 3"}, array_type="UDT",
+        dcl_p, res_p, "PReal", {1: "PR 1", 2: "PR 2", 3: "PR 3"}, tipo_array="UDT",
     )
     assert set(result.injected.keys()) == {1, 2, 3}
     assert len({result.injected[i] for i in (1, 2, 3)}) == 3
@@ -94,7 +94,7 @@ def test_caso_a_inyecta_slot_simple_en_seccion_a(tmp_path: Path) -> None:
         _BASE_RES,
     )
     result = confirmar_comentarios_array(
-        dcl_p, res_p, "PReal_Vis", {5: "PV 5"}, array_type="Simple",
+        dcl_p, res_p, "PReal_Vis", {5: "PV 5"}, tipo_array="Simple",
     )
     assert 5 in result.injected
 
@@ -112,7 +112,7 @@ def test_caso_b_elimina_mlc_de_slot_existente(tmp_path: Path) -> None:
     dcl_p, res_p = _write_pair(tmp_path, dcl, res)
 
     result = confirmar_comentarios_array(
-        dcl_p, res_p, "PReal", {1: ""}, array_type="UDT",
+        dcl_p, res_p, "PReal", {1: ""}, tipo_array="UDT",
     )
     assert 1 in result.removed
 
@@ -138,7 +138,7 @@ def test_caso_b_preserva_otros_metadatos_del_bloque(tmp_path: Path) -> None:
     dcl_p, res_p = _write_pair(tmp_path, dcl, res)
 
     result = confirmar_comentarios_array(
-        dcl_p, res_p, "PReal", {1: ""}, array_type="UDT",
+        dcl_p, res_p, "PReal", {1: ""}, tipo_array="UDT",
     )
     assert 1 in result.removed
     dcl_out = (tmp_path / "modificado_DB.s7dcl").read_text(encoding="utf-8-sig")
@@ -152,7 +152,7 @@ def test_el_punto_es_texto_normal_en_slot_nuevo(tmp_path: Path) -> None:
     dcl_p, res_p = _write_pair(tmp_path, _BASE_DCL, _BASE_RES)
 
     result = confirmar_comentarios_array(
-        dcl_p, res_p, "PReal", {1: "."}, array_type="UDT",
+        dcl_p, res_p, "PReal", {1: "."}, tipo_array="UDT",
     )
     assert 1 in result.injected
     res_out = yaml.safe_load(
@@ -173,7 +173,7 @@ def test_el_punto_es_texto_normal_en_slot_con_mlc(tmp_path: Path) -> None:
     dcl_p, res_p = _write_pair(tmp_path, dcl, res)
 
     result = confirmar_comentarios_array(
-        dcl_p, res_p, "PReal", {1: "."}, array_type="UDT",
+        dcl_p, res_p, "PReal", {1: "."}, tipo_array="UDT",
     )
     assert result.removed == []
     assert 1 in result.updated
@@ -197,7 +197,7 @@ def test_caso_c_actualiza_texto_en_res(tmp_path: Path) -> None:
     dcl_p, res_p = _write_pair(tmp_path, dcl, res)
 
     result = confirmar_comentarios_array(
-        dcl_p, res_p, "PReal", {1: "nuevo texto"}, array_type="UDT",
+        dcl_p, res_p, "PReal", {1: "nuevo texto"}, tipo_array="UDT",
     )
     assert result.updated == {1: "MLC_pr_001"}
 
@@ -221,7 +221,7 @@ def test_caso_c_noop_si_texto_identico(tmp_path: Path) -> None:
     dcl_p, res_p = _write_pair(tmp_path, dcl, res)
 
     result = confirmar_comentarios_array(
-        dcl_p, res_p, "PReal", {1: "mismo"}, array_type="UDT",
+        dcl_p, res_p, "PReal", {1: "mismo"}, tipo_array="UDT",
     )
     assert result.updated == {}
     assert 1 in result.noop
@@ -239,7 +239,7 @@ def test_caso_d_anade_mlc_a_slot_existente_simple(tmp_path: Path) -> None:
     dcl_p, res_p = _write_pair(tmp_path, dcl, _BASE_RES)
 
     result = confirmar_comentarios_array(
-        dcl_p, res_p, "PReal_Vis", {1: "PV 1"}, array_type="Simple",
+        dcl_p, res_p, "PReal_Vis", {1: "PV 1"}, tipo_array="Simple",
     )
     assert 1 in result.injected
     new_id = result.injected[1]
@@ -265,7 +265,7 @@ def test_caso_d_anade_mlc_preservando_otros_metadatos(tmp_path: Path) -> None:
     dcl_p, res_p = _write_pair(tmp_path, dcl, _BASE_RES)
 
     result = confirmar_comentarios_array(
-        dcl_p, res_p, "Aux.PReal_ValorAnterior", {1: "VA 1"}, array_type="Simple",
+        dcl_p, res_p, "Aux.PReal_ValorAnterior", {1: "VA 1"}, tipo_array="Simple",
     )
     assert 1 in result.injected
     new_id = result.injected[1]
@@ -283,7 +283,7 @@ def test_slot_que_no_existe_y_texto_vacio_es_noop(tmp_path: Path) -> None:
     """Indice no existe + texto vacio = no-op (no se inyecta nada)."""
     dcl_p, res_p = _write_pair(tmp_path, _BASE_DCL, _BASE_RES)
     result = confirmar_comentarios_array(
-        dcl_p, res_p, "PReal", {99: ""}, array_type="UDT",
+        dcl_p, res_p, "PReal", {99: ""}, tipo_array="UDT",
     )
     assert 99 in result.noop
     assert result.injected == {}
@@ -298,7 +298,7 @@ def test_error_si_no_hay_end_data_block(tmp_path: Path) -> None:
     )
     with pytest.raises(ValueError, match="END_DATA_BLOCK"):
         confirmar_comentarios_array(
-            dcl_p, res_p, "PReal", {1: "x"}, array_type="UDT",
+            dcl_p, res_p, "PReal", {1: "x"}, tipo_array="UDT",
         )
 
 
@@ -313,7 +313,7 @@ def test_udt_no_matchea_sub_campos(tmp_path: Path) -> None:
     dcl_p, res_p = _write_pair(tmp_path, dcl, _BASE_RES)
 
     result = confirmar_comentarios_array(
-        dcl_p, res_p, "PReal", {1: "PR 1"}, array_type="UDT",
+        dcl_p, res_p, "PReal", {1: "PR 1"}, tipo_array="UDT",
     )
     assert 1 in result.injected
 
@@ -326,7 +326,7 @@ def test_simple_matchea_asignacion_con_valor(tmp_path: Path) -> None:
     dcl_p, res_p = _write_pair(tmp_path, dcl, _BASE_RES)
 
     result = confirmar_comentarios_array(
-        dcl_p, res_p, "PReal_Vis", {1: "PV 1"}, array_type="Simple",
+        dcl_p, res_p, "PReal_Vis", {1: "PV 1"}, tipo_array="Simple",
     )
     assert 1 in result.injected
 
@@ -335,7 +335,7 @@ def test_slot_map_vacio_no_modifica_archivos(tmp_path: Path) -> None:
     """``mapa_indices`` vacio: no hay cambios, los archivos se reescriben identicos."""
     dcl_p, res_p = _write_pair(tmp_path, _BASE_DCL, _BASE_RES)
     result = confirmar_comentarios_array(
-        dcl_p, res_p, "PReal", {}, array_type="UDT",
+        dcl_p, res_p, "PReal", {}, tipo_array="UDT",
     )
     assert result.injected == {}
     assert result.updated == {}

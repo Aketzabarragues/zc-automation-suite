@@ -68,11 +68,11 @@ def proc_slots_actuales(
         return None
     slots = set(slot_map) | indices_de_array(dcl_text, array, array_type)
     return comentarios_actuales(
-        res_text=res_text,
-        array_name=array,
+        texto_res=res_text,
+        nombre_array=array,
         indices=sorted(slots),
-        dcl_text=dcl_text,
-        array_type=array_type,
+        texto_dcl=dcl_text,
+        tipo_array=array_type,
     )
 
 

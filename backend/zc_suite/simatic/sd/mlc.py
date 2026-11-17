@@ -11,11 +11,11 @@ combinacion; hemos visto ``MLC_q2``, ``MLC_Dz8``, ``MLC_hsVUv`` etc.
 mezclando may/min con numeros). El prefijo ``MLC_`` es obligatorio.
 
 Funciones puras expuestas:
-  - ``ids_mlc_existentes(res_text)``: extrae todos los IDs
+  - ``ids_mlc_existentes(texto_res)``: extrae todos los IDs
     MLC referenciados en el .s7res.
-  - ``siguiente_id_mlc(used_ids)``: genera un ID nuevo que no colisiona
+  - ``siguiente_id_mlc(ids_usados)``: genera un ID nuevo que no colisiona
     con los existentes.
-  - ``mapa_mlc(res_text)``: devuelve el mapping
+  - ``mapa_mlc(texto_res)``: devuelve el mapping
     ``MLC_id -> texto es-ES`` para resolver IDs a texto en espanol.
 
 El consumidor (confirmar_comentarios_array, editor de bloques, etc.) es
@@ -47,7 +47,7 @@ _MLC_ID_RE = re.compile(
 )
 
 
-def ids_mlc_existentes(res_text: str) -> set[str]:
+def ids_mlc_existentes(texto_res: str) -> set[str]:
     """Extrae todos los IDs MLC presentes en el texto del .s7res.
 
     Acepta el formato YAML plano que exporta TIA V21 (entradas
@@ -55,23 +55,23 @@ def ids_mlc_existentes(res_text: str) -> set[str]:
     otro formato, devuelve set vacio (el caller debe manejarlo).
 
     Args:
-        res_text: contenido completo del archivo .s7res.
+        texto_res: contenido completo del archivo .s7res.
 
     Returns:
         Set con los IDs ``MLC_*`` encontrados (sin duplicados).
     """
-    return set(_MLC_ID_RE.findall(res_text))
+    return set(_MLC_ID_RE.findall(texto_res))
 
 
-def siguiente_id_mlc(used_ids: set[str]) -> str:
-    """Genera un ID MLC nuevo que NO colisiona con ``used_ids``.
+def siguiente_id_mlc(ids_usados: set[str]) -> str:
+    """Genera un ID MLC nuevo que NO colisiona con ``ids_usados``.
 
     Usa ``uuid.uuid4().hex[:5]`` (5 chars hex, 0-9a-f) que es
     compatible con TIA V21 (hemos visto IDs hex puros como ``MLC_q2``
     en exports reales).
 
     Args:
-        used_ids: Set de IDs ya usados (se debe actualizar con el
+        ids_usados: Set de IDs ya usados (se debe actualizar con el
             nuevo ID tras llamar a esta funcion).
 
     Returns:
@@ -82,9 +82,9 @@ def siguiente_id_mlc(used_ids: set[str]) -> str:
             (probabilidad astronomicamente baja: 16/16^5 = ~1e-6).
     """
     for _ in range(16):
-        candidate = f"MLC_{uuid.uuid4().hex[:5]}"
-        if candidate not in used_ids:
-            return candidate
+        candidato = f"MLC_{uuid.uuid4().hex[:5]}"
+        if candidato not in ids_usados:
+            return candidato
     # Si llegamos aqui, uuid fallo 16 veces seguidas (practicamente
     # imposible: espacio de 16^5 = 1M IDs).
     raise RuntimeError(
@@ -94,7 +94,7 @@ def siguiente_id_mlc(used_ids: set[str]) -> str:
     )
 
 
-def mapa_mlc(res_text: str) -> dict[str, str]:
+def mapa_mlc(texto_res: str) -> dict[str, str]:
     """Parsea un ``.s7res`` y devuelve el mapping ``MLC_id -> texto es-ES``.
 
     El ``.s7res`` de TIA V21 tiene un bloque ``MultiLingualTexts:`` con
@@ -111,7 +111,7 @@ def mapa_mlc(res_text: str) -> dict[str, str]:
       - cualquier feature que necesite mapear ``MLC_id`` a texto.
 
     Args:
-        res_text: contenido completo del archivo ``.s7res`` (UTF-8,
+        texto_res: contenido completo del archivo ``.s7res`` (UTF-8,
             plano YAML). Si esta vacio o ``None``, retorna dict vacio.
 
     Returns:
@@ -129,11 +129,11 @@ def mapa_mlc(res_text: str) -> dict[str, str]:
                 # al top-level penaliza el coste de import de callers que
                 # solo necesitan ``siguiente_id_mlc`` o ``ids_mlc_existentes``.
 
-    if not res_text:
+    if not texto_res:
         return {}
 
     try:
-        res_data = yaml.safe_load(res_text) or {}
+        res_data = yaml.safe_load(texto_res) or {}
     except yaml.YAMLError:
         return {}
 

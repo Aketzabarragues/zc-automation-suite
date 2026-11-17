@@ -165,8 +165,8 @@ def test_el_bloque_con_comentarios_sale_byte_a_byte_como_en_main(
         res,
         "ED",
         {7: "DP-207 nuevo"},
-        array_type="Simple",
-        write_to_original=True,
+        tipo_array="Simple",
+        escribir_en_original=True,
     )
 
     assert dcl.read_bytes() == (ESPERADO / "DB2000_ED_inyectado.s7dcl").read_bytes()

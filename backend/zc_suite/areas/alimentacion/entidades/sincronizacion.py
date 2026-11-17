@@ -273,8 +273,8 @@ def ent_copiar_y_editar(
                 res,
                 array,
                 mapa,
-                array_type=TIPO_ARRAY,
-                write_to_original=True,
+                tipo_array=TIPO_ARRAY,
+                escribir_en_original=True,
             )
             if resultado.injected or resultado.updated or resultado.removed:
                 comentarios = 1

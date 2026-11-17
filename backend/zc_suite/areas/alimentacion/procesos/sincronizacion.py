@@ -190,7 +190,7 @@ def proc_confirmar_db(
 
     Para cada array del DB se llama a ``confirmar_comentarios_array`` con
     el mapa de apply (el slot map del Excel mas los slots que se borran) y
-    ``write_to_original=True``: la llamada siguiente del mismo DB acumula
+    ``escribir_en_original=True``: la llamada siguiente del mismo DB acumula
     sobre los ficheros que dejo la anterior.
 
     Args:
@@ -230,8 +230,8 @@ def _confirmar(dcl: Path, res: Path, array: str, mapa: dict[int, str]) -> Result
         res,
         array,
         mapa,
-        array_type=proc_tipo_array(array),
-        write_to_original=True,
+        tipo_array=proc_tipo_array(array),
+        escribir_en_original=True,
     )
 
 

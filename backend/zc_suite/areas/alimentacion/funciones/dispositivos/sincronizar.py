@@ -695,8 +695,8 @@ def _confirmar_comentarios(
             res,
             arrays.get(db, ""),
             mapa,
-            array_type="Simple",
-            write_to_original=True,
+            tipo_array="Simple",
+            escribir_en_original=True,
         )
         if resultado.injected or resultado.updated or resultado.removed:
             modificados += 1

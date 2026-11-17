@@ -86,7 +86,7 @@ def test_actualizar_un_comentario_sale_byte_a_byte_como_en_main(tmp_path: Path) 
     """El CASO C (actualizar el texto de un MLC) sale igual que en ``main``."""
     dcl, res = _copiar_db(tmp_path / "caso_c")
 
-    confirmar_comentarios_array(dcl, res, "ED", {2: "DP-202 revisado"}, array_type="UDT")
+    confirmar_comentarios_array(dcl, res, "ED", {2: "DP-202 revisado"}, tipo_array="UDT")
 
     modificado_dcl = tmp_path / "caso_c" / "modificado_DB2000_ED.s7dcl"
     modificado_res = tmp_path / "caso_c" / "modificado_DB2000_ED.s7res"
@@ -107,7 +107,7 @@ def test_inyectar_un_slot_sale_byte_a_byte_como_en_main(
     monkeypatch.setattr("uuid.uuid4", lambda: _UuidFalso("aaaaa"))
     dcl, res = _copiar_db(tmp_path / "caso_a")
 
-    confirmar_comentarios_array(dcl, res, "ED", {7: "DP-207 nuevo"}, array_type="UDT")
+    confirmar_comentarios_array(dcl, res, "ED", {7: "DP-207 nuevo"}, tipo_array="UDT")
 
     assert (tmp_path / "caso_a" / "modificado_DB2000_ED.s7dcl").read_bytes() == (
         ESPERADO / "DB2000_ED_inyectado.s7dcl"
