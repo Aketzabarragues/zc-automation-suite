@@ -26,10 +26,10 @@ parametros de ``PlcSyncFalso``:
   ``get_name()``. Antes, dispositivos devolvia el literal y entidades y
   procesos la constante ``NOMBRE_PLC`` (mismo valor).
 - ``con_importacion_tablas`` (por defecto ``True``): si el area usa la
-  importacion de tablas de tags del doble. El metodo ``import_plc_tags``
-  y ``importaciones_tablas`` estan siempre presentes; el flag solo
-  documenta el uso (procesos lo pasa a ``False``: su doble anterior no
-  importaba tablas y sus tests no llaman al metodo).
+  importacion de tablas de tags del doble. Con ``False`` (lo pasa
+  procesos) ``import_plc_tags`` no registra nada en
+  ``importaciones_tablas`` ni reconstruye constantes: reproduce su doble
+  anterior, que no importaba tablas.
 - ``constante`` (por defecto ``None``): la clase de constante de usuario
   de cada conftest, que el doble necesita para reconstruir las constantes
   de una tabla tras ``import_plc_tags``. Solo se usa si el conftest pasa
@@ -170,6 +170,10 @@ class PlcSyncFalso:
         La clase de la constante es la de cada conftest (``constante``):
         el doble no sabe nada de ``ConstanteFalsa``.
         """
+        # Con el flag apagado no se registra nada: reproduce el doble
+        # anterior del area de procesos, que no importaba tablas de tags.
+        if not self._con_importacion_tablas:
+            return
         self.importaciones_tablas.append(
             {
                 "directorio": import_root_directory,
