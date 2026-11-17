@@ -377,20 +377,45 @@ def proc_detectar_colisiones(
             {},
         )
 
-    entradas = [
-        entrada
-        for item in bloques_plc
-        if (entrada := _entrada_bloque_plc(item)) is not None
-    ]
+    (
+        nombres_plc,
+        tipo_numero_plc,
+        id_por_nombre,
+        id_por_tipo_numero,
+    ) = _indice_bloques_plc(bloques_plc)
 
+    return _cruzar_colisiones(
+        dicc_bloques, nombres_plc, tipo_numero_plc, id_por_nombre, id_por_tipo_numero
+    )
+
+
+def _indice_bloques_plc(
+    bloques_plc: list[Any],
+) -> tuple[
+    set[str],
+    set[tuple[str, int]],
+    dict[str, str],
+    dict[tuple[str, int], str],
+]:
+    """Los indices de un escaneo de bloques del PLC.
+
+    Returns:
+        La tupla ``(nombres_plc, tipo_numero_plc, id_por_nombre,
+        id_por_tipo_numero)``: los nombres validos, las tuplas
+        ``(prefijo_upper, numero)``, y el identificador del bloque para cada
+        uno. El orden de insercion de ``id_por_nombre`` y
+        ``id_por_tipo_numero`` es el del escaneo.
+    """
     nombres_plc: set[str] = set()
     tipo_numero_plc: set[tuple[str, int]] = set()
     id_por_nombre: dict[str, str] = {}
     id_por_tipo_numero: dict[tuple[str, int], str] = {}
-    for bloque in entradas:
-        nombre_raw = bloque.get("nombre")
+    for item in bloques_plc:
+        if (entrada := _entrada_bloque_plc(item)) is None:
+            continue
+        nombre_raw = entrada.get("nombre")
         nombre = str(nombre_raw) if nombre_raw else ""
-        numero_raw = bloque.get("numero")
+        numero_raw = entrada.get("numero")
         if isinstance(numero_raw, bool):
             continue
         if isinstance(numero_raw, int):
@@ -418,7 +443,17 @@ def proc_detectar_colisiones(
             if clave_tipo_num not in tipo_numero_plc:
                 tipo_numero_plc.add(clave_tipo_num)
                 id_por_tipo_numero[clave_tipo_num] = ident
+    return nombres_plc, tipo_numero_plc, id_por_nombre, id_por_tipo_numero
 
+
+def _cruzar_colisiones(
+    dicc_bloques: dict[str, str],
+    nombres_plc: set[str],
+    tipo_numero_plc: set[tuple[str, int]],
+    id_por_nombre: dict[str, str],
+    id_por_tipo_numero: dict[tuple[str, int], str],
+) -> tuple[list[str], dict[str, str]]:
+    """Cruza los nombres post-rename contra los indices de bloques del PLC."""
     colisiones: list[str] = []
     colisiones_con: dict[str, str] = {}
     colisiones_vistas: set[str] = set()
@@ -441,7 +476,6 @@ def proc_detectar_colisiones(
                 colisiones.append(valor)
                 colisiones_con[valor] = id_por_tipo_numero[clave_tipo_num]
                 colisiones_vistas.add(valor)
-
     return colisiones, colisiones_con
 
 
