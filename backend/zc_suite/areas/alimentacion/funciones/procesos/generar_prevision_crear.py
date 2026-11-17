@@ -52,7 +52,7 @@ from zc_suite.areas.alimentacion.procesos.plantillas import (
 from zc_suite.errores import OperacionError
 from zc_suite.nucleo.sesion import Sesion
 from zc_suite.nucleo.tia.job import Job
-from zc_suite.nucleo.tia.workdir import raiz_datos, workdir
+from zc_suite.nucleo.tia.workdir import carpeta_datos, workdir
 
 logger = logging.getLogger(__name__)
 
@@ -88,8 +88,8 @@ def carpeta_plantillas(
     Si el llamador pasa ``plantillas_dir`` (los tests y el router), se usa
     tal cual. Si no, ``config.plantillas_procesos``: la cadena vacia es
     "sin configurar" y **no** se resuelve contra la carpeta de datos (no
-    puede dar ``raiz_datos()``); una ruta relativa se resuelve contra
-    ``raiz_datos`` (empaquetado: la carpeta del ``.exe``; desarrollo: el
+    puede dar ``carpeta_datos()``); una ruta relativa se resuelve contra
+    ``carpeta_datos`` (empaquetado: la carpeta del ``.exe``; desarrollo: el
     repo) y una absoluta se respeta como esta.
 
     Returns:
@@ -101,7 +101,7 @@ def carpeta_plantillas(
     valor = config.plantillas_procesos
     if not valor:
         return None
-    return raiz_datos() / valor
+    return carpeta_datos() / valor
 
 
 def _respuesta(

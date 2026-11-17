@@ -11,7 +11,7 @@ disco de solo lectura), se usa la plantilla en modo lectura con un aviso.
 Prioridad de localizacion:
 
 1. ``$ZC_CONFIG_DIR/config.json`` si la variable esta definida.
-2. Empaquetado: ``<carpeta_del_exe>/config/config.json``.
+2. Empaquetado: ``<carpeta_datos>/config/config.json``.
 3. Desarrollo: ``<repo>/config/config.json``, sin copia.
 """
 from __future__ import annotations

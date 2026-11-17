@@ -338,9 +338,9 @@ def test_sin_plantillas_dir_se_resuelve_contra_la_carpeta_de_datos(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Sin plantillas_dir, la plantilla se busca en
-    ``raiz_datos() / config.plantillas_procesos``."""
+    ``carpeta_datos() / config.plantillas_procesos``."""
     _plantilla(tmp_path)
-    monkeypatch.setattr(modulo_crear, "raiz_datos", lambda: tmp_path)
+    monkeypatch.setattr(modulo_crear, "carpeta_datos", lambda: tmp_path)
     entorno_crear.modelo.plantillas_procesos = "plantillas"
     sesion = _sesion_con_escaneo([{"nombre": "DB1_SYS"}])
 

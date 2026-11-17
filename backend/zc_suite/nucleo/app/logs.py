@@ -78,7 +78,7 @@ def carpeta_de_logs() -> Path:
     Prioridad:
 
     1. ``$ZC_LOG_DIR``.
-    2. Empaquetado: ``<carpeta_del_exe>/logs``.
+    2. Empaquetado: ``<carpeta_datos>/logs``.
     3. Desarrollo: ``<repo>/logs``.
     4. Si nada de eso se puede crear, la carpeta de la aplicacion en
        ``AppData``.

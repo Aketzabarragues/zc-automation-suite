@@ -54,7 +54,7 @@ CONTEXTO_EDITOR = "editor_bloques"
 RAIZ = Path(__file__).resolve().parents[4]
 
 
-def raiz_datos() -> Path:
+def carpeta_datos() -> Path:
     """La carpeta de datos de la app: la raiz de las rutas relativas del config.
 
     Empaquetado: la carpeta del ejecutable. Desarrollo: el repo.
@@ -69,7 +69,7 @@ def raiz_build_cache() -> Path:
 
     Empaquetado: junto al ejecutable. Desarrollo: en el repo.
     """
-    return raiz_datos() / NOMBRE_BUILD_CACHE
+    return carpeta_datos() / NOMBRE_BUILD_CACHE
 
 
 @dataclass(frozen=True)

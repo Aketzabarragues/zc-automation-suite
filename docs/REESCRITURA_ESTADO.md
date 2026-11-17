@@ -260,7 +260,7 @@ en el `config.json` del usuario.
 - La clave se llama `plantillas_procesos` (no `plantillas_path`: esta en
   `CLAVES_ANTIGUAS` y dispararia el banner de config incompatible). Su
   valor por defecto es la **cadena vacia**, que significa "sin configurar":
-  no se resuelve contra `raiz_datos()`.
+  no se resuelve contra `carpeta_datos()`.
 - `carpeta_plantillas()` devuelve `Path | None`: `None` cuando no esta
   configurada. Los FB de prevision y de creacion lanzan `OperacionError`.
 - `PUT /api/v1/areas/alimentacion/procesos/plantillas` con

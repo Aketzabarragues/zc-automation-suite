@@ -183,7 +183,7 @@ def proc_resolver_plantilla(
     """La carpeta de la plantilla, dentro de la carpeta de plantillas.
 
     ``plantillas_dir`` se usa tal cual: resolver su por defecto (contra
-    ``raiz_datos`` y el config) es cosa del FB, no de aqui. La subcarpeta
+    ``carpeta_datos`` y el config) es cosa del FB, no de aqui. La subcarpeta
     tiene que existir y no puede salir de ``plantillas_dir``: un symlink que
     apunte fuera se rechaza.
 
