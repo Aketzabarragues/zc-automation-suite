@@ -142,7 +142,7 @@ ya son consistentes y anotan los que no se encuentran; tras compilar,
 
 Por eso el aviso ya lista cada bloque con el mensaje de TIA recortado, por
 ejemplo: `1 bloque(s) con errores: DB_NO_OK (Interface > Data type Boo is
-unknown.)`. Si no llega a llegar el detalle, lo hay en el log (`logs/zc.log`),
+unknown.)`. Si el detalle no aparece en el aviso, lo hay en el log (`logs/zc.log`),
 que anota los mensajes de cada compilacion.
 
 Ojo: la compilacion se hace **fuera** de la transaccion: TIA no la admite
