@@ -24,7 +24,7 @@ const PESTANAS = [
 const SUBDOMINIOS_PROCESOS = [
   { clave: "Procesos", etiqueta: "Procesos" },
   { clave: "ParametrosEnteros", etiqueta: "Parámetros Enteros" },
-  { clave: "ParametrosReales", etiqueta: "Parámetros Reales" },
+  { clave: "ParametrosReales", etiqueta: "Parametros Reales" },
   { clave: "Alarmas", etiqueta: "Alarmas" },
 ];
 
