@@ -23,6 +23,7 @@ from openpyxl import Workbook
 from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.table import Table, TableStyleInfo
 
+from tests._dobles import ProyectoFalso
 from zc_suite.areas.alimentacion import config as config_area
 from zc_suite.areas.alimentacion.config import ConfigArea
 from zc_suite.areas.alimentacion.excel.almacen import AlmacenExcel
@@ -865,15 +866,6 @@ class PlcFalso:
     def get_plc_tag_tables(self) -> list[TablaFalsa]:
         return self.tablas
 
-
-class ProyectoFalso:
-    """El proyecto abierto, con un solo PLC."""
-
-    def __init__(self, plc: PlcFalso) -> None:
-        self.plc = plc
-
-    def get_plcs(self) -> list[PlcFalso]:
-        return [self.plc]
 
 
 class PortalFalso:

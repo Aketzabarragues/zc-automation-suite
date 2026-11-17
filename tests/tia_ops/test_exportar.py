@@ -10,6 +10,8 @@ import pytest
 from zc_suite.errores import OperacionError
 from zc_suite.tia_ops import exportar as ops
 
+from tests._dobles import ProyectoFalso
+
 # ── dobles de test ─────────────────────────────────────────────────────────
 
 
@@ -78,13 +80,6 @@ class PlcFalso:
     def get_plc_tag_tables(self) -> list[TablaFalsa]:
         return self.tablas
 
-
-class ProyectoFalso:
-    def __init__(self, plc: PlcFalso) -> None:
-        self.plc = plc
-
-    def get_plcs(self) -> list[PlcFalso]:
-        return [self.plc]
 
 
 class PortalFalso:

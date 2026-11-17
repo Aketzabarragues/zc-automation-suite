@@ -55,6 +55,16 @@ VERSION_TIA = "Siemens TIA Portal V21.0"
 NOMBRE_PLC = "ZC_PLC_STD"
 
 
+class ProyectoFalso:
+    """El proyecto abierto, con un solo PLC."""
+
+    def __init__(self, plc: Any) -> None:
+        self.plc = plc
+
+    def get_plcs(self) -> list[Any]:
+        return [self.plc]
+
+
 class PlcSyncFalso:
     """El PLC del sync: tablas de tags, bloques y la importacion."""
 

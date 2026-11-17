@@ -20,6 +20,7 @@ from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.table import Table, TableStyleInfo
 from tests._dobles import (
     PlcSyncFalso,
+    ProyectoFalso,
     ProyectoSyncFalso,
     TsSyncFalso,
 )
@@ -154,15 +155,6 @@ class PlcFalso:
     def get_program_blocks(self) -> list[BloqueFalso]:
         return self._bloques
 
-
-class ProyectoFalso:
-    """El proyecto abierto, con un solo PLC."""
-
-    def __init__(self, plc: PlcFalso) -> None:
-        self.plc = plc
-
-    def get_plcs(self) -> list[PlcFalso]:
-        return [self.plc]
 
 
 class PortalFalso:
