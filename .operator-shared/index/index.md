@@ -97,7 +97,7 @@ Ningun objeto .NET sale de aqui: se devuelven `dict`, `list`, `str`, `int` y `bo
 
 ##### `areas/alimentacion/` — El area de alimentacion (la unica registrada hoy)
 
-- `__init__.py` — `ID`, `NOMBRE`, `rutas`, `catalogo()`, `defaults()`, `al_arrancar()`, `estado_sesion()`, `valida_config()`.
+- `__init__.py` — `ID`, `NOMBRE`, `ALMACEN`, `rutas`, `catalogo()`, `defaults()`, `al_arrancar()`, `estado_sesion()`, `valida_config()`. `ALMACEN` es contrato del area: la recarga de config depende de el.
 - `config.py` — Modelo del config del area.
 - `rutas.py` — Blueprint del area.
 - `excel/` — El Excel maestro: `parser.py` (uno solo, lo usan todas las fases), `modelo.py`, `tablas.py` (campos por dominio), `columnas.py`, `almacen.py` (en memoria, no en disco).
@@ -141,6 +141,7 @@ Ningun objeto .NET sale de aqui: se devuelven `dict`, `list`, `str`, `int` y `bo
 ### `tests/` — Suite de pytest (espeja `backend/zc_suite/`)
 
 - `conftest.py` — Fixtures compartidos (van aqui, no como funciones importadas).
+- `_dobles.py` — Dobles de TIA compartidos por los conftest (`PlcSyncFalso`, `ProyectoFalso`, `PortalFalso`, `TsFalso` y variantes). Se importa como `tests._dobles`: `pyproject.toml` lleva `pythonpath = ["backend", "."]` porque `tests/` no es paquete (no lleva `__init__.py`, para no romper la recogida con `--import-mode=importlib`).
 - `test_fronteras.py` — El nucleo no importa areas y las areas no se importan entre si.
 - `test_fronteras_dominio.py` — La logica de dominio no depende de TIA.
 - `test_errores.py` — La jerarquia `ZCError` / `TIAError`.
