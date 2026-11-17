@@ -62,19 +62,19 @@ class ModificadorConstantesUsuario:
         # nuevas. Sin esto, un alta sobre una tabla vacia se pierde.
         self._plantilla: ET.Element | None = self._constante_de_plantilla()
 
-    def guardar(self, output_path: str | Path) -> None:
-        """Escribe el arbol XML modificado en ``output_path``.
+    def guardar(self, ruta_salida: str | Path) -> None:
+        """Escribe el arbol XML modificado en ``ruta_salida``.
 
         Los saltos de linea son ``\\r\\n`` siempre. ``ElementTree.write(ruta)``
         abre el fichero en modo texto y mete el salto de la plataforma: en
         Windows ``\\r\\n`` (lo que hacia main y lo que recibe TIA), en Linux
         ``\\n``. Se fija aqui para no depender del sistema.
         """
-        out = Path(output_path)
-        out.parent.mkdir(parents=True, exist_ok=True)
+        ruta_salida = Path(ruta_salida)
+        ruta_salida.parent.mkdir(parents=True, exist_ok=True)
         buffer = io.BytesIO()
         self._tree.write(buffer, encoding="utf-8", xml_declaration=True)
-        out.write_bytes(buffer.getvalue().replace(b"\n", b"\r\n"))
+        ruta_salida.write_bytes(buffer.getvalue().replace(b"\n", b"\r\n"))
 
     def modificado(self) -> bool:
         """Devuelve ``True`` si anadir o eliminar mutaron el DOM."""
@@ -382,7 +382,7 @@ class ModificadorConstantesUsuario:
         )
         return removed
 
-    def actualizar_comentario(self, plc_name: str, comment: str) -> bool:
+    def actualizar_comentario(self, nombre_plc: str, comentario: str) -> bool:
         """Actualiza el ``<Comment>`` per-constant del PlcUserConstant.
 
         True si encontro y modifico la constant. False si no existe.
@@ -390,8 +390,8 @@ class ModificadorConstantesUsuario:
         desde los FBs de sync (D.2).
 
         Args:
-            plc_name: ``<Name>`` de la PlcUserConstant a actualizar.
-            comment: nuevo texto (string vacio ``""`` = limpiar comment).
+            nombre_plc: ``<Name>`` de la PlcUserConstant a actualizar.
+            comentario: nuevo texto (string vacio ``""`` = limpiar comment).
 
         Returns:
             True si modifico la constant, False si no la encontro.
@@ -400,18 +400,18 @@ class ModificadorConstantesUsuario:
             name_el = const.find(f".//{NAME_TAG}")
             if name_el is None or name_el.text is None:
                 continue
-            if name_el.text.strip() != plc_name:
+            if name_el.text.strip() != nombre_plc:
                 continue
-            self._inyectar_comentario_multilingue(const, comment)
+            self._inyectar_comentario_multilingue(const, comentario)
             self._modified = True
             _logger.debug(
                 f"ModificadorConstantesUsuario.actualizar_comentario: "
-                f"'{plc_name}' comment actualizado en '{self._path.name}'"
+                f"'{nombre_plc}' comment actualizado en '{self._path.name}'"
             )
             return True
         _logger.warning(
             f"ModificadorConstantesUsuario.actualizar_comentario: "
-            f"'{plc_name}' no encontrado en '{self._path.name}'"
+            f"'{nombre_plc}' no encontrado en '{self._path.name}'"
         )
         return False
 

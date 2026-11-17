@@ -34,11 +34,11 @@ class ParserConstantesUsuario:
     """
 
     @staticmethod
-    def leer_constantes(xml_file_path: str | Path) -> dict[str, int]:
+    def leer_constantes(ruta_xml: str | Path) -> dict[str, int]:
         """Lee un .xml SimaticML y devuelve ``{nombre: valor_int}``.
 
         Args:
-            xml_file_path: ruta al archivo .xml exportado por TIA
+            ruta_xml: ruta al archivo .xml exportado por TIA
                 Portal (formato SimaticML) sobre una PlcTagTable.
 
         Returns:
@@ -50,12 +50,12 @@ class ParserConstantesUsuario:
             FileNotFoundError: si el archivo no existe.
             ET.ParseError: si el XML no es valido.
         """
-        path = Path(xml_file_path)
-        if not path.is_file():
+        ruta = Path(ruta_xml)
+        if not ruta.is_file():
             raise FileNotFoundError(
-                f"No se encontro el archivo XML: '{path}'"
+                f"No se encontro el archivo XML: '{ruta}'"
             )
-        tree = ET.parse(str(path))
+        tree = ET.parse(str(ruta))
         root = tree.getroot()
         return ParserConstantesUsuario._extract_constants(root)
 
