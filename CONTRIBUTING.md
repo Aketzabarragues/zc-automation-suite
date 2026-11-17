@@ -39,7 +39,12 @@
 - **Prefijos de dominio primero** en archivos, clases y funciones:
   `disp_*` (dispositivos), `proc_*` (procesos), `ent_*` (entidades). Patron
   `<prefijo>_<verbo>_<concepto>`, NO al revés. No mezclar `disp_*` con `proc_*`
-  en el mismo archivo.
+  en el mismo archivo. **Excepción**: un módulo de dominio que se usa siempre
+  como MÓDULO no necesita el prefijo en sus funciones, porque el prefijo lo
+  da el módulo. Ejemplo: `backend/zc_suite/areas/alimentacion/dispositivos/
+  catalogo.py`, que se importa como `dispositivos_catalogo` (ver
+  `backend/zc_suite/areas/alimentacion/__init__.py:33`) y se llama
+  `dispositivos_catalogo.construir_pestanas`.
 - **Sin singletons dentro de la logica.** Las funciones de dominio son puras y
   reciben kwargs explicitos.
 

@@ -77,6 +77,12 @@ con PyInstaller.
   `from __future__ import annotations` al principio de cada modulo.
 - Nombre: `<prefijo>_<verbo>_<concepto>`, prefijo de dominio primero
   (`disp_*`, `proc_*`, `ent_*`). No mezclar prefijos en un mismo archivo.
+  Excepcion: un modulo de dominio que se usa siempre como MODULO no necesita
+  el prefijo en sus funciones, porque el prefijo lo da el modulo. Ejemplo:
+  `backend/zc_suite/areas/alimentacion/dispositivos/catalogo.py`, que se
+  importa como `dispositivos_catalogo` (ver
+  `backend/zc_suite/areas/alimentacion/__init__.py:33`) y se llama
+  `dispositivos_catalogo.construir_pestanas`.
 - Funciones de dominio puras con kwargs explicitos; sin singletons en la
   logica.
 - Los modulos nativos de TIA solo los importa el hilo de
