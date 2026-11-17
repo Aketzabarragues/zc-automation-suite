@@ -106,6 +106,8 @@ class Workdir:
     @property
     def preview(self) -> Path:
         """La carpeta del preview: plano, para leer."""
+        # El nombre ``preview`` en disco es historico: el resto de la app dice
+        # ``prevision``; cambiarlo moveria las carpetas de trabajo existentes.
         return self.base / "preview"
 
     def preview_de(self, nombre: str) -> Path:

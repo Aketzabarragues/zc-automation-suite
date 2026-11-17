@@ -115,7 +115,7 @@ def subir_excel() -> tuple[Response, int]:
 
 
 @rutas.post("/dispositivos/preview")
-def preview_dispositivos() -> tuple[Response, int]:
+def prevision_dispositivos() -> tuple[Response, int]:
     """Encola la prevision de dispositivos del PLC.
 
     Las precondiciones se comprueban **antes** de encolar: si falta el Excel,
@@ -159,7 +159,7 @@ def sincronizar_dispositivos() -> tuple[Response, int]:
 
 
 @rutas.post("/entidades/preview")
-def preview_entidades() -> tuple[Response, int]:
+def prevision_entidades() -> tuple[Response, int]:
     """Encola la prevision de las entidades del PLC.
 
     Las precondiciones se comprueban **antes** de encolar: si falta el Excel,
@@ -203,7 +203,7 @@ def sincronizar_entidades() -> tuple[Response, int]:
 
 
 @rutas.post("/procesos/preview")
-def preview_procesos() -> tuple[Response, int]:
+def prevision_procesos() -> tuple[Response, int]:
     """Encola la prevision del proceso del PLC.
 
     Las precondiciones se comprueban **antes** de encolar: si falta el PLC,
@@ -325,7 +325,7 @@ def guardar_ruta_plantillas() -> tuple[Response, int]:
 
 
 @rutas.post("/procesos/crear/preview")
-def preview_crear_proceso() -> tuple[Response, int]:
+def prevision_crear_proceso() -> tuple[Response, int]:
     """Encola la prevision de crear un proceso desde una plantilla.
 
     Las precondiciones se comprueban **antes** de encolar: si falta el PLC,
