@@ -178,23 +178,20 @@ onMounted(() => {
 
     <!-- ── la tarjeta de la vista activa (una sola a la vez) ────────── -->
     <section
-      v-if="modo === 'comentarios'"
+      v-if="modo === 'comentarios' || modo === 'crear'"
       class="flex-1 min-h-0 bg-surface-raised border border-line rounded p-4 flex flex-col overflow-y-auto"
       data-testid="procesos-contenido"
     >
-      <ComentariosProceso
-        :proceso="procesoElegido"
-        :uid="procesos.procUid"
-        @cerrar="cerrarComentarios"
-      />
-    </section>
-
-    <section
-      v-else-if="modo === 'crear'"
-      class="flex-1 min-h-0 bg-surface-raised border border-line rounded p-4 flex flex-col overflow-y-auto"
-      data-testid="procesos-contenido"
-    >
-      <CrearProceso :proceso="procesoElegido" @cerrar="cerrarCrear" />
+      <template v-if="modo === 'comentarios'">
+        <ComentariosProceso
+          :proceso="procesoElegido"
+          :uid="procesos.procUid"
+          @cerrar="cerrarComentarios"
+        />
+      </template>
+      <template v-else-if="modo === 'crear'">
+        <CrearProceso :proceso="procesoElegido" @cerrar="cerrarCrear" />
+      </template>
     </section>
   </section>
 </template>
