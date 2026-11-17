@@ -64,6 +64,16 @@ def carpeta_datos() -> Path:
     return RAIZ
 
 
+def carpeta_del_executable() -> Path:
+    """La carpeta donde esta el ejecutable.
+
+    Hoy es la misma que la de datos: la app no guarda nada aparte. Vive
+    como simbolo propio para que el log de arranque pueda distinguir las
+    dos, y por si algun dia divergen.
+    """
+    return carpeta_datos()
+
+
 def raiz_build_cache() -> Path:
     """Carpeta raiz del build cache.
 

@@ -41,7 +41,7 @@ from zc_suite.nucleo.app.servidor import ServidorWeb
 from zc_suite.nucleo.sesion import CLAVE_SESION, CLAVE_SESION_AREAS, Sesion
 from zc_suite.nucleo.tia.eventos import BusEventos
 from zc_suite.nucleo.tia.servicio import ServicioTIA
-from zc_suite.nucleo.tia.workdir import carpeta_datos
+from zc_suite.nucleo.tia.workdir import carpeta_datos, carpeta_del_executable
 from zc_suite.nucleo.web.app import (
     CLAVE_CONFIG,
     CLAVE_CONFIG_EN_USO,
@@ -92,7 +92,7 @@ def log_de_arranque(
         platform.python_version(),
         bool(getattr(sys, "frozen", False)),
     )
-    logger.info("Ejecutable: %s", carpeta_datos())
+    logger.info("Ejecutable: %s", carpeta_del_executable())
     logger.info("Datos: %s", carpeta_datos())
     logger.info("Log: %s", logs.ruta_log())
     logger.info(
