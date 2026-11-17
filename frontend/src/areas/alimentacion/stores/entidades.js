@@ -26,7 +26,7 @@ export const RUTA_PREVISION = "/api/v1/areas/alimentacion/entidades/preview";
 export const RUTA_SINCRONIZAR = "/api/v1/areas/alimentacion/entidades/sincronizar";
 
 /** Ruta del catalogo de la app. */
-export const RUTA_CATALOGO = "/api/v1/catalog";
+export const RUTA_CATALOGO = "/api/v1/catalogo";
 
 /** Los estados del diff y como se pintan. */
 export const ENT_STATUS = Object.freeze({

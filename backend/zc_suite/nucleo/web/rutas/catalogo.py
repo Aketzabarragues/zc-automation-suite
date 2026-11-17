@@ -16,7 +16,7 @@ CLAVE_CATALOGO = "ZC_CATALOGO"
 rutas = Blueprint("catalogo", __name__, url_prefix="/api/v1")
 
 
-@rutas.get("/catalog")
+@rutas.get("/catalogo")
 def catalogo() -> Response:
     """El catalogo de todas las areas, con lo que la SPA necesita."""
     return jsonify(current_app.config.get(CLAVE_CATALOGO, {}))

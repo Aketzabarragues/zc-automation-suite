@@ -213,6 +213,8 @@ Las dos tandas de limpieza por lotes estan hechas:
 - **Tanda 2** (base `07ee606`): lote 8 (carpeta/config), 7 (carpetas base
   unificadas), 6 (duplicados de los sync + alias), 10 (`preview` -> `prevision`
   en el frontend), 9 (anomalias del frontend), 11 (este doc).
+- **Tanda 3**: lote 12 (`/catalog` -> `/catalogo` en la URL de la API),
+  15 (limpieza de textos).
 
 Cifra del repo al cierre de la tanda 2: **1056** tests de backend
 (`pytest tests/ --collect-only -q`) y **254** tests de frontend
@@ -220,7 +222,6 @@ Cifra del repo al cierre de la tanda 2: **1056** tests de backend
 
 Quedan pendientes solo:
 
-- **Lote 12**: `/catalog` -> `/catalogo`.
 - **Lote 14**: fusionar las parejas previsualizar/aplicar.
 - Smoke en V21 de las fases 4.4, 4.5 y 4.6.
 - Empaquetado del `.exe`.

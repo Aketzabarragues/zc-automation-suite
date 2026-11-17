@@ -6,7 +6,7 @@
  * trabajo termina, la prevision queda aqui y la vista la pinta.
  *
  * Las pestañas por tipo y las etiquetas de las tarjetas de N_MAX salen del
- * catalogo del backend (`GET /api/v1/catalog`), igual que en la app original.
+ * catalogo del backend (`GET /api/v1/catalogo`).
  */
 import { defineStore } from "pinia";
 import { pedir } from "../../../nucleo/api.js";
@@ -26,7 +26,7 @@ export const RUTA_PREVISION = "/api/v1/areas/alimentacion/dispositivos/preview";
 export const RUTA_SINCRONIZAR = "/api/v1/areas/alimentacion/dispositivos/sincronizar";
 
 /** Ruta del catalogo de la app. */
-export const RUTA_CATALOGO = "/api/v1/catalog";
+export const RUTA_CATALOGO = "/api/v1/catalogo";
 
 /** Los estados del diff y como se pintan. */
 export const DISP_STATUS = Object.freeze({

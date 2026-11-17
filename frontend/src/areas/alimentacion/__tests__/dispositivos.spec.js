@@ -187,7 +187,7 @@ describe("Dispositivos", () => {
   beforeEach(() => {
     global.fetch = vi.fn((ruta) => {
       const url = String(ruta);
-      if (url.includes("/api/v1/catalog")) {
+      if (url.includes("/api/v1/catalogo")) {
         return Promise.resolve({ ok: true, json: async () => CATALOGO });
       }
       if (url.includes("/api/v1/areas/alimentacion/excel")) {

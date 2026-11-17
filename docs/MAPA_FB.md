@@ -83,7 +83,7 @@ El Excel ya no se guarda en disco: cada sesion de la app empieza sin Excel y
 el volcado vive en la memoria del backend. Por eso no hay copia persistente
 ni ruta para recargarla.
 
-El catalogo de la SPA (`GET /api/v1/catalog`), el estado de la conexion
+El catalogo de la SPA (`GET /api/v1/catalogo`), el estado de la conexion
 (`GET /api/v1/tia/estado`) y el estado de la sesion
 (`GET /api/v1/sesion`) no son trabajos: son lecturas.
 

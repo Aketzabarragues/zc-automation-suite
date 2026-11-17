@@ -373,7 +373,7 @@ del área). Sirven para localizar en `main` qué hace cada botón.
 
 | Pantalla | Endpoints en `main` |
 |---|---|
-| Shell | `GET /api/v1/areas`, `GET /api/v1/catalog`, SSE `GET /stream`, `POST /api/v1/progress/clear`, `GET/POST /api/v1/logs`, `/api/v1/logs/clear` |
+| Shell | `GET /api/v1/areas`, `GET /api/v1/catalogo`, SSE `GET /stream`, `POST /api/v1/progress/clear`, `GET/POST /api/v1/logs`, `/api/v1/logs/clear` |
 | PLC | `POST /api/v1/tia/connect`, `/api/v1/tia/disconnect`, `/api/v1/portal/attach`, `/api/v1/portal/open-new`, `GET /api/v1/portal/project-info`, `GET /api/v1/plcs`, `GET /api/v1/plcs/<plc>/blocks`, `POST /api/v1/plcs/<plc>/blocks/refresh` |
 | Editor | `POST /api/v1/blocks/edit/prepare`, `GET /api/v1/blocks/edit/<plc>/prepared`, `POST /api/v1/blocks/edit/apply` |
 | Definición | `POST /api/v1/excel/upload` |
