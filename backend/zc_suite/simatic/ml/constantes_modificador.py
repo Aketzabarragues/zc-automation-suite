@@ -44,8 +44,8 @@ class ModificadorConstantesUsuario:
       - ``Comment`` <-- descripcion humana opcional
     """
 
-    def __init__(self, xml_path: str | Path) -> None:
-        self._path = Path(xml_path)
+    def __init__(self, ruta_xml: str | Path) -> None:
+        self._path = Path(ruta_xml)
         if not self._path.is_file():
             raise FileNotFoundError(
                 f"No se encontro el archivo XML: '{self._path}'"
@@ -238,7 +238,7 @@ class ModificadorConstantesUsuario:
             ids_in_subtree = sum(
                 1 for sub in new_const.iter() if "ID" in sub.attrib
             )
-            self._renumerar_ids(new_const, start=max_id + 1)
+            self._renumerar_ids(new_const, inicio=max_id + 1)
             max_id += ids_in_subtree
             name_el = new_const.find(f".//{NAME_TAG}")
             if name_el is not None:
@@ -284,8 +284,8 @@ class ModificadorConstantesUsuario:
         se queda corto, colisionando con los nuevos constants.
         """
         max_id = -1
-        for elem in self._root.iter():
-            id_str = elem.get("ID", "")
+        for elemento in self._root.iter():
+            id_str = elemento.get("ID", "")
             if not id_str:
                 continue
             try:
@@ -301,16 +301,16 @@ class ModificadorConstantesUsuario:
         return max_id
 
     @staticmethod
-    def _renumerar_ids(elem: ET.Element, start: int) -> None:
-        """Renumera todos los atributos ``ID`` del subtree de ``elem``.
+    def _renumerar_ids(elemento: ET.Element, inicio: int) -> None:
+        """Renumera todos los atributos ``ID`` del subtree de ``elemento``.
 
-        Asigna IDs correlativos empezando en ``start`` (start, start+1,
-        start+2, ...) en orden de documento. Esto evita colisiones
+        Asigna IDs correlativos empezando en ``inicio`` (inicio, inicio+1,
+        inicio+2, ...) en orden de documento. Esto evita colisiones
         con los IDs existentes cuando se inserta un nuevo constant
         clonado del template.
         """
-        next_id = start
-        for sub in elem.iter():
+        next_id = inicio
+        for sub in elemento.iter():
             if "ID" in sub.attrib:
                 sub.set("ID", f"{next_id:x}".upper())  # hex mayusculas (formato Siemens)
                 next_id += 1
@@ -416,10 +416,10 @@ class ModificadorConstantesUsuario:
         return False
 
     @staticmethod
-    def _copiar_elemento(elem: ET.Element) -> ET.Element:
+    def _copiar_elemento(elemento: ET.Element) -> ET.Element:
         """Devuelve una copia profunda de un Element."""
         from copy import deepcopy
-        return deepcopy(elem)
+        return deepcopy(elemento)
 
     def _inyectar_comentario_multilingue(
         self, const: ET.Element, text: str

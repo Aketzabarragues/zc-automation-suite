@@ -56,11 +56,11 @@ class ParserConstantesUsuario:
                 f"No se encontro el archivo XML: '{ruta}'"
             )
         tree = ET.parse(str(ruta))
-        root = tree.getroot()
-        return ParserConstantesUsuario._extract_constants(root)
+        raiz = tree.getroot()
+        return ParserConstantesUsuario._extraer_constantes(raiz)
 
     @classmethod
-    def _extract_constants(cls, root: ET.Element) -> dict[str, int]:
+    def _extraer_constantes(cls, raiz: ET.Element) -> dict[str, int]:
         """Itera todos los nodos ``PlcUserConstant`` del arbol (recursivo).
 
         Retorna ``{nombre: valor_int}``. Si dos PlcUserConstant tienen
@@ -70,7 +70,7 @@ class ParserConstantesUsuario:
         result: dict[str, int] = {}
         # ``ET.iter`` NO soporta el wildcard ``{*}`` (limitacion Python 3.x).
         # Usamos ``findall(".//{*}...")`` que si acepta la sintaxis wildcard.
-        for constant in root.findall(f".//{USER_CONSTANT_TAG}"):
+        for constant in raiz.findall(f".//{USER_CONSTANT_TAG}"):
             # ``.//`` (recursivo) porque ``<Name>`` y ``<Value>``
             # estan dentro de ``<AttributeList>``, NO como hijos directos
             # de ``<PlcUserConstant>``.

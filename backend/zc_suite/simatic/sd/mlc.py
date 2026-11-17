@@ -138,7 +138,7 @@ def mapa_mlc(texto_res: str) -> dict[str, str]:
         return {}
 
     textos = res_data.get("MultiLingualTexts", []) or []
-    out: dict[str, str] = {}
+    salida: dict[str, str] = {}
     for entry in textos:
         if not isinstance(entry, dict):
             continue
@@ -151,8 +151,8 @@ def mapa_mlc(texto_res: str) -> dict[str, str]:
             or entry.get("de-DE")
             or ""
         )
-        out[mlc_id] = text
-    return out
+        salida[mlc_id] = text
+    return salida
 
 
 __all__ = [
