@@ -70,7 +70,7 @@ read_if: "Antes de leer o modificar codigo del proyecto; para saber que modulo e
 - `tia/errores.py` — `TIAError` y los errores propios de TIA.
 - `tia/eventos.py` — Bus SSE y handler de logging.
 - `tia/workdir.py` — Carpeta de trabajo `.build_cache/<area>/<contexto>/`.
-- `funciones/plc/buscar_plcs.py`, `funciones/plc/escanear.py` — Trabajos de listado y escaneo de PLCs.
+- `funciones/plc/listar_plcs.py`, `funciones/plc/escanear.py` — Trabajos de listado y escaneo de PLCs.
 - `funciones/bloques/preparar.py`, `funciones/bloques/aplicar.py` — Trabajos de preparacion y aplicacion de bloques.
 
 #### `backend/zc_suite/tia_ops/` — Operaciones contra el SDK de Siemens

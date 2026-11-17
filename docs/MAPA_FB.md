@@ -25,7 +25,7 @@ evento `job` del stream SSE.
 
 El nombre del FB **no** se conserva tal cual: el trabajo se identifica por el
 nombre de su funcion, que es el de su fichero (`escanear`, `preparar`,
-`aplicar`, `buscar_plcs`, `cargar`, `recargar`, `generar_prevision`), y eso es
+`aplicar`, `listar_plcs`, `cargar`, `recargar`, `generar_prevision`), y eso es
 lo que sale en el log y en el faceplate. Ninguno coincide con el nombre que
 tenia en `main`.
 
@@ -75,7 +75,7 @@ la reescritura son trabajos, pero sin pasos:
 |---|---|---|---|
 | Conectar: `POST /api/v1/portal/attach` | `zc_suite/nucleo/tia/servicio.py::conectar` | `POST /api/v1/tia/conectar` | `nucleo/stores/tia.js` -> `nucleo/vistas/Plc.vue` |
 | Desconectar: el `disconnect` del FB | `zc_suite/nucleo/tia/servicio.py::desconectar` | `POST /api/v1/tia/desconectar` | `nucleo/stores/tia.js` -> `nucleo/vistas/Plc.vue` |
-| Listar PLCs: `GET /api/v1/plcs` | `zc_suite/nucleo/funciones/plc/buscar_plcs.py::buscar_plcs` | `POST /api/v1/tia/plcs/listar` | `nucleo/stores/plc.js` -> `nucleo/vistas/Plc.vue` |
+| Listar PLCs: `GET /api/v1/plcs` | `zc_suite/nucleo/funciones/plc/listar_plcs.py::listar_plcs` | `POST /api/v1/tia/plcs/listar` | `nucleo/stores/plc.js` -> `nucleo/vistas/Plc.vue` |
 | Seleccionar PLC: `loadAndApplyPlcBlocks` | `zc_suite/nucleo/web/rutas/plc.py::seleccionar` | `POST /api/v1/tia/plcs/seleccionar` | `nucleo/stores/plc.js` -> `nucleo/vistas/Plc.vue` |
 | Recargar el Excel guardado | (eliminado) | (eliminado) | (eliminado) |
 

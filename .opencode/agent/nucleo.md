@@ -23,7 +23,7 @@ con TIA Portal, el contrato de los trabajos, el bus de eventos y la capa HTTP.
     logging), `workdir.py` (`.build_cache/<area>/<contexto>/`).
   - `backend/zc_suite/nucleo/sesion.py` — el estado de la sesion, en memoria.
   - `backend/zc_suite/nucleo/funciones/` — los trabajos del nucleo, uno por
-    fichero: `plc/{buscar_plcs,escanear}.py`, `bloques/{preparar,aplicar}.py`.
+    fichero: `plc/{listar_plcs,escanear}.py`, `bloques/{preparar,aplicar}.py`.
   - `backend/zc_suite/errores.py` — `ZCError` y `OperacionError`.
 - **Don't own:** `tia_ops/` y `simatic/` (agente `tia-ops`), `areas/`
   (agente `areas`), `frontend/` (agente `frontend`), empaquetado y tests
@@ -35,7 +35,7 @@ con TIA Portal, el contrato de los trabajos, el bus de eventos y la capa HTTP.
 - **Tres capas.** `nucleo/app` arranca y monta la app, `nucleo/web` expone el
   HTTP, `nucleo/tia` habla con TIA. `nucleo/funciones` son los trabajos.
 - **Un trabajo = un fichero = una funcion.** En `nucleo/funciones/<dominio>/`
-  el fichero se llama como la funcion (`buscar_plcs.py` -> `buscar_plcs`).
+  el fichero se llama como la funcion (`listar_plcs.py` -> `listar_plcs`).
   Solo esos ficheros reciben el `job`, declaran pasos y abren `transaccion()`.
   Lo demas se queda como funcion privada de su fichero.
 - **Un solo hilo habla con TIA.** El `import` de `siemens_tia_scripting` ocurre

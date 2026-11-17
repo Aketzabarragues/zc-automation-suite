@@ -43,8 +43,8 @@ Eres el especialista en como se empaqueta la app y en como se verifica.
   dobles de test son propios: un objeto falso para el portal y otro para el
   modulo `ts`. Nunca el SDK real, nunca red.
 - **Los trabajos viven en `funciones/`.** Un trabajo por fichero, con el
-  nombre de la funcion: `nucleo/funciones/plc/buscar_plcs.py` ->
-  `tests/nucleo/funciones/plc/test_buscar_plcs.py`, y lo mismo en las areas
+  nombre de la funcion: `nucleo/funciones/plc/listar_plcs.py` ->
+  `tests/nucleo/funciones/plc/test_listar_plcs.py`, y lo mismo en las areas
   (`areas/<id>/funciones/<dominio>/<verbo>.py`).
 - **Helpers compartidos, fixtures.** Los modulos hermanos de test no son
   importables de forma fiable (modo importlib de pytest): lo que se comparte

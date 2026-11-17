@@ -18,8 +18,8 @@ from flask import Blueprint, Response, current_app, jsonify, request
 
 from zc_suite.nucleo.funciones.bloques.aplicar import aplicar
 from zc_suite.nucleo.funciones.bloques.preparar import preparar
-from zc_suite.nucleo.funciones.plc.buscar_plcs import buscar_plcs
 from zc_suite.nucleo.funciones.plc.escanear import escanear
+from zc_suite.nucleo.funciones.plc.listar_plcs import listar_plcs
 from zc_suite.nucleo.sesion import CLAVE_SESION, Sesion
 from zc_suite.nucleo.web.app import HTTPError, lanzar
 
@@ -29,7 +29,7 @@ rutas = Blueprint("plc", __name__, url_prefix="/api/v1/tia")
 @rutas.post("/plcs/listar")
 def listar() -> tuple[Response, int]:
     """Encola la lista de PLCs del proyecto abierto."""
-    return lanzar(buscar_plcs, sesion=_sesion())
+    return lanzar(listar_plcs, sesion=_sesion())
 
 
 @rutas.post("/plcs/seleccionar")
