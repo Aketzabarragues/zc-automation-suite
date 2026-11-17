@@ -41,12 +41,12 @@ from pathlib import Path
 from typing import Any
 
 from zc_suite.areas.alimentacion.config import ConfigArea
-from zc_suite.areas.alimentacion.dispositivos.diferencias import (
+from zc_suite.areas.alimentacion.diferencias import (
     DiffNMax,
     DiffTabla,
     disp_calcular_diff_n_max,
-    disp_calcular_diff_tabla,
 )
+from zc_suite.areas.alimentacion.dispositivos.diferencias import disp_calcular_diff_tabla
 from zc_suite.areas.alimentacion.dispositivos.sincronizacion import (
     disp_calcular_cambios_dispositivos,
     disp_calcular_renombres,

@@ -36,10 +36,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from zc_suite.areas.alimentacion.dispositivos.diferencias import (
-    DiffNMax,
-    disp_calcular_diff_n_max,
-)
+from zc_suite.areas.alimentacion.diferencias import DiffNMax, disp_calcular_diff_n_max
 from zc_suite.areas.alimentacion.procesos.mapa import MapaProceso
 from zc_suite.areas.alimentacion.procesos.sincronizacion import (
     SATELITES_POR_ARRAY,

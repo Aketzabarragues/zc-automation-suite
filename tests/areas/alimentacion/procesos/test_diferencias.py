@@ -7,9 +7,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from zc_suite.areas.alimentacion.diferencias import DiffNMax
 from zc_suite.areas.alimentacion.procesos.diferencias import (
     SATELITES_POR_ARRAY,
-    DiffNMax,
     proc_arrays_vacios,
     proc_calcular_arrays,
     proc_calcular_diff_n_max,

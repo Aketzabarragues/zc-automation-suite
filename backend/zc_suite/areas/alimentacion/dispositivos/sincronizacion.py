@@ -25,7 +25,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from zc_suite.areas.alimentacion.dispositivos.diferencias import DiffTabla
+from zc_suite.areas.alimentacion.diferencias import DiffTabla
 from zc_suite.simatic.ml import ModificadorConstantesUsuario
 
 logger = logging.getLogger(__name__)

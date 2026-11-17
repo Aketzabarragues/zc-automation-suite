@@ -12,7 +12,7 @@ van numerados y los lotes propuestos se ordenan de menor a mayor riesgo.
 ## 1. Resumen ejecutivo
 
 - **Pregunta**: ¿El core esta limpio? NO del todo. Un unico punto con codigo real (el log de arranque lee claves de catalogo de area) y el resto son comentarios. Confianza: alta.
-- **Pregunta**: ¿El area esta limpia? Las areas no se importan entre si y sus dominios no dependen de TIA; si depende de si misma: `dispositivos/diferencias.py` es tipo fundacional usado por `entidades/`, `procesos/` y el helper comun. Confianza: alta.
+- **Pregunta**: ¿El area esta limpia? Las areas no se importan entre si y sus dominios no dependen de TIA. Confianza: alta. (Hallazgo 2 resuelto: los tipos compartidos `DiffNMax`/`DiffTabla` y el calculo de N_MAX viven ahora en `backend/zc_suite/areas/alimentacion/diferencias.py`.)
 - **Pregunta**: ¿Las capas estan separadas? `simatic/` no depende de nada; `tia_ops/` solo depende del core por un simbolo (`proyecto_activo`), lo cual esta DECLARADO en el codigo. Confianza: alta.
 - **Pregunta**: ¿Una segunda area se podria anadir sin tocar el core? Si, salvo la lista `AREAS` de `main.py` (registro, declarado). Confianza: alta.
 - **Pregunta**: ¿Los nombres son coherentes? En general si; hay prefijos de dominio que faltan, sinonimos de verbos y residuos de `preview` en el backend. Confianza: media.
@@ -91,9 +91,9 @@ depende de TIA.
 ### Hallazgo 2 — `dispositivos/diferencias.py` es un modulo fundacional del area y no lo parece
 
 - **Severidad**: Media
-- **Evidencia**: `backend/zc_suite/areas/alimentacion/entidades/diferencias.py:27`, `backend/zc_suite/areas/alimentacion/procesos/diferencias.py:39` y `backend/zc_suite/areas/alimentacion/sincronizacion_comun.py:39` importan de `backend/zc_suite/areas/alimentacion/dispositivos/diferencias.py` (tipos `DiffNMax`, `DiffTabla`).
+- **Evidencia** (anterior): `backend/zc_suite/areas/alimentacion/entidades/diferencias.py`, `backend/zc_suite/areas/alimentacion/procesos/diferencias.py` y `backend/zc_suite/areas/alimentacion/sincronizacion_comun.py` importaban de `backend/zc_suite/areas/alimentacion/dispositivos/diferencias.py` (tipos `DiffNMax`, `DiffTabla`).
 - **Por que importa**: `dispositivos/` es el dominio de dispositivos, pero sus tipos los usan `entidades/`, `procesos/` y el helper comun. Quien lea el arbol creera que `entidades/` depende de dispositivos, que no es cierto: depende de un tipo compartido mal ubicado. `tests/test_fronteras.py:117` solo vigila area-contra-area, asi que este acoplamiento entre subdominios del MISMO area no lo detecta nada.
-- **Propuesta**: **DECISION**.
+- **Propuesta**: **HECHO** (opcion (a)): los tipos compartidos se movieron a `backend/zc_suite/areas/alimentacion/diferencias.py`, con el calculo de N_MAX (`disp_calcular_diff_n_max`) y su helper, y todos los importadores apuntan al modulo comun.
   - (a) Extraer `DiffNMax`/`DiffTabla` a un modulo comun del area (por ejemplo `backend/zc_suite/areas/alimentacion/diferencias.py`), moviendo tambien el calculo de N_MAX que los usa.
   - (b) Dejarlo y documentar que `dispositivos/diferencias.py` es el modulo de tipos compartidos del area.
   - (c) Anadir un test de frontera que prohiva el cruce entre subdominios, obligando a decidir.
@@ -214,7 +214,7 @@ depende de TIA.
 | J | Datos de demo del shell (hallazgo 10) | bajo | NO | NO |
 | K | Glosario de siglas (hallazgo 12) | bajo | NO | NO |
 
-- **Lote A — Acoplamiento subdominio-a-subdominio del area** (hallazgo 2). Riesgo medio. Toca contrato: NO (los tipos `DiffNMax`/`DiffTabla` son internos; si se mueven, cambian los imports de 4 ficheros y sus tests). V21: NO. Decidir la opcion (a)/(b)/(c) del hallazgo 2; si se mueve `DiffNMax`, mover tambien el calculo de N_MAX que lo usa y actualizar `backend/zc_suite/areas/alimentacion/sincronizacion_comun.py:39`.
+- **Lote A — Acoplamiento subdominio-a-subdominio del area** (hallazgo 2). Riesgo medio. Toca contrato: NO (los tipos `DiffNMax`/`DiffTabla` son internos; si se mueven, cambian los imports de 4 ficheros y sus tests). V21: NO. **HECHO** con la opcion (a) del hallazgo 2: los tipos y el calculo de N_MAX se movieron a `backend/zc_suite/areas/alimentacion/diferencias.py` y se actualizo `sincronizacion_comun.py`.
 - **Lote B — El core no debe conocer la forma del catalogo de un area** (hallazgo 1). Riesgo medio. Toca contrato: SI (la forma del JSON del catalogo que consume la SPA). V21: NO. El area expone un bloque generico en su `catalogo()` y el core lee ese bloque; hay que actualizar `backend/zc_suite/areas/alimentacion/__init__.py` (el `catalogo()`) y `backend/zc_suite/nucleo/app/main.py:103-126`. La SPA no deberia notar nada si el bloque nuevo es adicional.
 - **Lote C — Reglas de arquitectura vigiladas por test** (hallazgo 11 y seccion 6). Riesgo bajo. Toca contrato: NO. V21: NO. Anadir los tests de la seccion 6 (AST puro). Ojo: las reglas de encoding y `target_folder_path` necesitan fixtures byte a byte: NO las metas en este lote.
 - **Lote D — Nombres de dominio en `dispositivos/catalogo.py`** (hallazgo 5). Riesgo bajo. Toca contrato: NO. V21: NO. Renombrar las tres funciones con `disp_`, o declarar la excepcion (recomendado: mas barato y deja la regla escrita).

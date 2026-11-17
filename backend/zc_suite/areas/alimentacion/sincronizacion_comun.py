@@ -36,7 +36,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from zc_suite.areas.alimentacion.dispositivos.diferencias import DiffNMax
+from zc_suite.areas.alimentacion.diferencias import DiffNMax
 
 logger = logging.getLogger(__name__)
 

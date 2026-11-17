@@ -9,7 +9,7 @@ from pathlib import Path
 
 import yaml
 
-from zc_suite.areas.alimentacion.dispositivos.diferencias import DiffNMax
+from zc_suite.areas.alimentacion.diferencias import DiffNMax
 from zc_suite.areas.alimentacion.procesos.sincronizacion import (
     ARRAYS_PROCESO,
     proc_arrays_para_apply,

@@ -24,10 +24,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from zc_suite.areas.alimentacion.dispositivos.diferencias import (
-    DiffNMax,
-    disp_calcular_diff_n_max,
-)
+from zc_suite.areas.alimentacion.diferencias import DiffNMax, disp_calcular_diff_n_max
 from zc_suite.simatic.ml import ModificadorConstantesUsuario
 from zc_suite.simatic.sd import comentarios_actuales, indices_de_array
 

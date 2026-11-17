@@ -9,10 +9,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from zc_suite.areas.alimentacion.dispositivos.diferencias import (
-    DiffNMax,
-    DiffTabla,
-)
+from zc_suite.areas.alimentacion.diferencias import DiffNMax, DiffTabla
 from zc_suite.areas.alimentacion.dispositivos.sincronizacion import (
     COMENTARIO_SLOT_CERO,
     disp_calcular_cambios_dispositivos,

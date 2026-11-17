@@ -8,7 +8,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from zc_suite.areas.alimentacion.entidades.diferencias import DiffEntidades, DiffNMax
+from zc_suite.areas.alimentacion.diferencias import DiffNMax
+from zc_suite.areas.alimentacion.entidades.diferencias import DiffEntidades
 from zc_suite.areas.alimentacion.entidades.sincronizacion import (
     ent_calcular_operaciones_comentarios,
     ent_calcular_operaciones_constantes,

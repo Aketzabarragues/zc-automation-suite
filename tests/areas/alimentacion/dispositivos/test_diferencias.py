@@ -11,10 +11,8 @@ from typing import Any
 
 import pytest
 
-from zc_suite.areas.alimentacion.dispositivos.diferencias import (
-    disp_calcular_diff_n_max,
-    disp_calcular_diff_tabla,
-)
+from zc_suite.areas.alimentacion.diferencias import disp_calcular_diff_n_max
+from zc_suite.areas.alimentacion.dispositivos.diferencias import disp_calcular_diff_tabla
 from zc_suite.areas.alimentacion.excel.almacen import AlmacenExcel
 from zc_suite.areas.alimentacion.rutas import rutas
 from zc_suite.nucleo.tia.servicio import ServicioTIA
