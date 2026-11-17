@@ -49,7 +49,7 @@
 |---|---|---|
 | Solo el hilo de `tia.py` importa `siemens_tia_scripting` | El wrapper se carga dentro del hilo; en ningun otro punto del proceso. | `.operator-shared/operator.md` |
 | Toda escritura en TIA dentro de `with transaccion(...)` | Con rollback automatico si salta una excepcion. | `.operator-shared/operator.md` |
-| Preview y aplicacion son la MISMA funcion | `aplicar=False` es el preview. No hay pares de funciones. | `.operator-shared/operator.md` |
+| Prevision y aplicacion son FBs distintos | La prevision no escribe; la que aplica escribe dentro de `with transaccion(job, texto):`. | `.operator-shared/operator.md` |
 | TIA: `target_folder_path` no se pasa (ni `""`) | Pasar `""` rompe el match UPDATE en V21. | `tia_ops/importar.py` |
 | Encoding: `.s7res` utf-8-sig, resto utf-8 sin BOM | Siemens firma el YAML con BOM. | `.operator-shared/operator.md` |
 | Cero codigo sucio: no dejar `.pyd`/`.dll` en el arbol | Se stagean en `tempfile.mkdtemp()`. | `.operator-shared/operator.md` |
@@ -118,4 +118,4 @@ Si anadiste una operacion contra TIA o tocaste el nucleo:
 | Smoke en vivo contra TIA real antes de mergear | este doc + `.operator-shared/operator.md` | bloqueante |
 | Prefijos de dominio primero | este doc | bloqueante |
 | `target_folder_path` no se pasa, nunca `""` | `tia_ops/importar.py` | bloqueante |
-| Preview y aplicacion en la misma funcion | `.operator-shared/operator.md` | bloqueante |
+| Prevision sin efectos; la aplicacion dentro de `transaccion(job, ...)` | `.operator-shared/operator.md` | bloqueante |

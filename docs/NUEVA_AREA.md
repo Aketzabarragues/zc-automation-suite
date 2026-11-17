@@ -5,7 +5,7 @@ contra TIA y sus vistas. Ejemplos: `alimentacion`, `envasado`.
 
 ## 1. Paquete del area
 
-Crea `backend/zc_suite/areas/<id>/__init__.py`. El contrato son ocho cosas:
+Crea `backend/zc_suite/areas/<id>/__init__.py`. El contrato son diez cosas:
 
 ```python
 """<id> — <nombre legible>."""
@@ -18,6 +18,7 @@ from flask import Blueprint
 
 ID = "mi_area"
 NOMBRE = "Mi Area"
+ALMACEN = ...  # la cache del Excel maestro del area, en la memoria del backend
 
 rutas = Blueprint("mi_area", __name__, url_prefix="/api/mi_area")
 
@@ -37,6 +38,11 @@ def al_arrancar(config: Any) -> None:
     ...
 
 
+def al_recargar_config(config: Any) -> None:
+    """Aplica la seccion nueva del config sin tocar lo que el area tiene en la sesion."""
+    ...
+
+
 def estado_sesion() -> dict[str, Any]:
     """Lo que el area tiene en la sesion. Lo sirve GET /api/v1/sesion."""
     return {}
@@ -53,12 +59,16 @@ def valida_config(config: Any) -> str | None:
 - `rutas` es un `Blueprint` de Flask. El shell es Flask, no FastAPI.
 - `catalogo(config)` y `defaults(config)` reciben la config ya validada.
 - `al_arrancar(config)` se llama al montar la app, con la seccion del area.
+- `al_recargar_config(config)` se llama cuando el operario cambia un ajuste
+  desde la web (p. ej. la carpeta de plantillas): aplica la seccion nueva del
+  config **sin** tocar lo que el area tiene en la sesion. A diferencia de
+  `al_arrancar`, no vacia el almacen.
 - `estado_sesion()` devuelve lo que el area tiene en la sesion.
 - `valida_config(config)` devuelve el motivo por el que la seccion del area no
   vale, o `None` si vale. El nucleo lo enseña en el banner de config
   incompatible.
 - `ALMACEN` es la cache del Excel maestro del area, en la memoria del
-  backend. La recarga de config depende de el.
+  backend. `al_arrancar` la vacia al montar la app.
 
 ## 2. Registro
 
@@ -80,7 +90,8 @@ Layout recomendado dentro de `areas/<id>/`:
 
 ```
 __init__.py     ID, NOMBRE, ALMACEN, rutas, catalogo(), defaults(),
-                al_arrancar(), estado_sesion(), valida_config()
+                al_arrancar(), al_recargar_config(), estado_sesion(),
+                valida_config()
 config.py       el modelo del config del area: lo valida y lo describe
 rutas.py        el Blueprint del area
 funciones/      un FB por fichero: funciones/<dominio>/<verbo>.py
@@ -103,24 +114,37 @@ logica pura no depende de TIA.
 
 ## 4. Operaciones
 
-Una operacion es UNA funcion con dos modos:
+Una operacion es un par de **FBs distintos**: una funcion de **prevision**, sin
+efectos, y una funcion que **aplica**:
 
 ```python
-def sincronizar(job: Job, plc: str, aplicar: bool) -> dict[str, Any]:
-    """Sincroniza los dispositivos. ``aplicar=False`` es el preview."""
-    job.empezar("Sincronizar dispositivos", ["exportar", "comparar", "aplicar"])
-    with job.paso("exportar") as paso:
-        ...
-    if not aplicar:
-        return {"cambios": cambios}
+# funciones/dispositivos/generar_prevision.py
+def generar_prevision(job: Job, plc: str, almacen: AlmacenExcel,
+                      config: ConfigArea) -> dict[str, Any]:
+    """Calcula que va a cambiar contra el Excel. No escribe en TIA ni en disco."""
+    ...
+    return {"cambios": cambios}
+
+
+# funciones/dispositivos/sincronizar.py
+def sincronizar(job: Job, plc: str, almacen: AlmacenExcel,
+                config: ConfigArea) -> dict[str, Any]:
+    """Aplica los cambios en TIA. Escribira dentro de una transaccion."""
+    ...
     with transaccion(job, "Importar dispositivos"):
         ...
     return {"cambios": cambios, "aplicados": cambios}
 ```
 
-- No existen pares preview/operar. El preview es la misma funcion con
-  `aplicar=False`.
-- Toda escritura en TIA va dentro de `with transaccion(job, texto):`.
+- La prevision **no escribe**: no toca TIA ni el disco de salida. Calcula el
+  diff y lo deja en el estado para la SPA.
+- La funcion que aplica escribe dentro de `with transaccion(job, texto):`, con
+  rollback automatico si salta una excepcion.
+- Cada una es un FB con su fichero: `funciones/<dominio>/generar_prevision.py`
+  y `funciones/<dominio>/sincronizar.py`.
+- Cada una tiene su ruta HTTP: una encola la prevision y otra encola la
+  aplicacion (p. ej. `POST .../dispositivos/preview` y
+  `POST .../dispositivos/sincronizar`).
 - Si hay varias transacciones, el resultado dice cuales se confirmaron cuando
   una falla a mitad.
 - `job.tia.portal` es la unica forma de llegar al portal.

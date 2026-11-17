@@ -11,9 +11,10 @@ contenido que la app sincroniza entre el Excel maestro y TIA Portal.
 ## Scope
 
 - **Own:**
-  - `backend/zc_suite/areas/<id>/` — `__init__.py` (`ID`, `NOMBRE`, `rutas`,
-    `catalogo(config)`, `defaults(config)`, `al_arrancar(seccion)`,
-    `estado_sesion()`), `rutas.py` (el Blueprint del area),
+  - `backend/zc_suite/areas/<id>/` — `__init__.py` (`ALMACEN`, `ID`, `NOMBRE`,
+    `rutas`, `catalogo(config)`, `defaults(config)`, `al_arrancar(seccion)`,
+    `al_recargar_config(seccion)`, `estado_sesion()`, `valida_config(config)`),
+    `rutas.py` (el Blueprint del area),
     `funciones/<dominio>/<verbo>.py` (un trabajo por fichero) y el dominio
     puro (`excel/`, `dispositivos/`).
   - `tests/areas/<id>/`.
@@ -23,9 +24,10 @@ contenido que la app sincroniza entre el Excel maestro y TIA Portal.
 
 ## How you work
 
-- **Contrato de un area:** `ID`, `NOMBRE`, `rutas` (Blueprint Flask),
-  `catalogo(config)`, `defaults(config)`, `al_arrancar(seccion)` y
-  `estado_sesion()`. Se registra en la lista `AREAS` de
+- **Contrato de un area:** `ALMACEN`, `ID`, `NOMBRE`, `rutas` (Blueprint
+  Flask), `catalogo(config)`, `defaults(config)`, `al_arrancar(seccion)`,
+  `al_recargar_config(seccion)`, `estado_sesion()` y `valida_config(config)`.
+  Se registra en la lista `AREAS` de
   `backend/zc_suite/nucleo/app/main.py`. No hay registro automatico, ni
   `AreaSpec`, ni ganchos opcionales.
 - **El area no guarda nada en disco.** Lo que tiene (el Excel maestro) vive
@@ -42,9 +44,11 @@ contenido que la app sincroniza entre el Excel maestro y TIA Portal.
 - **Las areas no se importan entre si** y el nucleo no importa las areas (la
   unica excepcion es la lista `AREAS`). `tests/test_fronteras.py` lo comprueba
   recorriendo los imports: no lo rompas.
-- Una operacion de area es UNA funcion con modo `aplicar=False` (preview) y
-  `aplicar=True`. No existen pares preview/operar: el post-preview es volver a
-  llamarla con `aplicar=False`.
+- Una operacion de area es un par de FBs: `funciones/<dominio>/generar_prevision.py`
+  (la prevision: no escribe en TIA ni en el disco de salida) y
+  `funciones/<dominio>/sincronizar.py` (la que aplica, dentro de
+  `with transaccion(job, texto):`). Cada una tiene su ruta HTTP: encolar la
+  prevision y encolar la aplicacion.
 - Toda escritura en TIA va dentro de `with transaccion(job, texto):`.
 - Si la operacion tiene varias transacciones, el resultado debe decir con
   claridad cuales se confirmaron cuando una falla a mitad.
@@ -60,5 +64,5 @@ contenido que la app sincroniza entre el Excel maestro y TIA Portal.
 
 - La operacion tiene test en `tests/areas/<id>/` con dobles de test propios.
 - `python -m pytest tests/areas/ -q` y `python -m ruff check .` pasan.
-- Resumen al orquestador: que operacion, que modo preview ofrece y que test
-  lo cubre.
+- Resumen al orquestador: que operacion, que funcion de prevision la cubre y
+  que test lo cubre.

@@ -205,9 +205,29 @@ El TIA simulado y los scripts de comparacion no estan en el repo.
 
 ## Pendiente
 
+Las dos tandas de limpieza por lotes estan hechas:
+
+- **Tanda 1** (base `b9ae3ef`): lote 1 (codigo muerto), 2 (docs falsas),
+  3 (asserts reales), 13 (`buscar_plcs` -> `listar_plcs`), 4 (dobles de test
+  compartidos en `tests/_dobles.py`), 5 (parametros de `simatic/` a espanol).
+- **Tanda 2** (base `07ee606`): lote 8 (carpeta/config), 7 (carpetas base
+  unificadas), 6 (duplicados de los sync + alias), 10 (`preview` -> `prevision`
+  en el frontend), 9 (anomalias del frontend), 11 (este doc).
+
+Cifra del repo al cierre de la tanda 2: **1056** tests de backend
+(`pytest tests/ --collect-only -q`) y **254** tests de frontend
+(`npx vitest run`, en 19 ficheros).
+
+Quedan pendientes solo:
+
+- **Lote 12**: `/catalog` -> `/catalogo`.
+- **Lote 14**: fusionar las parejas previsualizar/aplicar.
+- Smoke en V21 de las fases 4.4, 4.5 y 4.6.
+- Empaquetado del `.exe`.
+
+Abierto antes de las tandas, sin mover:
+
 - Decidir el caso "." de proc_db.
-- Prueba en V21 de 4.4 (comprobar antes el nombre del DB de entidades) y de
-  4.5 y 4.6 (SimaticSD).
 - Rendimiento del escaneo: quitadas dos llamadas al SDK por bloque, falta
   medir el tiempo real en el proyecto.
 

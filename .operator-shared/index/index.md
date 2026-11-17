@@ -10,7 +10,7 @@ read_if: "Antes de leer o modificar codigo del proyecto; para saber que modulo e
 - App de escritorio (Windows, un solo operario) que automatiza proyectos de Siemens TIA Portal con el SDK oficial `siemens_tia_scripting`. Se empaqueta en un `.exe` portable con PyInstaller.
 - **Un solo hilo** posee el portal de TIA. Todo trabajo se ejecuta **entero** dentro de ese hilo; no hay cola de comandos ni hilos por paso.
 - Contrato de trabajo: `job.empezar(titulo, pasos)` + `with job.paso(nombre)` + `with transaccion(job, texto)`. Solo los ficheros en `funciones/` reciben el `job`.
-- Preview y aplicacion son la **misma funcion** con `aplicar=False` / `aplicar=True`. No hay pares preview/operar.
+- Prevision y aplicacion son **FBs distintos**: la funcion de prevision no escribe (ni en TIA ni en el disco de salida) y la funcion que aplica escribe dentro de `with transaccion(job, texto):`.
 - La SPA habla con el backend por SSE (`progress`, `job`, `log`, `tia`); el resultado de un POST nunca vuelve en el body, vuelve por el bus de eventos.
 - Capas y dependencias: `nucleo/` (app, web, tia) -> `tia_ops/` (SDK) y `simatic/` (ficheros TIA offline) <- `areas/<id>/` (logica de negocio). El nucleo no importa `areas/` salvo la lista `AREAS` de `main.py`; las areas no se importan entre si.
 - La logica de dominio (fuera de `funciones/`) es pura: no importa `zc_suite.nucleo.tia` ni `zc_suite.tia_ops`. Lo verifican `tests/test_fronteras.py` y `tests/test_fronteras_dominio.py`.

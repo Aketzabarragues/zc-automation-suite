@@ -19,8 +19,9 @@ con PyInstaller.
 1. Solo el codigo que corre dentro de un job toca TIA, siempre via
    `job.tia.portal`.
 2. Toda escritura en TIA va dentro de `with transaccion(...)`.
-3. Cada operacion tiene modo `aplicar=False` (preview); no existen pares
-   preview/operar: es la misma funcion.
+3. Prevision y aplicacion son FBs distintos: la prevision no escribe (ni en
+   TIA ni en el disco de salida) y la que aplica escribe dentro de
+   `with transaccion(job, texto):`.
 4. El nucleo no importa areas (salvo la lista `AREAS` de `main.py`) y las
    areas no se importan entre si. Lo verifica `tests/test_fronteras.py`.
 5. La logica pura de los dominios (fuera de `funciones/`) no depende de TIA.
