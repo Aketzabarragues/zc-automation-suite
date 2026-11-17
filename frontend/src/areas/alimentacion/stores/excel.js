@@ -139,15 +139,7 @@ export const useExcelStore = defineStore("excel", {
       try {
         // El `Content-Type` no se pone: el navegador pone el del multipart
         // con su frontera.
-        const respuesta = await fetch(RUTA_EXCEL, {
-          method: "POST",
-          body: cuerpo,
-          credentials: "same-origin",
-        });
-        const datos = await respuesta.json().catch(() => ({}));
-        if (!respuesta.ok) {
-          throw new Error(datos.error || `Error ${respuesta.status}`);
-        }
+        const datos = await pedir(RUTA_EXCEL, { method: "POST", body: cuerpo });
         const jobId = datos.job_id || null;
         if (jobId) this.recargarAlTerminar(jobId);
         return jobId;

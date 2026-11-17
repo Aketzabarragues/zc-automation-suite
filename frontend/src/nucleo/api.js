@@ -70,16 +70,11 @@ export function estadoSesion() {
  * @returns {Promise<object>} `{job_id, escaneo}`: uno de los dos.
  */
 export async function seleccionarPlc(plc) {
-  const respuesta = await fetch("/api/v1/tia/plcs/seleccionar", {
+  const cuerpo = await pedir("/api/v1/tia/plcs/seleccionar", {
     method: "POST",
     headers: CABECERAS,
-    credentials: "same-origin",
     body: JSON.stringify({ plc }),
   });
-  const cuerpo = await respuesta.json().catch(() => ({}));
-  if (!respuesta.ok) {
-    throw new Error(cuerpo.error || `Error ${respuesta.status}`);
-  }
   return { job_id: cuerpo.job_id || null, escaneo: cuerpo.escaneo || null };
 }
 
