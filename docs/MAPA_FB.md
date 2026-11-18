@@ -10,8 +10,10 @@ engine.register_fb("disp_generar_preview", FunctionDispGenerarPreview(...))
 Los registraba el nucleo (`core/composition/register_core_fbs.py`) y cada area
 (`areas/alimentacion/__init__.py::register`). Los doce estan listados abajo.
 
-En la reescritura **no hay FBs**. Cada operacion es una **funcion de trabajo**
-que recibe el `job`, declara sus pasos y devuelve un dict de primitivos. El
+En la reescritura se mantiene el concepto de **FB** (una funcion de trabajo
+por fichero) pero ya no existe el motor de FBs de `main` (clases, decoradores,
+registro). Cada operacion es una **funcion de trabajo** que recibe el `job`,
+declara sus pasos y devuelve un dict de primitivos. El
 motor (el hilo de TIA) la ejecuta entera y el resultado llega a la SPA por el
 evento `job` del stream SSE.
 

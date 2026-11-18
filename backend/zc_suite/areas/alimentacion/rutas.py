@@ -22,6 +22,10 @@ resultado llega por el stream de eventos, no en la respuesta.
 
 Las dependencias se leen de ``current_app.config``. El router no importa
 singletons: el area registra su almacen al montarse.
+
+Las URLs ``/dispositivos/preview``, ``/entidades/preview`` y
+``/procesos/preview`` se conservan a proposito (contrato con la SPA) aunque
+las funciones se llamen ``prevision_*``.
 """
 from __future__ import annotations
 

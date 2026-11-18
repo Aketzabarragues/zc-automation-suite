@@ -49,7 +49,12 @@ CONTEXTO = "procesos"
 
 
 def workdir_procesos() -> Any:
-    """El workdir de los procesos: ``preview/disp`` y ``preview/bloques``."""
+    """El workdir de los procesos.
+
+    La prevision usa ``preview/disp`` y ``preview/bloques``; el sync usa las
+    carpetas de export (``variables_export``, ``bloques_export`` y
+    ``bloques_modified``).
+    """
     return workdir(AREA, CONTEXTO, preview=("disp", "bloques"))
 
 
