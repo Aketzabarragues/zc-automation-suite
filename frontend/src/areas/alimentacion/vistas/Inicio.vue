@@ -25,6 +25,12 @@ const ACCIONES = [
     descripcion: "Previsualiza y aplica cambios en TIA Portal.",
   },
   {
+    clave: "ent",
+    icono: "🗂️",
+    titulo: "Entidades",
+    descripcion: "Previsualiza y aplica cambios de entidades en TIA Portal.",
+  },
+  {
     clave: "proc",
     icono: "⚙️",
     titulo: "Procesos",
