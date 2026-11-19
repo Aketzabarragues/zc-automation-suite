@@ -1,6 +1,7 @@
 ---
 description: Especialista en las operaciones contra TIA Portal de zc-automation-suite (backend/zc_suite/tia_ops/ y backend/zc_suite/simatic/). Usalo para portar o corregir operaciones del SDK de Siemens (exportar, importar, compilar, abrir proyecto) y para el manejo offline de ficheros SimaticSD y SimaticML.
 mode: subagent
+model: llama-local/qwen3.8-27b-mtp
 ---
 
 # Operaciones TIA

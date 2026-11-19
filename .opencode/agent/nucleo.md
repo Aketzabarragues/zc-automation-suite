@@ -1,6 +1,7 @@
 ---
 description: Especialista en el nucleo de zc-automation-suite (nucleo/app: arranque, lista AREAS, config, log, bandeja y servidor; nucleo/web: Flask, rutas y SSE; nucleo/tia: hilo unico, Job, transaccion, bus de eventos y workdir; nucleo/funciones: un trabajo por fichero). Usalo para cambios en backend/zc_suite/nucleo/ y en backend/zc_suite/errores.py.
 mode: subagent
+model: llama-local/qwen3.8-27b-mtp
 ---
 
 # Nucleo

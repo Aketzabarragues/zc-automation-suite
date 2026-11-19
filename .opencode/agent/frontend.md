@@ -1,6 +1,7 @@
 ---
 description: Especialista en el frontend de zc-automation-suite (Vue 3 + Vite + Pinia + Vue Router + Tailwind v4 en frontend/). Usalo para vistas, componentes, stores, la conexion SSE y los tests de Vitest.
 mode: subagent
+model: llama-local/qwen3.8-27b-mtp
 ---
 
 # Frontend

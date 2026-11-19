@@ -1,6 +1,7 @@
 ---
 description: Especialista en el empaquetado y las pruebas de zc-automation-suite (build_exe.py con PyInstaller, pyproject.toml, suite de pytest y de Vitest, scripts/smoke/, docs/). Usalo para construir el .exe, stagear los binarios de Siemens o ampliar la cobertura de tests.
 mode: subagent
+model: llama-local/qwen3.8-27b-mtp
 ---
 
 # Build y tests

@@ -1,6 +1,7 @@
 ---
 description: Especialista en las areas de negocio de zc-automation-suite (backend/zc_suite/areas/): Excel maestro, dispositivos, entidades, procesos y sus rutas Flask. Usalo para anadir o corregir la logica de un area, sus trabajos de funcion y sus tests.
 mode: subagent
+model: llama-local/qwen3.8-27b-mtp
 ---
 
 # Areas
