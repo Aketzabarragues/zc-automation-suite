@@ -44,6 +44,8 @@ De arriba abajo:
    - 🔧 **Editor de bloques** → editor (sección 5).
 3. **Sección `NAVEGACIÓN`**: los items que aporta el área, en este orden:
    🏠 Inicio · 📊 Definición programación · ⚡ Dispositivos · ⚙️ Procesos · 🗂️ Entidades.
+
+   Divergencia en la reescritura: Entidades va **antes** que Procesos.
 4. **Faceplate de progreso** (pegado al pie, solo cuando hay o hubo un trabajo). Ver 1.4.
 5. **Botón `← Volver al inicio`** (pie): vuelve al selector de áreas (sección 2).
 
@@ -146,6 +148,9 @@ Captura: `02_area_inicio.png`. Fuente: `areas/alimentacion/frontend/components/A
   - ⚙️ **Procesos** — Genera procesos en TIA Portal (crear / actualizar comentarios).
 
 (Entidades no tiene tarjeta aquí, solo item en la barra lateral.)
+
+Divergencia en la reescritura: el inicio del área **sí** tiene tarjeta de Entidades
+(🗂️, entre Dispositivos y Procesos).
 
 ---
 
